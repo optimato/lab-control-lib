@@ -236,6 +236,7 @@ class Smaract(DriverBase):
             self.logger.info('Current max. speed is %f um/s for channel %d' % (float(v[1])*1e-3, channel))
             return int(v[1])
 
+    @admin_only
     def set_speed(self, channel, v_nm_s):
         """
         Set the max. speed for a given channel in nm/s
@@ -272,6 +273,7 @@ class Smaract(DriverBase):
 
         return float(a[1])
 
+    @admin_only
     def set_accel(self, channel, a_um_s2):
         """
         Set the current acceleration in um/s^2 (!)
@@ -309,6 +311,7 @@ class Smaract(DriverBase):
         self.logger.info('Sensor mode is %s' % SENSOR_MODES[m])
         return m
 
+    @admin_only
     def set_sensormode(self, val):
         """
         Set the current system sensor mode
@@ -357,6 +360,7 @@ class Smaract(DriverBase):
 
         return float(p[1])
 
+    @admin_only
     def move_abs(self, channel, pos_abs_nm):
         """
         Move stage to absolute position in nm.
@@ -372,6 +376,7 @@ class Smaract(DriverBase):
         # read motor position after move
         return self.get_pos(channel)
 
+    @admin_only
     def move_rel(self, channel, pos_rel_nm):
         """
         Move stage relative, in nm.
@@ -379,6 +384,7 @@ class Smaract(DriverBase):
         """
         return self.move_abs(channel, self.get_pos(channel) + pos_rel_nm)
 
+    @admin_only
     def find_referencemark(self, channel):
         """
         Prompt the reference mark search for channel.
