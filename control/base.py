@@ -61,30 +61,6 @@ def nonblock(fin):
     return fout
 
 
-def prompt(text, default='y'):
-    """
-    Prompt script with yes or no input
-    :param str text: text to feature in prompt
-    :param str default: default answer (if no input is given i.e. return key)
-    :return: bool (answered yes or no)
-    """
-    if default == 'y':
-        qappend = "[y]/n"
-    elif default == 'n':
-        qappend = 'y/[n]'
-    else:
-        raise ValueError("Default answer must be 'y' or 'n'")
-    ans = input(text + qappend)
-    if ans == '':
-        ans = default
-    while ans != 'n' and ans != 'y':
-        input('invalid input, please answer ''y'' or ''n'': ')
-    if ans == "y":
-        return True
-    else:
-        return False
-
-
 def admin_only(method):
     """
     Decorator for methods that can be executed only in admin mode.
