@@ -1,28 +1,49 @@
 """
 Base classes.
 
-For now: Motors
-
-TODO: store/load dial and user positions and limits on file to get more permanence.
-
 User and dial positions are different and controlled by self.offset and self.scalar
 Dial = (User*scalar)-offset
+
+
+Escaped commands API processed by the daemon, implemented in DeviceServerBase:
+ADMIN: Request admin rights
+NOADMIN: Rescind admin rights
+DISCONNECT: Shutdown connection
+STATUS: Return current status of the daemon
+
+Additional commands implemented in SocketDeviceServerBase:
+STOP: Disconnect from device (admin only)
+ return OK or error message
+START: Connect to device and run initialization (admin only)
+ return OK or error message
+RESTART: Disconnect, then reconnect and initialize the device (admin only)
+ return OK or error message
 """
 import threading
 import json
 import logging
 import os
 import errno
-import fcntl
 import time
 import atexit
+import socket
+import functools
+
 
 from . import __DAEMON__, config, conf_path
-from ..util.mqttlib import MQTTLostServerException, MQTTNoServerException, MQTTSendRelay
-
 
 class MotorLimitsException(Exception):
     pass
+
+
+def _recv_all(socket, EOL='\n'):
+    """
+    Receive all data from socket (until EOL)
+    """
+    ret = socket.recv(1024)
+    while not ret.endswith(EOL):
+        ret += socket.recv(1024)
+    return ret
 
 
 def nonblock(fin):
@@ -64,238 +85,428 @@ def prompt(text, default='y'):
         return False
 
 
-class DriverBase(object):
+def admin_only(method):
     """
-    Base class for all drivers. Implements polling and MQTT functionality.
+    Decorator for methods that can be executed only in admin mode.
+    """
+    @functools.wraps(method)
+    def f(self, *args, **kwargs):
+        if self.admin:
+            return method(self, *args, **kwargs)
+        raise RuntimeError("Method '{0}.{1}' requires admin rights".format(self.__class__.__name__, method.__name__))
+    return f
+
+
+class emergency_stop:
+    """
+    Simple context manager to call emergency stop in case of keyboard interrupt.
+    By default the exception is reraised in case the calling code has more clean up to do.
+
+    with emergency_stop(self.stop):
+        [do something that could be interrupted, e.g. motor move]
+        [this code is interrupted and self.stop is called if ctrl-C is hit]
+    TODO: add some logging
+    """
+    def __init__(self, stop_method):
+        """
+        Register stop_method as emergency stop method.
+        """
+        self.stop_method = stop_method
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is KeyboardInterrupt:
+            self.stop_method()
+
+
+class DeviceServerBase:
+    """
+    Base class for all serving connections to a device, meant to run as a daemon.
+
+    This base class implements the server socket that on which clients can connect.
     """
 
+    CLIENT_TIMEOUT = 1
+    NUM_CONNECTION_RETRY = 10
+    ESCAPE_STRING = '^'
     logger = None
 
-    def __init__(self, poll_interval=None):
+    def __init__(self, serving_address):
         """
-        Base class initialisation.
-        Take care of logging, locking, and polling.
+        Initialization.
         """
+
         # Get logger if not set in subclass
         if self.logger is None:
             self.logger = logging.getLogger(self.__class__.__name__)
 
+        # Store address
+        self.serving_address = serving_address
+
         # register exit functions
         atexit.register(self.shutdown)
-
-        self.poll_abort = False
-        if poll_interval is None:
-            self.poll_interval = config['driver_poll_interval']
-        else:
-            self.poll_interval = poll_interval
-            config['driver_poll_interval'] = poll_interval
-
-        # Prepare thread lock
-        self._lock = threading.Lock()
-
-        # Prepare file lock
-        # This will be the file descriptor when it is open
-        self._fd = None
 
         # Set default name here. Can be overriden by subclass, for instance to allow multiple instances to run
         # concurrently
         self.name = self.__class__.__name__
 
-    def start_thread(self):
+        # Initialize the device
+        self.init_device()
+
+        # Prepare thread lock
+        self._lock = threading.Lock()
+
+        # Prepare client socket connection
+        self.client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
+        self.client_sock.settimeout(self.CLIENT_TIMEOUT)
+
+        # Shutdown flag
+        self.shutdown_requested = False
+
+        # No thread is admin
+        self.admin = None
+
+        # Thread dictionary
+        self.threads = {}
+
+    def init_device(self):
         """
-        Start thread, possibly waiting for initialisation to be complete
+        Device connection
         """
-        # Create file to be locked
-        lockdir = os.path.join(conf_path, 'drivers', self.name)
-        self.lockfile = os.path.join(lockdir, "lockfile")
+        raise NotImplementedError
 
-        try:
-            os.makedirs(lockdir)
-        except OSError:
-            pass
-        if not os.path.exists(self.lockfile):
-            open(self.lockfile, 'w').close()
-
-        # Create a thread lock if this is not a daemon to make sure that initialization
-        # completes before handing back control to user.
-        if not __DAEMON__:
-            self._init_lock = threading.Event()
-        else:
-            self._init_lock = None
-
-        # Create and start thread
-        self.logger.debug('Starting initialisation thread.')
-        self._thread = threading.Thread(target=self._run)
-        self._thread.daemon = True
-        self._thread.start()
-
-        # Wait for completion if in interactive mode
-        if not __DAEMON__:
-            self._init_lock.wait()
-        return
-
-    def _run(self):
+    def listen(self):
         """
-        Thread target. Initialise first, then enter the polling loop.
+        Infinite listening loop for new connections.
         """
-        # Check if we can continue as daemon
-        if __DAEMON__ and not self._check_lock():
-            # Main waiting loop for daemons
-            self.logger.info('Daemon could not acquire lock for initialisation. Waiting.')
-            while not self._check_lock():
-                time.sleep(.1)
-        elif not __DAEMON__ and not self._get_lock():
-            # This would happen with more than one interactive session
-            # TODO: raise and error?
-            self.logger.error('Could not acquire lock.')
-            self._init_lock.set()
-            return
+        self.client_sock.listen(5)
+        while True:
+            if self.shutdown_requested:
+                self.shutdown()
+            try:
+                client, address = self.client_sock.accept()
+                # Client is in blocking mode
+                client.settimeout(None)
+                new_thread = threading.Thread(target=self._serve, args=(client, address))
+                new_thread.daemon = True
+                new_thread.start()
+                self.threads[new_thread.ident] = new_thread
+            except socket.timeout:
+                continue
 
-        # Create mqtt communicator
-        self.mqtt_relay = None
-        try:
-            self.mqtt_relay = MQTTSendRelay(name=self.name, qos=0)
-        except (MQTTLostServerException, MQTTNoServerException):
-            self.logger.warning("MQTT disconnected or unable to connect.")
-
-        # Initialise
-        self.logger.info('Initialising')
-        self._init()
-
-        # Tell main thread to unblock now that initialisation is complete
-        if self._init_lock is not None:
-            self._init_lock.set()
-
-        # Start polling
-        self._poll_with_mqtt()
-
-        # We are now done.
-        self._finish()
-
-        # Release file lock if needed
-        self._release_lock()
-
-    def _init(self):
+    def _serve(self, client, address):
         """
-        Driver initialisation. To be implemented by subclass.
+        Serve a new client.
         """
-        pass
 
-    def _finish(self):
+        while True:
+            # Read data
+            data = _recv_all(client)
+
+            # Check for escape
+            if data.startswith(self.ESCAPE_STRING):
+                reply = self.parse_escaped(data)
+
+                # Special case: reply is None means: exit the loop and shut down this client.
+                if reply is None:
+                    break
+
+                # Send reply back to client
+                client.sendall(reply)
+
+                continue
+
+            # Pass (or parse) command for device
+            reply = self.device_cmd(data)
+
+            # Return to client
+            client.sendall(reply)
+
+        # Done
+        client.close()
+
+        # Thread cleans itself up
+        ident = threading.get_ident()
+        if self.admin == ident:
+            self.admin = None
+        self.threads.pop(ident)
+
+    def device_cmd(self, cmd):
+        """
+        Pass the command to the device.
+        """
+        raise NotImplementedError
+
+    def parse_escaped(self, cmd):
+        """
+        Parse escaped command and return reply.
+        """
+        cmd = cmd.strip(self.ESCAPE_STRING).strip()
+
+        if cmd == 'ADMIN':
+            ident = threading.get_ident()
+            if self.admin is None:
+                self.admin = ident
+                return 'OK'
+            if self.admin == ident:
+                return 'Already admin'
+            else:
+                return 'Admin rights claimed by other client'
+
+        if cmd == 'NOADMIN':
+            ident = threading.get_ident()
+            if self.admin != ident:
+                return 'Admin rights were not granted. Nothing to do.'
+            else:
+                self.admin = None
+                return 'Admin rights rescinded'
+
+        if cmd == 'DISCONNECT':
+            # Understood by the thread loop as a thread shutdown signal
+            return None
+
+        if cmd == 'STATUS':
+            # Return some status.
+            return 'TODO: some useful status info, maybe in json format'
+
+        return f'Error: unknown command {cmd}'
+
+    def close_device(self):
         """
         Driver clean up on shutdown.
         """
-        pass
-
-    def _poll(self):
-        """
-        None MQTT polling tasks. To be implemented by subclass.
-        """
-        pass
-
-    def mqtt_payload(self):
-        """
-        Generate MQTT payload as a dictionary {topic: payload}.
-        """
-        return {}
-
-    def mqtt_pub(self, payload=None):
-        """
-        Publish on mqtt now. By default, push the payload generated by self.mqtt_payload.
-        """
-        if self.mqtt_relay:
-            if payload is None:
-                payload = self.mqtt_payload()
-            self.mqtt_relay.publish(payload)
-
-    def _poll_with_mqtt(self):
-        """
-        Do MQTT polling and user-defined polling.
-        """
-        self.logger.info('Entering polling loop')
-
-        last_poll = 0
-
-        while True:
-            # Abort loop
-            if self.poll_abort or not self._check_lock():
-                # Clean up
-                if self.mqtt_relay: self.mqtt_relay.client.disconnect()
-                self.logger.info('User abort. Finishing polling.')
-                return
-
-            # Poll for abort faster than for the rest
-            time.sleep(0.1)
-            if time.time() < (last_poll + self.poll_interval):
-                continue
-            last_poll = time.time()
-
-            # Send MQTT payloads
-            self.mqtt_pub()
-
-            # User-definer polling
-            self._poll()
-
-
-    def _check_lock(self):
-        """
-        Verify that lock has not been acquired. (to be run in daemon mode).
-        """
-        if self._fd is not None and not self._fd.closed:
-            # That's the case where we have the lock
-            return True
-        with open(self.lockfile, 'r') as fd:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
-                return True
-            except IOError as ex:
-                if ex.errno != errno.EAGAIN:
-                    raise
-                return False
-
-    def _get_lock(self):
-        """
-        Get and hold lock.
-        """
-        if self._fd is not None and not self._fd.closed:
-            # We already have the lock
-            return True
-        self.logger.info('Acquiring lock.')
-        # Open lock file
-        fd = open(self.lockfile, 'r')
-        # Acquire exclusive lock
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
-            self._fd = fd
-            self.logger.info('Lock acquired.')
-            return True
-        except IOError as ex:
-            if ex.errno != errno.EAGAIN:
-                raise
-            self._fd = None
-            fd.close()
-            self.logger.warn('Failed to acquire lock.')
-            return False
-
-    def _release_lock(self):
-        if self._fd is not None and not self._fd.closed:
-            self._fd.close()
-            self._fd = None
+        raise NotImplementedError
 
     def shutdown(self):
         """
         Clean shutdown of the driver.
         """
         # Tell the polling thread to abort. This will ensure that all the rest is wrapped up
+        self.close_device()
         self.logger.info('Shutting down.')
-        self.poll_abort = True
-        if self._thread and self._thread.is_alive():
-            self.logger.info('Joining polling thread...')
-            self._thread.join()
-            self.logger.info('Done')
 
 
-class MotorBase(object):
+class SocketDeviceServerBase(DeviceServerBase):
+    """
+    Base class for all serving connections to a socket device.
+    """
+
+    DEVICE_TIMEOUT = 1        # Device socket timeout
+    ENDOFAPI = '\n'           # End-of-message sequence (default is \n)
+
+    def __init__(self, serving_address, device_address):
+        """
+        Initialization.
+        """
+        # Store device address
+        self.device_address = device_address
+        self.device_sock = None
+        self.logger.debug(f'Daemon  {self.name} will connect to {self.device_address[0]}:{self.device_address[1]}')
+
+        # Prepare serving side
+        super().__init__(serving_address=serving_address)
+
+        self.connected = False
+        self.initialized = False
+
+        # Connect to device
+        self.connect_device()
+
+        # Initialize device
+        self.init_device()
+
+    def init_device(self):
+        """
+        Device initialization. Could be interactive.
+        """
+        self.initialized = True
+        raise NotImplementedError
+
+    def connect_device(self):
+        """
+        Device connection
+        """
+        # Prepare device socket connection
+        self.device_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
+        self.device_sock.settimeout(self.DEVICE_TIMEOUT)
+
+        for retry_count in range(self.NUM_CONNECTION_RETRY):
+            conn_errno = self.device_sock.connect_ex(self.device_address)
+            if conn_errno == 0:
+                break
+
+            self.logger.critical(os.strerror(conn_errno))
+            time.sleep(.05)
+
+        if conn_errno != 0:
+            raise RuntimeError('Connection refused.')
+
+        self.connected = True
+        self.logger.info(f'Daemon {self.name} connected to {self.device_address[0]}:{self.device_address[1]}')
+
+    def device_cmd(self, cmd):
+        """
+        Pass the command to the device.
+
+        By default, the command is simply forwarded.
+        """
+        with self._lock:
+            # Pass command to device
+            self.device_sock.sendall(cmd)
+
+            # Receive reply
+            reply = _recv_all(self.device_sock, self.ENDOFAPI)
+        return reply
+
+    def close_device(self):
+        """
+        Driver clean up on shutdown.
+        """
+        self.device_sock.close()
+        self.connected = False
+        self.initialized = False
+
+    def parse_escaped(self, cmd):
+        """
+        Parse escaped command.
+        """
+
+        if cmd == 'STOP':
+            if not self.connected:
+                return 'Device not connected'
+            try:
+                self.close_device()
+                return 'OK'
+            except BaseException as error:
+                return str(error)
+
+        if cmd == 'START':
+            if self.connected:
+                return 'Device already connected'
+            try:
+                self.connect_device()
+                self.init_device()
+                return 'OK'
+            except BaseException as error:
+                return str(error)
+
+        if cmd == 'RESTART':
+            if not self.connected:
+                return 'Device not connected'
+            try:
+                self.close_device()
+                self.connect_device()
+                self.init_device()
+                return 'OK'
+            except BaseException as error:
+                return str(error)
+
+        return super().parse_escaped(cmd)
+
+
+class DriverBase:
+    """
+    Base for all drivers
+    """
+
+    TIMEOUT = 15
+    NUM_CONNECTION_RETRY = 10
+    ESCAPE_STRING = '^'
+    ENDOFAPI = '\n'
+    logger = None
+
+    def __init__(self, address, admin):
+        """
+        Initialization.
+        If admin is True, control is asked.
+        """
+
+        # Get logger if not set in subclass
+        if self.logger is None:
+            self.logger = logging.getLogger(self.__class__.__name__)
+
+        # Store host and port
+        self.address = address
+
+        # register exit functions
+        atexit.register(self.shutdown)
+
+        # Set default name here. Can be overriden by subclass, for instance to allow multiple instances to run
+        # concurrently
+        self.name = self.__class__.__name__
+
+        self.logger.debug(f'Driver {self.name} will connect to {self.address[0]}:{self.address[1]}')
+
+        self.admin = admin
+        self.sock = None
+        self.connected = False
+
+        # Connect
+        self.connect()
+
+        # Request admin rights if needed
+        if admin:
+            reply = self.send_recv(self.ESCAPE_STRING + 'ADMIN\n')
+            if reply.strip != 'OK':
+                raise RuntimeError(f'Could not request admin rights: {reply}')
+
+    def connect(self):
+        """
+        Connect socket.
+        """
+        # Prepare device socket connection
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
+        self.sock.settimeout(self.TIMEOUT)
+
+        for retry_count in range(self.NUM_CONNECTION_RETRY):
+            conn_errno = self.sock.connect_ex(self.address)
+            if conn_errno == 0:
+                break
+
+            self.logger.critical(os.strerror(conn_errno))
+            time.sleep(.05)
+
+        if conn_errno != 0:
+            raise RuntimeError('Connection refused.')
+
+        self.connected = True
+        self.logger.info(f'Driver {self.name} connected to {self.address[0]}:{self.address[1]}')
+
+    def shutdown(self):
+        """
+        Clean shutdown of the driver.
+        """
+        self.sock.close()
+        self.logger.debug(f'Driver {self.name}: connection to {self.address[0]}:{self.address[1]} closed.')
+
+    def send(self, msg):
+        """
+        Send message (byte string) to socket.
+        """
+        try:
+            self.sock.sendall(msg)
+        except socket.timeout:
+            raise RuntimeError('Communication timed out')
+
+    def recv(self):
+        """
+        Read message from socket.
+        """
+        r = _recv_all(self.sock, EOL=self.ENDOFAPI)
+        return r
+
+    def send_recv(self, msg):
+        """
+        Send message to socket and return reply message.
+        """
+        self.send(msg)
+        r = self.recv()
+        return r
+
+
+class MotorBase:
     """
     Representation of a motor (any object that has one translation / rotation axis).
     """
@@ -303,6 +514,11 @@ class MotorBase(object):
         # Store motor name and driver instance
         self.name = name
         self.driver = driver
+
+        # Attributes
+        self.offset = None
+        self.scalar = None
+        self.limits = None
 
         # Store logger
         self.logger = logging.getLogger(name)
@@ -331,13 +547,13 @@ class MotorBase(object):
         """
         return self._set_abs_pos(self._get_pos() + (self.scalar * x))
 
-    def _user_to_dial(self,user):
+    def _user_to_dial(self, user):
         """
         Converts user position to a dial position
         """
         return (user * self.scalar) - self.offset
 
-    def _dial_to_user(self,dial):
+    def _dial_to_user(self, dial):
         """
         Converts a dial position to a user position
         """
@@ -449,7 +665,7 @@ class MotorBase(object):
             with open(self.config_file, 'r') as f:
                 data = json.load(f)
         except IOError:
-            self.logger.warn('Could not find config file "%s". Continuing with default values.' % self.config_file)
+            self.logger.warning('Could not find config file "%s". Continuing with default values.' % self.config_file)
             # Create path
             try:
                 os.makedirs(os.path.split(self.config_file)[0])
@@ -469,18 +685,3 @@ class MotorBase(object):
         self.scalar = data["scalar"]
         self.logger.info('Loaded stored limits, scalar and offset.')
         return True
-
-
-class PseudoMotor(MotorBase):
-    """
-    Representation of a pseudomotor (combination of two or more motors)
-    """
-    def __init__(self, name, realmotors, logger, **kwargs):
-        super(PseudoMotor, self).__init__(name=name, driver=None, logger=logger)
-        self.realmotors = realmotors
-        self.pseudotest = None  # test to see if inheritance is working
-
-        # realmotors is a dictionary of motor objects?:
-        # { 'rot': aerotech, 'sx': smaractx } etc.
-
-
