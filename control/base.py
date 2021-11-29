@@ -497,13 +497,20 @@ class DriverBase:
         r = _recv_all(self.sock, EOL=self.ENDOFAPI)
         return r
 
-    def send_recv(self, msg):
+    def _send_recv(self, msg):
         """
         Send message to socket and return reply message.
         """
         self.send(msg)
         r = self.recv()
         return r
+
+    def send_recv(self, msg):
+        """
+        Send message to socket and return reply message.
+        (can be overloaded by subclass)
+        """
+        return self._send_recv(msg)
 
 
 class MotorBase:

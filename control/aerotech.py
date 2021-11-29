@@ -40,8 +40,6 @@ Initial Version: Hans Deyhle
 06-2018: Object oriented version (PT)
 """
 
-import socket
-import os
 import time
 
 from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop
