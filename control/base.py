@@ -101,7 +101,7 @@ class DeviceServerBase:
     """
     Base class for all serving connections to a device, meant to run as a daemon.
 
-    This base class implements the server socket that on which clients can connect.
+    This base class implements the server socket on which clients can connect.
     """
 
     CLIENT_TIMEOUT = 1
@@ -128,9 +128,6 @@ class DeviceServerBase:
         # concurrently
         self.name = self.__class__.__name__
 
-        # Initialize the device
-        self.init_device()
-
         # Prepare thread lock
         self._lock = threading.Lock()
 
@@ -147,12 +144,6 @@ class DeviceServerBase:
         # Thread dictionary
         self.threads = {}
 
-    def init_device(self):
-        """
-        Device connection
-        """
-        raise NotImplementedError
-
     def listen(self):
         """
         Infinite listening loop for new connections.
@@ -161,6 +152,7 @@ class DeviceServerBase:
         while True:
             if self.shutdown_requested:
                 self.shutdown()
+                break
             try:
                 client, address = self.client_sock.accept()
                 # Client is in blocking mode
@@ -171,6 +163,9 @@ class DeviceServerBase:
                 self.threads[new_thread.ident] = new_thread
             except socket.timeout:
                 continue
+        # Driver is shut down
+        self.logger.info('Shutdown complete')
+        return
 
     def _serve(self, client, address):
         """
@@ -178,6 +173,10 @@ class DeviceServerBase:
         """
 
         while True:
+            # Check for shutdown signal
+            if self.shutdown_requested:
+                break
+
             # Read data
             data = _recv_all(client)
 
@@ -245,22 +244,22 @@ class DeviceServerBase:
 
         if cmd == 'STATUS':
             # Return some status.
-            return 'TODO: some useful status info, maybe in json format'
+            return self.driver_status()
 
         return f'Error: unknown command {cmd}'
 
-    def close_device(self):
+    def driver_status(self):
         """
-        Driver clean up on shutdown.
+        Some info about the current state of the driver.
         """
-        raise NotImplementedError
+        return 'Not implemented'
 
     def shutdown(self):
         """
         Clean shutdown of the driver.
         """
         # Tell the polling thread to abort. This will ensure that all the rest is wrapped up
-        self.close_device()
+        self.shutdown_requested = True
         self.logger.info('Shutting down.')
 
 
@@ -276,29 +275,22 @@ class SocketDeviceServerBase(DeviceServerBase):
         """
         Initialization.
         """
-        # Store device address
-        self.device_address = device_address
-        self.device_sock = None
-        self.logger.debug(f'Daemon  {self.name} will connect to {self.device_address[0]}:{self.device_address[1]}')
-
         # Prepare serving side
         super().__init__(serving_address=serving_address)
 
-        self.connected = False
-        self.initialized = False
+        # Store device address
+        self.device_address = device_address
+        self.device_sock = None
+
+        self.logger.debug(f'Daemon  {self.name} will connect to {self.device_address[0]}:{self.device_address[1]}')
 
         # Connect to device
+        self.connected = False
         self.connect_device()
 
-        # Initialize device
+        # Initialize the device
+        self.initialized = False
         self.init_device()
-
-    def init_device(self):
-        """
-        Device initialization. Could be interactive.
-        """
-        self.initialized = True
-        raise NotImplementedError
 
     def connect_device(self):
         """
@@ -322,12 +314,23 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.connected = True
         self.logger.info(f'Daemon {self.name} connected to {self.device_address[0]}:{self.device_address[1]}')
 
+    def init_device(self):
+        """
+        Device initalization.
+        """
+        self.initialized = True
+        raise NotImplementedError
+
     def device_cmd(self, cmd):
         """
         Pass the command to the device.
 
         By default, the command is simply forwarded.
         """
+        if not self.connected:
+            raise RuntimeError('Device is not connected.')
+        if not self.initialized:
+            raise RuntimeError('Device is not initialized.')
         with self._lock:
             # Pass command to device
             self.device_sock.sendall(cmd)
@@ -343,6 +346,13 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.device_sock.close()
         self.connected = False
         self.initialized = False
+
+    def shutdown(self):
+        """
+        Shutdown driver.
+        """
+        self.close_device()
+        super().shutdown()
 
     def parse_escaped(self, cmd):
         """
