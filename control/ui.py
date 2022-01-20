@@ -19,9 +19,10 @@ import math
 import random
 import logging
 import base64
-import StringIO
+from io import StringIO
+import optimatools
 
-from ..analysis import stitching, rebin
+from optimatools import stitching, rebin
 from . import mtffun_hans
 from . import smaract
 from . import mclennan
@@ -30,7 +31,8 @@ from . import labframe
 from . import xpsfun_ronan
 from . import microscope
 from . import pco
-from . import excillum
+from . import dummy
+#from . import excillum
 from . import spec_magics
 from .. import io
 
@@ -564,7 +566,7 @@ def _add_metadata(filename, exp_time):
     f.close()
 
 
-class Scan(object):
+class Scan:
     """Scan context manager"""
 
     def __init__(self, exp_time=None):
@@ -952,7 +954,7 @@ def focus_series(focus_step_mm=0.05, exp_time=10, step_no=11, MTF=False):
         plt.figure(figsize=(10, 10))
     plt.imshow(a[500:1000, 400:500])
     plt.colorbar()
-    print drivers['microscope'].get_pos_focus()
+    print(drivers['microscope'].get_pos_focus())
 
     imgs = np.asarray(imgs)
     # move back to initial position
@@ -1281,7 +1283,7 @@ def move_and_combine_large(exp_time, start_x, start_y, end_x, end_y, flat = None
     scan_path = moving_image_stack_large(start_x, start_y, end_x, end_y, exp_time=exp_time, mode=mode)
 
     files_to_stitch = sorted(glob(os.path.join(scan_path, '*.h5')))
-    print files_to_stitch
+    print(files_to_stitch)
     img = stitching.stack_files(files_to_stitch=files_to_stitch,
                                 save_folder=scan_path,
                                 flat_location=flat,
