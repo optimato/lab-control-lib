@@ -36,14 +36,23 @@ class MotorLimitsException(Exception):
     pass
 
 
-def _recv_all(socket, EOL='\n'):
+def _recv_all(sock, EOL='\n'):
     """
     Receive all data from socket (until EOL)
+    * all bytes strings are converted to str *
     """
-    ret = socket.recv(1024)
+    ret = sock.recv(1024)
+    ret = str(ret, 'utf-8')
     while not ret.endswith(EOL):
-        ret += socket.recv(1024)
+        ret += str(sock.recv(1024), 'utf-8')
     return ret
+
+
+def _send_all(sock, msg):
+    """
+    Convert str to byte and send on sockeet.
+    """
+    sock.sendall(msg.encode())
 
 
 def nonblock(fin):
@@ -95,6 +104,7 @@ class emergency_stop:
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type is KeyboardInterrupt:
             self.stop_method()
+            return True
 
 
 class DeviceServerBase:
@@ -148,6 +158,7 @@ class DeviceServerBase:
         """
         Infinite listening loop for new connections.
         """
+        self.client_sock.bind(self.serving_address)
         self.client_sock.listen(5)
         while True:
             if self.shutdown_requested:
@@ -182,6 +193,7 @@ class DeviceServerBase:
 
             # Check for escape
             if data.startswith(self.ESCAPE_STRING):
+                data = data.strip(self.ESCAPE_STRING).strip()
                 reply = self.parse_escaped(data)
 
                 # Special case: reply is None means: exit the loop and shut down this client.
@@ -189,7 +201,7 @@ class DeviceServerBase:
                     break
 
                 # Send reply back to client
-                client.sendall(reply)
+                _send_all(client, reply + '\n')
 
                 continue
 
@@ -197,7 +209,7 @@ class DeviceServerBase:
             reply = self.device_cmd(data)
 
             # Return to client
-            client.sendall(reply)
+            _send_all(client, reply)
 
         # Done
         client.close()
@@ -218,8 +230,6 @@ class DeviceServerBase:
         """
         Parse escaped command and return reply.
         """
-        cmd = cmd.strip(self.ESCAPE_STRING).strip()
-
         if cmd == 'ADMIN':
             ident = threading.get_ident()
             if self.admin is None:
@@ -270,6 +280,7 @@ class SocketDeviceServerBase(DeviceServerBase):
 
     DEVICE_TIMEOUT = 1        # Device socket timeout
     ENDOFAPI = '\n'           # End-of-message sequence (default is \n)
+    KEEPALIVE_INTERVAL = 10.    # Default Polling (keep-alive) interval
 
     def __init__(self, serving_address, device_address):
         """
@@ -284,6 +295,8 @@ class SocketDeviceServerBase(DeviceServerBase):
 
         self.logger.debug(f'Daemon  {self.name} will connect to {self.device_address[0]}:{self.device_address[1]}')
 
+        self.polling_thread = None
+
         # Connect to device
         self.connected = False
         self.connect_device()
@@ -292,12 +305,18 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.initialized = False
         self.init_device()
 
+        # Start polling
+        self.polling_thread = threading.Thread(target=self._keep_alive)
+        self.polling_thread.daemon = True
+        self.polling_thread.start()
+
     def connect_device(self):
         """
         Device connection
         """
         # Prepare device socket connection
         self.device_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
+        self.device_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.device_sock.settimeout(self.DEVICE_TIMEOUT)
 
         for retry_count in range(self.NUM_CONNECTION_RETRY):
@@ -321,6 +340,22 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.initialized = True
         raise NotImplementedError
 
+    def _keep_alive(self):
+        """
+        Infinite loop on a separate thread that pings the device periodically to keep the connection alive.
+        """
+        while True:
+            time.sleep(self.KEEPALIVE_INTERVAL)
+            if not (self.connected and self.initialized):
+                continue
+            self.wait_call()
+
+    def wait_call(self):
+        """
+        Keep-alive call to the device
+        """
+        raise NotImplementedError
+
     def device_cmd(self, cmd):
         """
         Pass the command to the device.
@@ -328,12 +363,12 @@ class SocketDeviceServerBase(DeviceServerBase):
         By default, the command is simply forwarded.
         """
         if not self.connected:
-            raise RuntimeError('Device is not connected.')
+            return 'Device not connected.\n'
         if not self.initialized:
-            raise RuntimeError('Device is not initialized.')
+            return 'Device not initialized.\n'
         with self._lock:
             # Pass command to device
-            self.device_sock.sendall(cmd)
+            _send_all(self.device_sock, cmd)
 
             # Receive reply
             reply = _recv_all(self.device_sock, self.ENDOFAPI)
@@ -435,8 +470,9 @@ class DriverBase:
         # Request admin rights if needed
         if admin:
             reply = self.send_recv(self.ESCAPE_STRING + 'ADMIN\n')
-            if reply.strip != 'OK':
-                raise RuntimeError(f'Could not request admin rights: {reply}')
+            if reply.strip() != 'OK':
+                self.logger.warning(f'Could not request admin rights: {reply}')
+                self.admin = False
 
     def connect(self):
         """
@@ -472,7 +508,7 @@ class DriverBase:
         Send message (byte string) to socket.
         """
         try:
-            self.sock.sendall(msg)
+            _send_all(self.sock, msg)
         except socket.timeout:
             raise RuntimeError('Communication timed out')
 
@@ -493,10 +529,10 @@ class DriverBase:
 
     def send_recv(self, msg):
         """
-        Send message to socket and return reply message.
+        Send message to socket and return reply message, stripped from spaces and return carriages.
         (can be overloaded by subclass)
         """
-        return self._send_recv(msg)
+        return self._send_recv(msg).strip()
 
 
 class MotorBase:
