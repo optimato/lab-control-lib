@@ -26,28 +26,6 @@ else:
     import matplotlib.pyplot
     NODISPLAY = False
 
-# Improved interactive behavior or matplotlib 
-import threading
-if matplotlib.get_backend().lower().startswith('qt4'):
-    mpl_backend = 'qt'
-    from PyQt4 import QtGui
-    gui_yield_call = QtGui.qApp.processEvents
-elif matplotlib.get_backend().lower().startswith('wx'):
-    mpl_backend = 'wx'
-    import wx
-    gui_yield_call = wx.Yield
-elif matplotlib.get_backend().lower().startswith('gtk'):
-    mpl_backend = 'gtk'
-    import gtk
-    def gui_yield_call():
-        gtk.gdk.threads_enter()
-        while gtk.events_pending():
-            gtk.main_iteration(True)
-        gtk.gdk.flush()
-        gtk.gdk.threads_leave()
-else:
-    mpl_backend = None
-
 __all__ = ['P1A_to_HSV', 'HSV_to_RGB', 'imsave', 'imload', 'franzmap',\
            'Multiclicks', 'DataBrowser','showim','data_browser',\
            'pause', 'plot_3d_array', 'dark_scheme','Interactive_rect_roi',\
@@ -59,56 +37,7 @@ Image._MODE_CONV['I;16'] = (Image._ENDIAN + 'u2', None)
 # Grayscale + alpha should also work
 Image._MODE_CONV['LA'] = (Image._ENDIAN + 'u1', 2)
 
-if mpl_backend is not None:
-    class _Pause(threading.Thread):
-        def __init__(self, timeout, message):
-            self.message = message
-            self.timeout = timeout
-            self.ct = True
-            threading.Thread.__init__(self)
-        def run(self):
-            sys.stdout.flush()
-            if self.timeout < 0:
-                input(self.message)
-            else:
-                if self.message is not None:
-                    print(self.message)
-                time.sleep(self.timeout)
-            self.ct = False
-
-    def pause(timeout=-1, message=None):
-        """\
-        Pause the execution of a script while leaving matplotlib figures responsive.
-        By default, execution is resumed only after hitting return. If timeout >= 0,
-        the execution is resumed after timeout seconds.
-        """
-        if message is None:
-            if timeout < 0:
-                message = 'Paused. Hit return to continue.'
-        h = _Pause(timeout, message)
-        h.start()
-        while h.ct:
-            gui_yield_call()
-            time.sleep(.01)
-
-else:
-    def pause(timeout=-1, message=None):
-        """\
-        Pause the execution of a script.
-        By default, execution is resumed only after hitting return. If timeout >= 0,
-        the execution is resumed after timeout seconds.
-        This version of pause is not GUI-aware (this happens it the matplotlib
-        backend is not supported).
-        """
-        if timeout < 0:
-            if message is None:
-                message = 'Paused. Hit return to continue.'
-            input(message)
-        else:
-            if message is not None:
-                print(message)
-            time.sleep(timeout)
-
+pause = matplotlib.pyplot.pause
 
 '''\
 def P1A_to_HSV(cin):
