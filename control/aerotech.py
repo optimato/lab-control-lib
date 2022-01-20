@@ -79,6 +79,12 @@ class AerotechDeamon(SocketDeviceServerBase):
         self.initialized = True
         return
 
+    def wait_call(self):
+        """
+        Keep-alive call
+        """
+        self.device_cmd('AXISSTATUS(@0)\n')
+
 
 class Aerotech(DriverBase):
     """
