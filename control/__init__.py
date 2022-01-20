@@ -4,6 +4,7 @@ from ..util import logs, FileDict
 
 # Basic configuration
 conf_path = os.path.expanduser("~/.optimato-labcontrol/")
+os.makedirs(conf_path, exist_ok=True)
 conf_file = os.path.join(conf_path, 'config.json')
 
 # Persistent configuration and parameters
@@ -48,10 +49,10 @@ from . import microscope
 from . import smaract
 
 from . import mtffun_hans
-from . import pcofun_hans
+#from . import pcofun_hans
 from . import xpsfun_ronan
 
-from . import excillum
+#from . import excillum
 
 from .ui import *
 
