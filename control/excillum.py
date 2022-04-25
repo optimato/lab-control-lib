@@ -9,37 +9,38 @@ import socket
 import time
 import sys
 import os
-from .base import DriverBase
 
 
-class LMJ(DriverBase):
+"""
+Use example:
 
-    def __init__(self, host="192.168.0.132", port=4944, poll_interval=10):
+python labcontrol excillum
+would do
+from labcontrol.control import excillum
+excillum.LMJDaemon().start() # Will run until killed
+
+"""
+
+
+class LMJ(SocketDriverBase):
+    """
+    Driver for Liquid-metal-jet source.
+    """
+
+    def __init__(self, host, port):
         """
-        LMJ driver.
-        :param host: host name
-        :param port: port
-        :param poll_interval: polling interval
-        """
 
-        DriverBase.__init__(self, poll_interval=poll_interval)
-        self.host = host
-        self.port = port
-        self.start_thread()
-
-    def _init(self):
         """
-        Threaded initalisation.
-        """
-        self.logger.info("Initialising Excillum Driver")
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.settimeout(10.0)
-        self._connect()
+        super().__init__(host=host, port=port)
 
+    def handshake(self):
+        """
+        Message to send right after socket connection
+        """
         self.send("#admin")
         self.logger.info("Current state is: %s" % self.getstate())
 
-    def _connect(self, retries=10):
+    def connect(self, retries=10):
         """
         Connect to the LMJ source.
         :param retries: Number of attempts before giving up
@@ -89,7 +90,7 @@ class LMJ(DriverBase):
                     pass
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sock.settimeout(10.0)
-                self._connect()
+                self.connect()
 
         return msg
 
@@ -188,6 +189,15 @@ class LMJ(DriverBase):
     def getstate(self):
         state = self.send_and_receive("state?")
         return state
+
+
+class LMJDaemon(DaemonDriverMixin, LMJ):
+    """
+    Daemon driver
+    """
+    def __init__(self, host, port, poll_interval):
+        super().__init__(host=host, port=port, poll_interval=poll_interval)
+
 
 
 def main():

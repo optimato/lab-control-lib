@@ -2,7 +2,6 @@
 PCO camera driver (epics-based)
 """
 
-import epics as ep
 import time
 import os
 import logging
@@ -10,10 +9,10 @@ import datetime
 import json
 import errno
 
-from .base import DriverBase
+from .base import DriverBase, DeviceServerBase
 from . import conf_path
 
-__all__ = ['PCO']
+__all__ = ['PCODaemon', 'PCO']
 
 DEFAULTS = {'exp_time': 1.,
             'file_type': 'HDF5',
@@ -31,6 +30,39 @@ windows_drives = {'fileserver': 'D:/',
                   'camserver': 'D:/'} #fileserver changed from Z:/
 local_drives = {'fileserver': '/camserver/',
                 'camserver': '/camserver/'} #fileserver changed from /CTData_incoming/
+
+PCO_DAEMON_ADDRESS = "127.0.0.1"
+PCO_DAEMON_PORT = 15020
+
+
+class PCODaemon(DeviceServerBase):
+    """
+    PCO Daemon
+    """
+
+    def __init__(self):
+        super().__init__(serving_address=(PCO_DAEMON_ADDRESS, PCO_DAEMON_PORT))
+
+        self.initialized = False
+
+    def init_device(self):
+        """
+        Load PCO library and do some checks, etc.
+        """
+        print('do things')
+        self.initialized = True
+
+    def device_cmd(self, cmd):
+        """
+        Here we need to define our own API based on the function calls available in the
+        SDK.
+        """
+
+    def close_device(self):
+        """
+        Do some library clean up.
+        """
+
 
 
 class PCO(DriverBase):

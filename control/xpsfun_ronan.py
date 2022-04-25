@@ -15,7 +15,7 @@ import socket
 
 __all__ = ['XPS', 'Motor']
 
-class XPS(object):
+class XPS:
 
     # Defines
     MAX_NB_SOCKETS = 100

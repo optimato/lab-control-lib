@@ -226,23 +226,28 @@ class McLennan(DriverBase):
         if s != '%':
             raise RuntimeError('Disabling motor failed!')
 
+    def _send_recv(self, msg):
+        """
+        Send message to socket and receive reply message.
+        """
+        with self._lock:
+            try:
+                self.sock.sendall(msg)
+                r = self.sock.recv(128)
+                while r[-1:] != '\n':
+                    r += self.sock.recv(128)
+            except socket.timeout:
+                raise RuntimeError('Communication timed out')
+        return r
+
     def cmd_send(self, cmd):
         """
         Send a command to a controller and reads back the input
         """
 
-        with self._lock:
-            cmd = self.input_parse(cmd)
-            self.sock.sendall(cmd)
-            # feedback
-            try:  # at first run, Ack/Nack might be off, need to handle timeout on read from drive
-                o = self.sock.recv(128)
-                while o[-1:] != '\r':
-                    o += self.sock.recv(128)
-                # check what it means
-                s, v = self.output_parse(o)
-            except socket.timeout:
-                raise RuntimeError('Communication timed out')
+        cmd = self.input_parse(cmd)
+        o = self._send_recv(cmd)
+        s, v = self.output_parse(o)
         return s, v
 
     @staticmethod

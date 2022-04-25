@@ -98,7 +98,7 @@ from .ui_utils import ask_yes_no
 logger = logging.getLogger("Microscope driver")
 
 
-class Microscope(object):
+class Microscope:
     
     def __init__(self, host='192.168.0.20', port=13000):
         """
