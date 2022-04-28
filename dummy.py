@@ -1,5 +1,9 @@
 """
 Dummy controller for testing purposes.
+
+* On one computer run dummy_device (that's the controller)
+* On another computer create an instance of DummyDeamon and run with DummyDaemon.listen()
+* On a third computer (or the same as Daemon) create an instance of Dummy, which connects upon construction.
 """
 
 import time
@@ -47,7 +51,8 @@ class Dummy(DriverBase):
     Driver for the Aerotech rotation stage.
     """
 
-    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
+    # temporization for rapid status checks during moves.
+    POLL_INTERVAL = 0.01
 
     def __init__(self, admin=True):
         """
@@ -148,7 +153,8 @@ def dummy_device():
     """
     Bare-bones fake socket device acceptiing a single connection and processing a few commands.
     """
-    client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
+    client_sock = socket.socket(
+        socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
     client_sock.settimeout(1)
     client_sock.bind((DUMMY_DEVICE_ADDRESS, DUMMY_DEVICE_PORT))
     client_sock.listen(5)

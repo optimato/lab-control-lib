@@ -2,7 +2,6 @@
 User interface (CLI)
 """
 
-
 import os
 from matplotlib import pyplot as plt
 import h5py
@@ -31,6 +30,7 @@ from . import labframe
 from . import xpsfun_ronan
 from . import microscope
 from . import pco
+from . import andor
 from . import dummy
 #from . import excillum
 from . import spec_magics
@@ -42,13 +42,6 @@ from . import ui_utils
 
 from glob import glob
 
-# Re-enable this once code has been cleaned up
-"""
-UPDATE_ON = False  # set this flag to take a snap view after every command
-OUTDIST = 0  # distance in mm to move OUTMOTOR for flatfields
-OUTMOTOR = 'sx'  # motor to use to move sample out of beam
-"""
-
 # Container for scan context
 SCAN_INFO = {'scan': None}
 
@@ -57,9 +50,10 @@ FRAMES = {'flat': None, 'dark': None, 'snap': None, 'fsnap': None}
 
 logger = logging.getLogger(__name__)
 
-#Container for metadata taking
+# Container for metadata taking
 source_info = {}
 motor_info = {}
+
 
 def init_all(yes=None):
     """
@@ -75,11 +69,16 @@ def init_all(yes=None):
     if ask_yes_no('Initialise smaracts?', help="SmarAct are the 3-axis piezo translation stages for sample movement"):
         drivers['smaract'] = smaract.Smaract()
         motors['sx'] = smaract.Motor('sx', drivers['smaract'], axis=0)
-        motors['sz'] = smaract.Motor('sz', drivers['smaract'], axis=1) #used to be sy in old coordinates - changed 8/1/19
-        motors['sy'] = smaract.Motor('sy', drivers['smaract'], axis=2) #used to be sz
+        # used to be sy in old coordinates - changed 8/1/19
+        motors['sz'] = smaract.Motor('sz', drivers['smaract'], axis=1)
+        motors['sy'] = smaract.Motor(
+            'sy', drivers['smaract'], axis=2)  # used to be sz
 
     if ask_yes_no('Initialise PCO camera?'):
         drivers['pco'] = pco.PCO()
+
+    if ask_yes_no('Initialise Andor camera?'):
+        drivers['andor'] = andor.Andor()
 
     if ask_yes_no('Initialise microscope?'):
         drivers['microscope'] = microscope.Microscope()
@@ -103,8 +102,10 @@ def init_all(yes=None):
         #motors['xpsz'] = xpsfun_ronan.Motor('Z', drivers['XPS'], 'Z')
 
     if ask_yes_no('Initialise stage pseudomotors?'):
-        motors['sxl'] = labframe.Motor('sxl', motors['sx'], motors['sz'], motors['rot'], axis=0)
-        motors['szl'] = labframe.Motor('szl', motors['sx'], motors['sz'], motors['rot'], axis=1)
+        motors['sxl'] = labframe.Motor(
+            'sxl', motors['sx'], motors['sz'], motors['rot'], axis=0)
+        motors['szl'] = labframe.Motor(
+            'szl', motors['sx'], motors['sz'], motors['rot'], axis=1)
 
     if ask_yes_no('Connect to LMJ?'):
         drivers['lmj'] = excillum.LMJ()
@@ -126,14 +127,15 @@ def init_all(yes=None):
         # Fake non-interactive to answer all questions automatically
         ui_utils.user_interactive = None
 
-
     try:
-        FRAMES['flat'] = io.h5read(str(os.path.join(conf_path, config['flats_file'])))['flats']
+        FRAMES['flat'] = io.h5read(
+            str(os.path.join(conf_path, config['flats_file'])))['flats']
         print('Loaded %d flats from file.' % len(FRAMES['flat']))
     except IOError:
         print('Error: could not load flats')
     try:
-        FRAMES['dark'] = io.h5read(str(os.path.join(conf_path, config['darks_file'])))['darks']
+        FRAMES['dark'] = io.h5read(
+            str(os.path.join(conf_path, config['darks_file'])))['darks']
         print('Loaded %d darks from file.' % len(FRAMES['dark']))
     except:
         print('Error: could not load darks')
@@ -184,7 +186,8 @@ def snap(exp_time=None, vmin=None, vmax=None, save_name='snap', figno=100):
     s = StringIO.StringIO()
     if fig:
         fig.savefig(s, format='png', dpi='figure')
-        drivers['pco'].mqtt_pub({'xnig/drivers/pco/last_snap': base64.b64encode(s.getvalue())})
+        drivers['pco'].mqtt_pub(
+            {'xnig/drivers/pco/last_snap': base64.b64encode(s.getvalue())})
 
     return this_snap
 
@@ -214,15 +217,19 @@ def fsnap(exp_time=None, vmin=None, vmax=None, figno=100):
     FRAMES['fsnap'] = corrected_snap
 
     # Show
-    if vmin is None: vmin = 0
-    if vmax is None: vmax = 1.
-    fig = _show(corrected_snap, title='Flat corrected snap', vmin=vmin, vmax=vmax, figno=figno)
+    if vmin is None:
+        vmin = 0
+    if vmax is None:
+        vmax = 1.
+    fig = _show(corrected_snap, title='Flat corrected snap',
+                vmin=vmin, vmax=vmax, figno=figno)
 
     # MQTT stuff
     s = StringIO.StringIO()
     if fig:
         fig.savefig(s, format='png', dpi='figure')
-        drivers['pco'].mqtt_pub({'xnig/drivers/pco/last_fsnap': base64.b64encode(s.getvalue())})
+        drivers['pco'].mqtt_pub(
+            {'xnig/drivers/pco/last_fsnap': base64.b64encode(s.getvalue())})
 
     return np.squeeze(corrected_snap)
 
@@ -244,9 +251,12 @@ def _show(data, title, origin=None, vmin=None, vmax=None, figno=None, cmap='bone
     fig, ax = plt.subplots(num=figno)
     fig.clf()
     plt.set_cmap(cmap)
-    if vmin is None: vmin = np.percentile(data,  0.01)
-    if vmax is None: vmax = np.percentile(data, 99.99)
-    plt.imshow(data, vmin=vmin, vmax=vmax, interpolation='nearest', origin='lower')
+    if vmin is None:
+        vmin = np.percentile(data,  0.01)
+    if vmax is None:
+        vmax = np.percentile(data, 99.99)
+    plt.imshow(data, vmin=vmin, vmax=vmax,
+               interpolation='nearest', origin='lower')
     plt.colorbar()
     plt.title(title)
     """
@@ -313,7 +323,8 @@ def darks(N=11, exp_time=None):
 
     FRAMES['dark'][exp_time_ms] = dark
 
-    io.h5write(os.path.join(conf_path, config['darks_file']), darks=FRAMES['dark'])
+    io.h5write(os.path.join(
+        conf_path, config['darks_file']), darks=FRAMES['dark'])
 
     return dark
 
@@ -335,9 +346,11 @@ def flats(N=11, exp_time=None):
 
     FRAMES['flat'][exp_time_ms] = flat
 
-    io.h5write(os.path.join(conf_path, config['flats_file']), flats=FRAMES['flat'])
+    io.h5write(os.path.join(
+        conf_path, config['flats_file']), flats=FRAMES['flat'])
 
     return flat
+
 
 def _acquire_metadata():
     '''
@@ -468,31 +481,33 @@ def _add_metadata(filename, exp_time):
 
     # getting time from re-writing time from where the PCO saved it into a user readable format. The PCO seems to
     # save the time based on a 1990 epoch so is 20 years out, so a correction is needed
-    nxentry.attrs['end_time'] = str(time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime(np.array(f['entry/NDAttributes/timestamp'])[0][2]+631152000)))
+    nxentry.attrs['end_time'] = str(time.strftime(
+        "%a, %d %b %Y %H:%M:%S +0000", time.gmtime(np.array(f['entry/NDAttributes/timestamp'])[0][2]+631152000)))
 
     # DATA storage subgroup#######################################
     # Very messy code that involves creating hard links and deleting the old ones to move things into the NEXUS format
 
-    nxentry['data2']=nxentry['data']
+    nxentry['data2'] = nxentry['data']
     del nxentry['data']
     nxdata = nxentry.create_group('data')
     nxdata['image'] = nxentry['data2']
     del nxentry['data2']
     nxdata.attrs['NX_class'] = 'NXdata'
-    nxdata.attrs['signal'] = 'image'  # need this bit to point the reader at the correct data to plot
+    # need this bit to point the reader at the correct data to plot
+    nxdata.attrs['signal'] = 'image'
 
     # INSTRUMENT information subgroup#############################
     nxinstrument = nxentry.create_group('instrument')
     nxinstrument.attrs['NX_class'] = 'NXinstrument'
     nxinstrument.attrs['name'] = 'X-ray McX-rayFace'
 
-
     # source sub-subgroup inside instrument
     nxins_source = nxinstrument.create_group('source')
     nxins_source.attrs['NX_class'] = 'NXsource'
 
     nxins_source.attrs['name'] = 'Excillum Metaljet-D2'
-    nxins_source.attrs['type'] = 'Liquid Metal Jet X-ray'  # Not a NEXUS standard source type, they only have rotating anode and fixed tube
+    # Not a NEXUS standard source type, they only have rotating anode and fixed tube
+    nxins_source.attrs['type'] = 'Liquid Metal Jet X-ray'
     nxins_source.attrs['probe'] = 'x-ray'
 
     for a in source_info:
@@ -505,7 +520,8 @@ def _add_metadata(filename, exp_time):
     nxins_detector.attrs['exposure_time'] = exp_time
 
     try:
-        nxins_detector.attrs['chip_temperature(c)'] = nxentry['NDAttributes/Temperature'] #not an official NEXUS entry
+        # not an official NEXUS entry
+        nxins_detector.attrs['chip_temperature(c)'] = nxentry['NDAttributes/Temperature']
     except:
         nxins_detector.attrs['chip_temperature(c)'] = 'Error Getting Value'
 
@@ -525,13 +541,13 @@ def _add_metadata(filename, exp_time):
         nxins_detector.attrs['Scintillator'] = 'Error Getting Value'
 
     try:
-        nxins_detector.attrs['lens_focus_position_mm'] = drivers['microscope'].get_pos_focus()
+        nxins_detector.attrs['lens_focus_position_mm'] = drivers['microscope'].get_pos_focus(
+        )
     except:
         nxins_detector.attrs['lens_focus_position_mm'] = 'Error Getting Value'
 
         # positioner sub group
     # none of this complies with the NEXUS standard
-
 
     nxpos = nxinstrument.create_group('positioner')
     nxpos.attrs['NXclass'] = 'positioner'
@@ -550,8 +566,6 @@ def _add_metadata(filename, exp_time):
     except:
         print('failed to read config dictionary')
         nxpos.attrs['sample_stage_detector_distance(mm)'] = 'Error Getting Value'
-
-
 
     # SAMPLE information subgroup################################
     # this needs to be populated by the user - could add as an option on startup?
@@ -592,20 +606,22 @@ class Scan:
 
         # Edit pco settings.
         pcodrv.settings(exp_time=exp_time,
-                     drive=config['experiment_drive'],
-                     path=os.path.join(config['experiment_path'], '%06d' % self.scan_number),
-                     prefix='frame',
-                     file_number=0,
-                     increment=True,
-                     frame_count=1,
-                     num_exposures=num_exposures)
+                        drive=config['experiment_drive'],
+                        path=os.path.join(
+                            config['experiment_path'], '%06d' % self.scan_number),
+                        prefix='frame',
+                        file_number=0,
+                        increment=True,
+                        frame_count=1,
+                        num_exposures=num_exposures)
 
         # Arm the camera
         pcodrv.arm()
         logger.info('Starting scan %06d.' % self.scan_number)
 
         # Store file path
-        config['experiment_last_scan_path'] = os.path.join(pco.local_drives[config['experiment_drive']], config['experiment_path'], '%06d' % self.scan_number)
+        config['experiment_last_scan_path'] = os.path.join(
+            pco.local_drives[config['experiment_drive']], config['experiment_path'], '%06d' % self.scan_number)
 
     def __exit__(self, exception_type, exception_value, traceback):
         """
@@ -638,7 +654,7 @@ def capture():
         raise RuntimeError("'capture' must be executed in a Scan context.")
 
     # get the metadata on positioners at the start of acquisition so they are correct
-    thread1 = threading.Thread(target = _acquire_metadata)
+    thread1 = threading.Thread(target=_acquire_metadata)
     thread1.start()
 
     # Grab frame
@@ -648,7 +664,8 @@ def capture():
     thread1.join()
 
     # now writing metadata to file
-    threading.Thread(target=_add_metadata, args=(file_path, SCAN_INFO['scan'].exp_time)).start()
+    threading.Thread(target=_add_metadata, args=(
+        file_path, SCAN_INFO['scan'].exp_time)).start()
 
     return file_path
 
@@ -665,12 +682,13 @@ def moving_image_stack(n_moves=5, total_movement=[0.2, 0.2], exp_time=10, vmax=1
     loc = np.zeros(2)
     move_array = []
     for i in range(n_moves - 1):
-        mov = np.array([random.uniform(-d_h / 2 - loc[0], d_h / 2 - loc[0]), random.uniform(-d_v / 2 - loc[1], d_v / 2 - loc[1])])
+        mov = np.array([random.uniform(-d_h / 2 - loc[0], d_h / 2 - loc[0]),
+                       random.uniform(-d_v / 2 - loc[1], d_v / 2 - loc[1])])
         print(loc)
         print(type(loc))
         print(mov)
         print(type(mov))
-        loc = np.add(loc, mov, casting = "unsafe")
+        loc = np.add(loc, mov, casting="unsafe")
         move_array.append(mov)
         print(loc)
     move_array.append(-loc)
@@ -693,12 +711,13 @@ def moving_image_stack(n_moves=5, total_movement=[0.2, 0.2], exp_time=10, vmax=1
 
 
 def move_and_combine(exp_time=None, flat=None, dark=None, n_moves=5, total_movement=[0.2, 0.2], mode='sample',
-                     max_iter=5, remove_hits = False):
+                     max_iter=5, remove_hits=False):
 
     if exp_time is None:
         exp_time = drivers['pco'].exp_time
 
-    scan_path = moving_image_stack(n_moves=n_moves, total_movement=total_movement, exp_time=exp_time, mode=mode)
+    scan_path = moving_image_stack(
+        n_moves=n_moves, total_movement=total_movement, exp_time=exp_time, mode=mode)
 
     if flat is None:
         flat = FRAMES['flat'].get(_exp_time_as_key(exp_time), None)
@@ -726,11 +745,12 @@ def _copy_to_backup(file_path, copy_folder):
     split = file_path.split('/')
     semi_path = '/'.join(split[2:-1])
     new_path = copy_folder + semi_path + '/'
-    x = os.system('rsync -a '+file_path+ ' ' + new_path)
+    x = os.system('rsync -a '+file_path + ' ' + new_path)
     if x == 0:
-        print('Successfully copied to %s' %new_path)
+        print('Successfully copied to %s' % new_path)
     else:
-        print('Something has gone wrong and the file at %s has not been backed up' %file_path)
+        print(
+            'Something has gone wrong and the file at %s has not been backed up' % file_path)
 
 
 def new_experiment(experiment_name=None, drive=None):
@@ -845,7 +865,8 @@ def tilt_series(focus_step_mm=0.05, step_no=11):
 
     focus_pos = drivers['microscope'].get_pos_focus()
 
-    drivers['microscope'].move_abs_focus(focus_pos - ((step_no - 1) * focus_step_mm / 2))
+    drivers['microscope'].move_abs_focus(
+        focus_pos - ((step_no - 1) * focus_step_mm / 2))
 
     with Scan(exp_time=5):
         for ind_step in range(step_no):
@@ -853,14 +874,14 @@ def tilt_series(focus_step_mm=0.05, step_no=11):
             try:
                 drivers['microscope'].move_rel_focus(focus_step_mm)
             except KeyError:
-                print ('It looks like you havent initialised the microscope')
+                print('It looks like you havent initialised the microscope')
             capture()
 
     # move back to initial position
     try:
         drivers['microscope'].move_abs_focus(focus_pos)
     except KeyError:
-        print ('It looks like you havent initialised the microscope')
+        print('It looks like you havent initialised the microscope')
 
     # calculate tilt angles
     thetax, thetay, s = tilt_calc(step_no, focus_step_mm)
@@ -877,7 +898,8 @@ def tilt_calc(step_no, focus_step_mm):
     returns tiltx and tilty in mrad. Also returns s, the matrix of standard deviations of the regions
     """
     px_sz_mm = config['pixel_size'] * 1000
-    files = sorted(glob(os.path.join(config['experiment_last_scan_path'], '*.h5')))
+    files = sorted(
+        glob(os.path.join(config['experiment_last_scan_path'], '*.h5')))
     vol = np.zeros((step_no, 2048, 2048))
     for i in range(len(files)):
         F = h5py.File(files[i])
@@ -887,18 +909,23 @@ def tilt_calc(step_no, focus_step_mm):
 
     # process each frame in sequence
     # tile it into 16 X 16 squares
-    s = np.zeros((vol.shape[0], 16, 16))  # store standard deviation of each tile here
-    coords_max = np.zeros((vol.shape[0], 3))  # z,x and y where z is the focus position and x,y position within frame
+    # store standard deviation of each tile here
+    s = np.zeros((vol.shape[0], 16, 16))
+    # z,x and y where z is the focus position and x,y position within frame
+    coords_max = np.zeros((vol.shape[0], 3))
     for ind_frame in range(vol.shape[0]):
         frame = vol[ind_frame]
         # tile
         for i in range(16):
             for j in range(16):
-                s[ind_frame, i, j] = np.std(frame[i * 128:(i + 1) * 128, j * 128:(j + 1) * 128])
+                s[ind_frame, i, j] = np.std(
+                    frame[i * 128:(i + 1) * 128, j * 128:(j + 1) * 128])
         # get the coords of the maximum std for each frame
         coords_max[ind_frame, 0] = ind_frame * focus_step_mm
-        coords_max[ind_frame, 1] = np.unravel_index(s[ind_frame].argmax(), s[ind_frame].shape)[0] * px_sz_mm
-        coords_max[ind_frame, 2] = np.unravel_index(s[ind_frame].argmax(), s[ind_frame].shape)[1] * px_sz_mm
+        coords_max[ind_frame, 1] = np.unravel_index(
+            s[ind_frame].argmax(), s[ind_frame].shape)[0] * px_sz_mm
+        coords_max[ind_frame, 2] = np.unravel_index(
+            s[ind_frame].argmax(), s[ind_frame].shape)[1] * px_sz_mm
 
     # center the coords_max
     coords_max -= coords_max.mean(axis=0)
@@ -942,7 +969,7 @@ def focus_series(focus_step_mm=0.05, exp_time=10, step_no=11, MTF=False):
     try:
         pos_start = drivers['microscope'].get_pos_focus()
     except KeyError:
-        print ('It looks like you havent initialised the microscope')
+        print('It looks like you havent initialised the microscope')
 
     for ind_step in range(step_no):
         # move focus to position
@@ -996,7 +1023,8 @@ def focus_calc(imgs, x, pos_start, focus_step_mm=0.05, step_no=11):
     plt.figure()
     plt.plot(x, y, 'ro')
     plt.show()
-    p, c = scipy.optimize.curve_fit(gauss_curve, x, y, p0=[max(y) - min(y), mu, sigma, min(y)])  # fit
+    p, c = scipy.optimize.curve_fit(
+        gauss_curve, x, y, p0=[max(y) - min(y), mu, sigma, min(y)])  # fit
     # plot results
     x_plot = np.arange(pos_start - (step_no + 1) / 2 * focus_step_mm, pos_start + (step_no + 3) / 2 * focus_step_mm,
                        focus_step_mm / 10)
@@ -1013,12 +1041,13 @@ def focus_calc(imgs, x, pos_start, focus_step_mm=0.05, step_no=11):
 
     # if maximum outside the search area abort
     if max_pos <= pos_start - (step_no - 1) / 2 * focus_step_mm or max_pos >= pos_start + (
-        step_no - 1) / 2 * focus_step_mm:
+            step_no - 1) / 2 * focus_step_mm:
         print('maximum found outside search area, aborting...')
         return
 
     # else move to maximum position
-    toggle_move = input('optimal position found at %f, move there ([y]/n)?' % max_pos)
+    toggle_move = input(
+        'optimal position found at %f, move there ([y]/n)?' % max_pos)
     if toggle_move == '':
         toggle_move = 'y'
     while toggle_move != 'y' and toggle_move != 'n':
@@ -1102,15 +1131,18 @@ def MTF_calc(x, pos_start, focus_step_mm=0.05, step_no=11):
     vol = np.zeros((step_no, 2048, 2048))
     if fext == 'h5':
         for ind_file, file_name in enumerate(file_list):
-            fid = h5py.File('/camserver/live_view/focus/' + file_name,'r')
+            fid = h5py.File('/camserver/live_view/focus/' + file_name, 'r')
             frame = np.squeeze(fid['/entry/data'])
             frame = np.asarray(frame)
-            vol[ind_file] = frame[:, :2048] # get rid of the last few columns as they might be broken
+            # get rid of the last few columns as they might be broken
+            vol[ind_file] = frame[:, :2048]
             fid.close()
     elif fext == 'tif':
         for ind_file, file_name in enumerate(file_list):
-            frame = np.asarray(PIL.Image.open('/camserver/live_view/focus/' + file_name))
-            vol[ind_file] = frame[:, :2048] # get rid of the last few columns as they might be broken
+            frame = np.asarray(PIL.Image.open(
+                '/camserver/live_view/focus/' + file_name))
+            # get rid of the last few columns as they might be broken
+            vol[ind_file] = frame[:, :2048]
     else:
         print('wrong files?')
         return
@@ -1125,12 +1157,14 @@ def MTF_calc(x, pos_start, focus_step_mm=0.05, step_no=11):
 
     # fit with gaussian
     y = MTF50s
-    mu = sum(x*y)/sum(y) # estimate of starting positions
+    mu = sum(x*y)/sum(y)  # estimate of starting positions
     sigma = sum((mu-x)**2*y)/sum(x)
-    p, c = scipy.optimize.curve_fit(gauss_curve, x, y, p0=[max(y)-min(y), mu, sigma, min(y)], maxfev=50000)  # fit
+    p, c = scipy.optimize.curve_fit(gauss_curve, x, y, p0=[max(
+        y)-min(y), mu, sigma, min(y)], maxfev=50000)  # fit
 
     # plot results
-    x_plot = np.arange(pos_start-(step_no+1)/2*focus_step_mm, pos_start+(step_no+3)/2*focus_step_mm, focus_step_mm/10)
+    x_plot = np.arange(pos_start-(step_no+1)/2*focus_step_mm,
+                       pos_start+(step_no+3)/2*focus_step_mm, focus_step_mm/10)
     y_plot = gauss_curve(x_plot, p[0], p[1], p[2], p[3])
 
     # display results
@@ -1150,7 +1184,8 @@ def MTF_calc(x, pos_start, focus_step_mm=0.05, step_no=11):
         return
 
     # else move to maximum position
-    toggle_move = input('optimal position found at %f, move there ([y]/n)?' % max_pos)
+    toggle_move = input(
+        'optimal position found at %f, move there ([y]/n)?' % max_pos)
     if toggle_move == '':
         toggle_move = 'y'
     while toggle_move != 'y' and toggle_move != 'n':
@@ -1166,7 +1201,7 @@ def gauss_curve(x, a, mu, sigma, c):
     return a*np.exp(-(mu-x)**2/(2*sigma**2)) + c
 
 
-def big_scan(start_x, start_y, end_x, end_y, zoom=2, exp_time=1, vmax=200, binning=True, move_combine = False):
+def big_scan(start_x, start_y, end_x, end_y, zoom=2, exp_time=1, vmax=200, binning=True, move_combine=False):
     """A tool for scanning a large area for either creating a mosaic of a large sample or finding a smaller one.
     Takes images starting from start position and ending at the next convenient place after end position.
 
@@ -1193,10 +1228,10 @@ def big_scan(start_x, start_y, end_x, end_y, zoom=2, exp_time=1, vmax=200, binni
         n_pix = 1787
     else:
         n_pix = 2048
-        step_size = n_pix * (config['pixel_size']) *1000
+        step_size = n_pix * (config['pixel_size']) * 1000
     moves_x = int(math.ceil((end_x - start_x) / step_size)) + 1
     moves_y = int(math.ceil((end_y - start_y) / step_size)) + 1
-    print('moving ' + str(moves_x) + ' in x and ' +str(moves_y) + ' in z')
+    print('moving ' + str(moves_x) + ' in x and ' + str(moves_y) + ' in z')
     z = motors['sy'].mv(start_y)
     motors['sxl'].mv(start_x)
     big_list = []
@@ -1213,19 +1248,23 @@ def big_scan(start_x, start_y, end_x, end_y, zoom=2, exp_time=1, vmax=200, binni
             print('x= ' + str(x) + ' z= ' + str(z))
             big_list.append(l)
             if zoom == 2:
-                all_the_stuff[1787 * i:1787 * (i + 1), 1787 * j:1787 * (j + 1)] = im[200:1987, 200:1987]#, axis = 1)
+                # , axis = 1)
+                all_the_stuff[1787 * i:1787
+                              * (i + 1), 1787 * j:1787 * (j + 1)] = im[200:1987, 200:1987]
             else:
-                all_the_stuff[n_pix * i:n_pix * (i + 1), n_pix * j:n_pix * (j + 1)] = im[:, :2048]#, axis = 1)
-            plt.imshow(all_the_stuff, vmax = vmax , origin = 'upper')
-            plt.pause(0.01) #to update screen
+                # , axis = 1)
+                all_the_stuff[n_pix * i:n_pix
+                              * (i + 1), n_pix * j:n_pix * (j + 1)] = im[:, :2048]
+            plt.imshow(all_the_stuff, vmax=vmax, origin='upper')
+            plt.pause(0.01)  # to update screen
             j += 1
             x = motors['sxl'].mvr(step_size)
-        if i < moves_y -1:
+        if i < moves_y - 1:
             z = motors['sy'].mvr(step_size)
         i += 1
     if binning:
         all_the_stuff = rebin(all_the_stuff, [2048, int(2048*moves_y/moves_x)])
-        plt.imshow(all_the_stuff, vmin=0, vmax=200, origin= 'upper')
+        plt.imshow(all_the_stuff, vmin=0, vmax=200, origin='upper')
     return all_the_stuff
 
 
@@ -1247,7 +1286,8 @@ def pixel_size_finder(images, distance_moved, show=True, update=True):
     mins = []
     maxs = []
     for image in images:
-        diff = np.diff(np.mean(medfilt(image[:, :2048],5)[5:-5,5:-5], axis=0))
+        diff = np.diff(
+            np.mean(medfilt(image[:, :2048], 5)[5:-5, 5:-5], axis=0))
         mins.append(np.argmin(diff))
         maxs.append(np.argmax(diff))
 
@@ -1271,7 +1311,7 @@ def pixel_size_finder(images, distance_moved, show=True, update=True):
     return psize
 
 
-def move_and_combine_large(exp_time, start_x, start_y, end_x, end_y, flat = None, mode='sample',
+def move_and_combine_large(exp_time, start_x, start_y, end_x, end_y, flat=None, mode='sample',
                            max_iter=3,  remove_hits=False):
 
     if exp_time is None:
@@ -1280,7 +1320,8 @@ def move_and_combine_large(exp_time, start_x, start_y, end_x, end_y, flat = None
     if flat is None:
         flat = FRAMES['flat'].get(_exp_time_as_key(exp_time), None)
 
-    scan_path = moving_image_stack_large(start_x, start_y, end_x, end_y, exp_time=exp_time, mode=mode)
+    scan_path = moving_image_stack_large(
+        start_x, start_y, end_x, end_y, exp_time=exp_time, mode=mode)
 
     files_to_stitch = sorted(glob(os.path.join(scan_path, '*.h5')))
     print(files_to_stitch)
