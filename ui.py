@@ -21,7 +21,7 @@ import base64
 from io import StringIO
 import optimatools
 
-from optimatools import stitching, rebin
+from optimatools import stitching, rebin, io
 from . import mtffun_hans
 from . import smaract
 from . import mclennan
@@ -34,7 +34,6 @@ from . import andor
 from . import dummy
 #from . import excillum
 from . import spec_magics
-from .. import io
 
 from . import drivers, motors, config, conf_path
 from .ui_utils import ask, ask_yes_no
