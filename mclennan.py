@@ -92,339 +92,548 @@ The absolute movement function is simply based off reading the current position
 and subsequently calling the relative movement function.
 """
 
-import socket
 import time
-import os
-import errno
-import threading
 import logging
-import datetime
+import json
+from json_database import JsonStorage
 
-from .base import MotorBase, DriverBase
+from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceDisconnectException
+from . import motors
+from .ui_utils import ask_yes_no
 from . import conf_path
 
-__all__ = ['McLennan', 'Motor']
+__all__ = ['McLennanDaemon', 'McLennan', 'Motor']
 
+# This API uses carriage return (\r) as end-of-line.
+EOL = b'\r'
+
+# microsteps per revolution, according to table in the manual, needs to be set before AC and DC
 DEFAULT_MICROSTEPS = 20000
+
+# acceleration in rev/s/s
 DEFAULT_ACCELERATION = 2
+
+# deceleration in rev/s/s
 DEFAULT_DECELERATION = 2
+
+# velocity in rev/s
 DEFAULT_VELOCITY = 2
+
+# emergency deceleration for fast stops. If spinning at 2 rev/s AM=20 should stop in 0.1 s
 DEFAULT_EMERGENCY_DECELERATION = 20
+
+# motor current in amps, check with mclennan what values are good
 DEFAULT_CURRENT = 2.1
 
+# motor limits in mm
+DEFAULT_LIMITS = (-20, 20)
+
+# Bitmasks for status return
+STATUS_STRINGS = ['Motor Enabled (Motor Disabled if this bit = 0)',  # 0x0001
+                  'Sampling (for Quick Tuner)',  # 0x0002
+                  'Drive Fault (check Alarm Code)',  # 0x0004
+                  'In Position (motor is in position)',  # 0x0008
+                  'Moving (motor is moving)',  # 0x0010
+                  'Jogging (currently in jog mode)',  # 0x0020
+                  'Stopping (in the process of stopping from a stop command)',  # 0x0040
+                  'Waiting (for an input; executing a WI command)',  # 0x0080
+                  'Saving (parameter data is being saved)',  # 0x0100
+                  'Alarm present (check Alarm Code)',  # 0x0200
+                  'Homing (executing an SH command)',  # 0x0400
+                  'Waiting (for time; executing a WD or WT command)',  # 0x0800
+                  'Wizard running (Timing Wizard is running)',  # 0x1000
+                  'Checking encoder (Timing Wizard is running)',  # 0x2000
+                  'Program is running',  # 0x4000
+                  'Initializing (happens at power up)']  # 0x8000
+
+
+class McLennanDaemon(SocketDeviceServerBase):
+    """
+    McLennan Daemon - to be subclassed for each driver socket.
+    McLennan controllers don't have encoders, so we also need to store
+    and increment a software position based on the passed commands.
+    That makes things a bit more complicated.
+    """
+
+    EOL = EOL
+
+    def __init__(self, serving_address, device_address, name):
+        """
+        Constructor requires 'name' to differentiate multiple instances.
+        """
+        self.name = name
+        self.persistence_filename = self.name + '.conf'
+        self.persistence_conf = None
+        super().__init__(serving_address=serving_address, device_address=device_address)
+
+    def init_device(self):
+        """
+        Device initialization.
+        """
+        # ask for firmware version to see if connection works
+        version = self.device_cmd('RV')
+        self.logger.debug('Firmware version is %s' % version.strip())
+
+        # turn Ack/Nack on
+        self.device_cmd('PR4')
+
+        # Load persistence file
+        self.persistence_conf = JsonStorage(self.persistence_filename)
+
+        self.initialized = True
+        return
+
+    def parse_escaped(self, cmd):
+        """
+        Parse extra commands because of persistence.
+        """
+
+        print(f'parse_escaped received {cmd}')
+
+        out = cmd.split(b'PERSIST')
+
+        print(f'cmd split -> {out}')
+        if len(out) == 1:
+            # Not a 'PERSIST' command. continue parsing
+            return super().parse_escaped(cmd)
+
+        cmd, payload = out
+        payload = payload.decode()
+
+        print(f'payload: {payload}')
+
+        if cmd == b'GET':
+            # pass persistence value
+            value = self.persistence_conf.get(payload)
+            return json.dumps({payload: value}).encode()
+        if cmd == b'SET':
+            # Set a persistence value
+            self.persistence_conf.update(json.loads(payload))
+            self.persistence_conf.store()
+            return b'OK'
+        else:
+            return b'Error: unknown command ' + cmd
+
+    def device_cmd(self, cmd):
+        """
+        Pass command to the device after slight reformatting.
+        """
+        # Convert command to the right format before sending.
+        if isinstance(cmd, str):
+            cmd = cmd.encode()
+        out = b'\x00\x07' + cmd + self.EOL
+        return super().device_cmd(out)
+
+    def wait_call(self):
+        """
+        Keep-alive call
+        """
+        r = self.device_cmd('RV')
+        if not r:
+            raise DeviceDisconnectException
 
 class McLennan(DriverBase):
+    """
+    Driver for the coarse bottom stages.
+    """
 
-    limits = (-200, 200)
+    EOL = EOL
+    ballscrew_length = 2.    # Displacement for one full revolution
+    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
 
-    def __init__(self, host='192.168.0.60', port=7776, name=None, poll_interval=10.):
+    def __init__(self, address, name, admin=True):
         """
         Initialise McLennan driver (coarse translation motors).
         """
-        DriverBase.__init__(self, poll_interval=poll_interval)
+        # Create logger now to make sure it doesn't get the class name
+        self.name = name
+        self.logger = logging.getLogger(name)
 
-        self.host = host
-        self.port = port
+        super().__init__(address=address, admin=admin)
 
-        # name=None is not acceptable because multiple connections are possible.
-        if name is None:
-            self.name = self.__class__.__name__ + str(self.port)
-        else:
-            self.name = name
+        if ask_yes_no('Set defaults? (probably needed only the first time)', yes_is_default=False):
+            self.logger.info('Setting defaults...')
+            self.set_microstep_resolution(DEFAULT_MICROSTEPS)
+            self.set_accel(DEFAULT_ACCELERATION)
+            self.set_decel(DEFAULT_DECELERATION)
+            self.set_vel(DEFAULT_VELOCITY)
+            self.set_decel_max(DEFAULT_EMERGENCY_DECELERATION)
+            self.set_current(DEFAULT_CURRENT)
+            self.set_limits(DEFAULT_LIMITS)
+            self.logger.info('Done setting defaults.')
 
-        self.logger = logging.getLogger("McLennan Driver (%s)" % self.name)
+        position = self.get_pos()
+        if position is None:
+            if ask_yes_no('No position recorded! Set to 0.0?'):
+                position = 0.0
+                self.set_pos(position)
 
-        # This will run the initialisation on the thread
-        self.start_thread()
+        self.logger.info(f'Initial position: {position:0.2f}')
 
-    def _init(self):
+        # TODO: how to name motors?
+        # Create motor
+        # self.motor = {'rot': Motor('rot', self)}
+        # motors['rot'] = self.motor['rot']
+
+        self.logger.info(f"McLennan ({self.name}) initialization complete.")
+        self.initialized = True
+
+    def send_cmd(self, msg: str):
         """
-        McLennan driver initialisation - running on the polling thread.
+        Send device command and parse input (no escape command!)
+        Return pair of strings (or None as second element)
         """
-        self.logger.info("Initialising McLennan controller.")
 
-        # create socket object
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # creates the socket object controller
-        self.sock.settimeout(5)  # set timeout in seconds
+        # Convert to bytes
+        msg = msg.encode()
 
-        # connect
-        conn_errno = self.sock.connect_ex((self.host, self.port))
-        retry_count = 0  # counter for retries, limit to 10 retries
-        while conn_errno != 0:  # and conn_errno != 114:
-            time.sleep(.05)
+        # send command
+        reply = self.send_recv(msg + self.EOL)
 
-            conn_errno = self.sock.connect_ex((self.host, self.port))
-            retry_count += 1
-            if retry_count > 10:
-                raise RuntimeError('Connection refused.')
+        # strip header and \r
+        r = reply[2:-1]
 
-        # ask for firmware version to see if connection works
-        s, v = self.cmd_send('RV')
-        self.logger.info('Connected to motor, firmware is %s' % v)
+        # Try to split around '='
+        rs = r.split(b'=')
 
-        # turn Ack/Nack on
-        self.cmd_send('PR4')
+        print(f'rs = {rs}')
 
-        self.logger.info('Setting defaults...')
+        # If it failed, the controller returned a success/fail symbol
+        if len(rs) == 1:
+            return rs[0].decode(), None
 
-        # microsteps per revolution, according to table in the manual, needs to be set before AC and DC
-        self.set_microstep_resolution(DEFAULT_MICROSTEPS)
-        # acceleration in rev/s/s
-        self.set_accel(DEFAULT_ACCELERATION)
-        # deceleration in rev/s/s
-        self.set_decel(DEFAULT_DECELERATION)
-        # velocity in rev/s
-        self.set_vel(DEFAULT_VELOCITY)
-        # emergency deceleration for fast stops. If spinning at 2 rev/s AM=20 should stop in 0.1 s
-        self.set_emergency_decel(DEFAULT_EMERGENCY_DECELERATION)
-        # # motor current in amps, check with mclennan what values are good
-        self.set_current(DEFAULT_CURRENT)
+        return rs[0].decode(), rs[1].decode()
 
-        # Unique filename for storing absolute position
-        self.persistence_file = os.path.join(conf_path, 'mclennan', self.host.replace('.', '_') + '_' + str(self.port))
-        self.logger.info('Persistence file is "%s"' % self.persistence_file)
-
-        if not os.path.exists(self.persistence_file):
-            self.logger.warn('Persistence file does not exist. Absolute position initialised to 0.')
-            # Create path
-            try:
-                os.makedirs(os.path.split(self.persistence_file)[0])
-            except OSError as e:
-                if e.errno == errno.EEXIST:
-                    pass
-                else:
-                    raise
-            self.write_current_position(0.)
-
-    def _poll(self):
-        """
-        We need an actual call to the driver to keep the connection alive.
-        """
-        self.get_accel()
-
-    def mqtt_payload(self):
-        """
-        MQTT payload
-        """
-        return {'xnig/drivers/mclennan_%s/pos' % self.name: self.read_current_position()}
-
+    @admin_only
     def enable(self):
         """
         Enable motor. Motors are enabled by default when switching the controllers on
         so this function is not really needed that often. However it might be useful to
         disable motors sometimes when not moving or when switching the controllers off
         """
-        s, v = self.cmd_send('ME')
+        s, v = self.send_cmd('ME')
         if s != '%':
-            raise RuntimeError('Enabling motor failed!')
+            self.logger.critical('Enabling motor failed!')
 
+    @admin_only
     def disable(self):
         """
         Disable motor
         """
-        s, v = self.cmd_send('MD')
+        s, v = self.send_cmd('MD')
         if s != '%':
-            raise RuntimeError('Disabling motor failed!')
+            self.logger.critical('Disabling motor failed!')
 
-    def _send_recv(self, msg):
-        """
-        Send message to socket and receive reply message.
-        """
-        with self._lock:
-            try:
-                self.sock.sendall(msg)
-                r = self.sock.recv(128)
-                while r[-1:] != '\n':
-                    r += self.sock.recv(128)
-            except socket.timeout:
-                raise RuntimeError('Communication timed out')
-        return r
-
-    def cmd_send(self, cmd):
-        """
-        Send a command to a controller and reads back the input
-        """
-
-        cmd = self.input_parse(cmd)
-        o = self._send_recv(cmd)
-        s, v = self.output_parse(o)
-        return s, v
-
-    @staticmethod
-    def input_parse(str_in):
-        """
-        Take a command from the Host Command Set and convert it
-        to a bytestring that can be read by the controller
-        Input should be a string something like
-           XX
-        or
-           XXAB
-        where XX is the Command, e.g. RV (Read the firmware Version) and
-        AB is the optional value, e.g. VE2.5 (set VElocity to 2.5 rev/s)
-        """
-        # split input string into individual characters
-        str_out = list(str_in)
-        # convert to bytestring
-        str_out = bytearray([ord(i) for i in str_out])
-        # header and encoder
-        str_out = bytearray([0, 7]) + str_out + bytearray(['\r'])
-        return str_out
-
-    @staticmethod
-    def output_parse(str_in):
-        """
-        Take the answer from the controller and convert into human readable format
-        """
-        str_out = [i for i in str_in]  # convert to listdir
-        str_out = str_out[2:-1]  # strip header and <cr>
-
-        # parse
-        if len(str_out) == 1:  # controller returned a success/fail symbol
-            return str_out[0], None
-        else:
-            # get command (first two symbols)
-            cmdname = str_out.pop(0) + str_out.pop(0)
-            # get rid of '=' sign
-            str_out.pop(0)
-            if str_out[0].isalpha():
-                value = ''.join(str_out)
-            else:
-                value = float(''.join(str_out))
-            return cmdname, value
-
-    def _finish(self):
-        """
-        Clean up
-        """
-        # disconnect socket
-        self.sock.close()
-
+    @admin_only
     def move_rel(self, dx):
         """
         Move relative, in mm
+
         the ballscrew has a pitch of 2 mm, micro-stepping is set to 20,000 steps per revolution
         so 1 microstep corresponds to 2 mm/20'000 steps = 100 nm (?)
+        TODO: IS IT TRUE FOR ALL MOTORS?
         """
         dx = float(dx)
 
-        # Update absolute position
-        new_position = self.read_current_position() + dx
-        self._check_limits(new_position)
+        # Get limits
+        low_lim, high_lim = self.get_limits()
 
-        # convert distance to revolutions
-        # first get the microstep resolution as per table in the Manual
-        c, v = self.get_microstep_resolution()
+        # Get current position
+        pos = self.get_pos()
+
+        if pos is None:
+            self.logger.critical('Move aborted. Current position undefined. Use `set_pos` to set.')
+            return
+
+        # Check limits
+        if (pos + dx) < low_lim:
+            self.logger.critical(f'Move by {dx} mm goes beyond lower limit ({pos} + {dx} < {low_lim})')
+            return
+        if (pos + dx) > high_lim:
+            self.logger.critical(f'Move by {dx} mm goes beyond higher limit ({pos} + {dx} > {high_lim})')
+            return
+
+        # first get the microstep resolution
+        ms = self.get_microstep_resolution()
 
         # number of microsteps
-        no_microsteps = int(dx*v/2.)  # (dx in mm) * (microsteps/revolution) / (2 mm/revolution)
+        no_microsteps = int(dx*ms/self.ballscrew_length)
 
         # maximum number of microsteps per move is limited by hardware
         if no_microsteps < -2147483647 or no_microsteps > 2147483647:
-            raise RuntimeError('Step too large: %d. Should be < 2147483647.')
+            self.logger.critical(f'Step too large: {no_microsteps}. Should be < 2147483647.')
+            return
 
         # move
-        c, v = self.cmd_send('FL'+str(no_microsteps))
+        c, v = self.send_cmd(f'FL{no_microsteps}')
+        self.check_done()
+        self.logger.info("Motion finished.")
 
         # Write new position
-        self.write_current_position(new_position)
-        return self.read_current_position()
+        self.set_pos(pos + dx)
+        return self.get_pos()
 
+    def get_status(self):
+        """
+        Get status from driver.
+        Return a list of 16 bool corresponding to the list STATUS_STRINGS at the top
+        of the file.
+        """
+        s, v = self.send_cmd('SC')
+        vint = int(v, base=16)
+        codes = [bool(vint & 2**i) for i in range(16)]
+        return codes
+
+    @staticmethod
+    def parse_status(codes):
+        """
+        Parse status_value
+        """
+        return [STATUS_STRINGS[i] for i in range(16) if codes[i]]
+
+    def check_done(self):
+        """
+        Poll until movement is complete.
+        """
+        with emergency_stop(self.abort):
+            while True:
+                # query status
+                codes = self.get_status()
+                if not codes[4]:
+                    break
+                # Temporise
+                time.sleep(self.POLL_INTERVAL)
+        return
+
+    def abort(self):
+        """
+        Emergency stop
+        """
+        self.logger.critical("ABORTING MOTION!")
+        self.send_cmd('ST')
+        self.check_done()
+        self.logger.info("Motion aborted. Position is now undefined.")
+        self.set_pos(None)
+
+    @admin_only
     def move_abs(self, x):
         """
         Move absolute, in mm.
-        This method relies on self.pos to have a valid value. There is a possibility that
-        the absolute position accumulate errors with time.
+        This method relies on the recorded software position to have a valid value.
+        There is a possibility that the absolute position accumulate errors with time.
         """
-        move = x - self.read_current_position()
+        pos = self.get_pos()
+        if pos is None:
+            self.logger.critical('Move aborted. Current position undefined. Use `set_pos` to set.')
+            return
+
+        move = x - self.get_pos()
         return self.move_rel(move)
 
-    def _check_limits(self, x):
-        """
-        Check that limits are satisfied
-        """
-        assert (x > self.limits[0]) and (x < self.limits[1])
-
     def get_microstep_resolution(self):
-        return self.cmd_send('EG')
+        """
+        Get number of microsteps per revolution
+        """
+        c, v = self.send_cmd('EG')
+        try:
+            v = float(v)
+        except ValueError:
+            self.logger.critical(f'Command EG failed (return value is {v}')
+            raise
+        return v
 
+    @admin_only
     def set_microstep_resolution(self, microstep_resolution):
-        if microstep_resolution not in list(range(200, 51201)):
-            raise RuntimeError('Wrong microstep resolution value, please select an integer between 200 and 51200.')
-        s, v = self.cmd_send(('EG'+str(microstep_resolution)))
+        """
+        Set number of microsteps per revolution
+        """
+        microstep_resolution = int(microstep_resolution)
+        if (microstep_resolution < 201) or (microstep_resolution > 51200):
+            self.logger.critical(f'Microstep resolution should be between 200 and 51200.')
+            return
+        s, v = self.send_cmd(f'EG{microstep_resolution}')
         if '?' in s:
-            raise RuntimeError('Could not set microsteps')
+            self.logger.critical('Error setting microsteps')
+        return
 
     def get_accel(self):
-        return self.cmd_send('AC')
+        """
+        Get acceleration (in revolution / s^2)
+        """
+        c, v = self.send_cmd('AC')
+        try:
+            v = float(v)
+        except ValueError:
+            self.logger.critical(f'Command AC failed (return value is {v}')
+            raise
+        return v
 
+    @admin_only
     def set_accel(self, accel):
-        s, v = self.cmd_send('AC'+str(accel))
+        """
+        Set acceleration (in revolution / s^2)
+        """
+        accel = int(accel)
+        s, v = self.send_cmd(f'AC{accel}')
         if '?' in s:
-            raise RuntimeError('Could not set acceleration')
+            self.logger.critical('Could not set acceleration')
+        return
 
     def get_decel(self):
-        return self.cmd_send('DC')
+        """
+        Get deceleration (in revolution / s^2)
+        """
+        c, v = self.send_cmd('DC')
+        try:
+            v = float(v)
+        except ValueError:
+            self.logger.critical(f'Command DC failed (return value is {v}')
+            raise
+        return v
 
+    @admin_only
     def set_decel(self, decel):
-        s, v = self.cmd_send('DC'+str(decel))
+        """
+        Set acceleration (in revolution / s^2)
+        """
+        decel = int(decel)
+        s, v = self.send_cmd(f'DC{decel}')
         if '?' in s:
-            raise RuntimeError('Could not set deceleration')
+            self.logger.critical('Could not set deceleration')
+        return
 
     def get_vel(self):
-        return self.cmd_send('VE')
+        """
+        Get acceleration (in revolution / s^2)
+        """
+        c, v = self.send_cmd('VE')
+        try:
+            v = float(v)
+        except ValueError:
+            self.logger.critical(f'Command VE failed (return value is {v}')
+            raise
+        return v
 
+    @admin_only
     def set_vel(self, vel):
-        s, v = self.cmd_send('VE'+str(vel))
+        """
+        Set velocity (in revolution / s)
+        """
+        vel = int(vel)
+        s, v = self.send_cmd(f'VE{vel}')
         if '?' in s:
-            raise RuntimeError('Could not set velocity')
+            self.logger.critical('Could not set velocity')
+        return
 
     def get_accel_max(self):
-        return self.cmd_send('MA')
+        """
+        Get maximum acceleration (in revolution / s^2)
+        """
+        c, v = self.send_cmd('MA')
+        try:
+            v = float(v)
+        except ValueError:
+            self.logger.critical(f'Command MA failed (return value is {v}')
+            raise
+        return v
 
+    @admin_only
     def set_accel_max(self, accel):
-        s, v = self.cmd_send('MA'+str(accel))
+        """
+        Set acceleration (in revolution / s^2)
+        """
+        accel = int(accel)
+        s, v = self.send_cmd(f'MA{accel}')
         if '?' in s:
-            raise RuntimeError('Could not set maximum acceleration')
+            self.logger.critical('Could not set maximum acceleration')
+        return
 
-    def get_emergency_decel(self):
-        return self.cmd_send('AM')
+    def get_decel_max(self):
+        """
+        Get maximum deceleration (in revolution / s^2)
+        """
+        c, v = self.send_cmd('AM')
+        try:
+            v = float(v)
+        except ValueError:
+            self.logger.critical(f'Command AM failed (return value is {v}')
+            raise
+        return v
 
-    def set_emergency_decel(self, decel):
-        s, v = self.cmd_send('AM'+str(decel))
+    @admin_only
+    def set_decel_max(self, decel):
+        """
+        Set maximum acceleration (in revolution / s^2)
+        """
+        decel = int(decel)
+        s, v = self.send_cmd(f'AM{decel}')
         if '?' in s:
-            raise RuntimeError('Could not set emergency deceleration')
+            self.logger.critical('Could not set maximum deceleration')
+        return
 
     def get_current(self):
-        return self.cmd_send('CC')
+        """
+        Get current (in amps)
+        """
+        c, v = self.send_cmd('CC')
+        try:
+            v = float(v)
+        except ValueError:
+            self.logger.critical(f'Command CC failed (return value is {v}')
+            raise
+        return v
 
-    def set_current(self, current):
-        s, v = self.cmd_send('CC'+str(current))
+    @admin_only
+    def set_current(self, cc):
+        """
+        Set current (in amps)
+        """
+        cc = int(cc)
+        s, v = self.send_cmd(f'CC{cc}')
         if '?' in s:
-            raise RuntimeError('Could not set current')
+            self.logger.critical('Could not set current')
+        return
 
-    # Methods created by Ronan for reading and writing the current position to file
-    def read_current_position(self):
+    def get_pos(self):
         """
-        Read latest position from persistence file
+        Get (software) position (in mm)
         """
-        lines = open(self.persistence_file, 'r').readlines()
-        posns = lines[0].strip().split(',')
-        position = float(posns[0])
-        return position
+        # Send escape command
+        request = self.ESCAPE_STRING + b'GETPERSISTposition' + self.EOL
+        v = self.send_recv(request)
+        return json.loads(v)['position']
 
-    def write_current_position(self, position):
+    @admin_only
+    def set_pos(self, pos):
         """
-        Store new position in persistence file
+        Set (software) position (in mm)
+        This doesn't move the motor itself!
         """
-        new_line = '%9.4f,%25s\n' % (position, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        if not os.path.exists(self.persistence_file):
-            lines = [new_line]
-        else:
-            lines = [new_line] + open(self.persistence_file, 'r').readlines()
-        if len(lines) >= 10:
-            lines = lines[:10]
-        open(self.persistence_file, 'w').writelines(lines)
-        self.logger.info(new_line)
+        # Send escape command
+        payload = json.dumps({'position': pos})
+        request = self.ESCAPE_STRING + f'SETPERSIST{payload}'.encode() + self.EOL
+        v = self.send_recv(request)
+        return
+
+    def get_limits(self):
+        """
+        Get (software) limits (in mm)
+        """
+        # Send escape command
+        request = self.ESCAPE_STRING + b'GETPERSISTlimits' + self.EOL
+        v = self.send_recv(request)
+        return json.loads(v)['limits']
+
+    @admin_only
+    def set_limits(self, limits):
+        """
+        Set (software) limits (in mm)
+        """
+        # Send escape command
+        payload = json.dumps({'limits': limits})
+        request = self.ESCAPE_STRING + f'SETPERSIST{payload}'.encode() + self.EOL
+        v = self.send_recv(request)
+        return
 
 
 class Motor(MotorBase):
@@ -433,7 +642,7 @@ class Motor(MotorBase):
         self.limits = (-31, 31)
 
     def _get_pos(self):
-        return self.driver.read_current_position()
+        return self.driver.get_pos()
 
     def _set_abs_pos(self, x):
         """

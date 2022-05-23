@@ -42,16 +42,14 @@ Initial Version: Hans Deyhle
 
 import time
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop
+from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceDisconnectException
+from .network_conf import AEROTECH as DEFAULT_NETWORK_CONF
 from . import motors
 from .ui_utils import ask_yes_no
 
 __all__ = ['AerotechDeamon', 'Aerotech', 'Motor']
 
-AEROTECH_DAEMON_ADDRESS = "127.0.0.1"
-AEROTECH_DAEMON_PORT = 15000
-AEROTECH_DEVICE_ADDRESS = "?.?.?.?"
-AEROTECH_DEVICE_PORT = 8000
+EOL = b'\n'
 
 
 class AerotechDeamon(SocketDeviceServerBase):
@@ -59,22 +57,27 @@ class AerotechDeamon(SocketDeviceServerBase):
     Aerotech Daemon
     """
 
-    def __init__(self):
-        super().__init__(serving_address=(AEROTECH_DAEMON_ADDRESS, AEROTECH_DAEMON_PORT),
-                         device_address=(AEROTECH_DEVICE_ADDRESS, AEROTECH_DEVICE_PORT))
+    EOL = EOL
+
+    def __init__(self, serving_address=None, device_address=None):
+        if serving_address is None:
+            serving_address = DEFAULT_NETWORK_CONF['DAEMON']
+        if device_address is None:
+            device_address = DEFAULT_NETWORK_CONF['DEVICE']
+        super().__init__(serving_address=serving_address, device_address=device_address)
 
     def init_device(self):
         """
         Device initialization.
         """
         # try reading something back
-        version = self.device_cmd('VERSION\n')
+        version = self.device_cmd(b'VERSION\n')
         self.logger.debug('Firmware version is %s.' % version.strip())
 
         # Set wait mode to NOWAIT. In this case, the controller will acknowledge all
         # commands immediately. This will prevent timeout errors. It should now also
         # be possible to query the AXISSTATUS while the axis is moving
-        self.device_cmd('WAIT MODE NOWAIT\n')
+        self.device_cmd(b'WAIT MODE NOWAIT\n')
 
         self.initialized = True
         return
@@ -83,7 +86,9 @@ class AerotechDeamon(SocketDeviceServerBase):
         """
         Keep-alive call
         """
-        self.device_cmd('AXISSTATUS(@0)\n')
+        r = self.device_cmd(b'AXISSTATUS(@0)\n')
+        if not r:
+            raise DeviceDisconnectException
 
 
 class Aerotech(DriverBase):
@@ -92,16 +97,17 @@ class Aerotech(DriverBase):
     """
 
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
+    EOL = EOL
 
-    def __init__(self, admin=True):
+    def __init__(self, address, admin=True):
         """
         Connect to daemon.
         """
-        super().__init__(self, address=(AEROTECH_DAEMON_ADDRESS, AEROTECH_DAEMON_PORT), admin=admin)
+        super().__init__(address=address, admin=admin)
 
         # enable axis if not already done.
-        ae_en = self.axis_enable()
-        self.logger.debug('Axis enabled is %s.' % ae_en.strip())
+        ae_en = self.axis_enable().strip()
+        self.logger.debug(f'Axis enabled is {ae_en}.')
 
         # home axis (user input)
         # ---------------------------------------------------------------------------
@@ -122,13 +128,6 @@ class Aerotech(DriverBase):
         self.logger.info("AeroTech initialization complete.")
         self.initialized = True
 
-    def mqtt_payload(self):
-        """
-        Generate payload for MQTT, as a dictionary {topic: payload}
-        """
-        return {'xnig/drivers/aerotech/pos': self.get_pos(),
-                'xnig/drivers/aerotech/status': self.axis_status()}
-
     def axis_status(self):
         """
         Check the current status of axis. The status is bit encoded.
@@ -137,7 +136,7 @@ class Aerotech(DriverBase):
 
         # ---------------------------------------------------------------------------
         # query status
-        status = self.send_recv('AXISSTATUS(@0)\n')
+        status = self.send_recv(b'AXISSTATUS(@0)\n')
 
         # parse status (32-bit)
         status = int(status[1:-1])  # need to get rid of the acknowledge and EOS characters
@@ -159,7 +158,7 @@ class Aerotech(DriverBase):
         """
         Enable axis connection on socket.
         """
-        self.send_recv('ENABLE @0\n')
+        self.send_recv(b'ENABLE @0\n')
         if not self.axis_enabled:
             self.logger.critical('Error enabling axis:')
             self.axis_fault()
@@ -170,7 +169,7 @@ class Aerotech(DriverBase):
         """
         Disable axis connected on socket
         """
-        self.send_recv('DISABLE @0\n')
+        self.send_recv(b'DISABLE @0\n')
         if self.axis_enabled:
             self.logger.critical('Error disabling axis.')
 
@@ -184,7 +183,7 @@ class Aerotech(DriverBase):
             return
 
         # perform Homing
-        homed = self.send_recv('HOME @0\n')
+        homed = self.send_recv(b'HOME @0\n')
         self.check_done()
         return homed
 
@@ -193,17 +192,14 @@ class Aerotech(DriverBase):
         Emergency stop.
         """
         self.logger.info("ABORTING ROTATION!")
-        self.send_recv('ABORT @0\n')
+        self.send_recv(b'ABORT @0\n')
 
-    def get_pos(self, to_stdout=False):
+    def get_pos(self):
         """
         Get calibration corrected position in user units
         """
-        pos = self.send_recv('PFBKCAL(@0)\n')
+        pos = self.send_recv(b'PFBKCAL(@0)\n')
 
-        # extract output
-        if to_stdout:
-            self.logger.debug(("Position: %s" % pos.strip()))
         try:
             pos = float(pos[1:-1])
         except:
@@ -215,7 +211,7 @@ class Aerotech(DriverBase):
         Get velocity
         TODO: confirm degree/second?
         """
-        vel = self.send_recv('VFBK(@0)\n')
+        vel = self.send_recv(b'VFBK(@0)\n')
         vel = float(vel[1:-1])
         return vel
 
@@ -231,7 +227,7 @@ class Aerotech(DriverBase):
             self.logger.warning('Axis not enabled. Aborting.')
             return
 
-        self.send_recv('MOVEABS @0 %f @0F %f\n' % (angle, speed))
+        self.send_recv(f'MOVEABS @0 {angle} @0F {speed}\n'.encode())
         self.check_done()
         return self.get_pos()
 
@@ -244,7 +240,7 @@ class Aerotech(DriverBase):
         if not self.axis_enabled:
             self.logger.warning('Axis not enabled. Aborting.')
             return
-        self.send_recv('MOVEINC @0 %f @0F %f\n' % (angle, speed))
+        self.send_recv(f'MOVEINC @0 {angle} @0F {speed}\n'.encode())
         self.check_done()
         return self.get_pos()
 
@@ -267,7 +263,7 @@ class Aerotech(DriverBase):
         Query the bit coded axis fault
         Returns fault code
         """
-        fault = self.send_recv('AXISFAULT(@0)\n')
+        fault = self.send_recv(b'AXISFAULT(@0)\n')
 
         # parse fault code
         fault = int(fault[1:-1])
@@ -292,7 +288,7 @@ class Aerotech(DriverBase):
         Clear task errors and axis faults.
         """
         self.logger.info('Clearing errors...')
-        self.send_recv('ACKNOWLEDGEALL\n')
+        self.send_recv(b'ACKNOWLEDGEALL\n')
 
         # check for faults for good measure...
         self.axis_fault()

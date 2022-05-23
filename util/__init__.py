@@ -1,6 +1,7 @@
 from . import logs
 from .filedict import FileDict
 from .datalog import DataLogger
+from .fake_device import FakeDevice
 
 # Silently fail if mqtt libraries are not present
 try:

@@ -6,9 +6,21 @@ Hard coded network values
 CONTROL_HOST = '?.?.?.?'
 CAMSERVER_HOST = '?.?.?.?'
 
-# Device IPs/hostnames + ports
-AEROTECH = {'DAEMON_ADDRESS': CONTROL_HOST,
-            'DAEMON_PORT': 15000,
-            'DEVICE_ADDRESS': "?.?.?.?",
-            'DEVICE_PORT': 8000}
-# ...
+################################
+# Device IPs/hostnames + ports #
+################################
+
+# Aerotech rotation stage
+AEROTECH = {'DAEMON': (CONTROL_HOST, 15000),
+            'DEVICE': ("?.?.?.?", 8000)
+            }
+
+# McLennan controller for bottom stages
+MCLENNAN1 = {'DAEMON': (CONTROL_HOST, 15100),
+             'DEVICE': ("?.?.?.?", 7776)
+             }
+
+MCLENNAN2 = {'DAEMON': (CONTROL_HOST, 15100),
+             'DEVICE': ("?.?.?.?", 7776)
+             }
+
