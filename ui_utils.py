@@ -1,12 +1,10 @@
 import sys
 
-from . import __DAEMON__
-
 
 __all__ = ['_interactive', 'ask', 'ask_yes_no']
 
 # Would be better to check if a client is connected...
-__interactive = not __DAEMON__ and hasattr(sys, 'ps1')
+__interactive = hasattr(sys, 'ps1')
 
 # Fake interactivity if needed.
 user_interactive = None

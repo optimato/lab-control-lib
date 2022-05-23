@@ -149,7 +149,7 @@ class Motor(MotorBase):
         return self.driver.set_pos(x)
 
 
-def dummy_device():
+def dummy_device(timeout=5., latency=0.):
     """
     Bare-bones fake socket device acceptiing a single connection and processing a few commands.
     """
@@ -165,7 +165,7 @@ def dummy_device():
         try:
             client, address = client_sock.accept()
             print('Client connected')
-            client.settimeout(.5)
+            client.settimeout(timeout)
             t0 = 0
             pos0 = 0.
             dx = 0.
@@ -210,6 +210,7 @@ def dummy_device():
                 else:
                     reply = 'UNKNOWN_COMMAND'
                 # Return to client
+                time.sleep(latency)
                 client.sendall((reply+'\n').encode())
         except socket.timeout:
             continue

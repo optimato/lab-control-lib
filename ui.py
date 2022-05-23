@@ -30,7 +30,7 @@ from . import labframe
 from . import xpsfun_ronan
 from . import microscope
 from . import pco
-from . import andor
+#from . import andor
 from . import dummy
 #from . import excillum
 from . import spec_magics
