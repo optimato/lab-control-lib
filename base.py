@@ -54,6 +54,7 @@ def _recv_all(sock, EOL=b'\n'):
         ret += sock.recv(1024)
     return ret
 
+
 def _send_all(sock, msg):
     """
     Convert str to byte (if needed) and send on socket.
@@ -61,6 +62,7 @@ def _send_all(sock, msg):
     if isinstance(msg, str):
         msg = msg.encode()
     sock.sendall(msg)
+
 
 def nonblock(fin):
     """
@@ -201,48 +203,46 @@ class DeviceServerBase:
 
             # Read data
             data = _recv_all(client, EOL=self.EOL)
-
             if not data:
                 self.logger.warning(f'Client {ident} disconnected.')
                 break
 
-            print(f'about to parse string "{data}"')
+            # Process the raw data sent by the client
+            reply = self.process_command(data)
 
-            # Check for escape
-            if data.startswith(self.ESCAPE_STRING):
-                print(f'String "{data}" starts with {self.ESCAPE_STRING}')
+            # Special case: reply is None means: exit the loop and shut down this client.
+            if reply is None:
+                # Send acknowledgement to client
+                _send_all(client, b'OK' + self.EOL)
+                break
 
-                data = data.strip(self.ESCAPE_STRING).strip()
-                reply = self.parse_escaped(data)
-
-                # Special case: reply is None means: exit the loop and shut down this client.
-                if reply is None:
-                    # Send acknowledgement to client
-                    _send_all(client, b'OK' + self.EOL)
-                    break
-
-                # Send reply back to client
-                _send_all(client, reply + self.EOL)
-
-                continue
-
-            # Pass (or parse) command for device
-            reply = self.device_cmd(data)
-
-            # Return to client
+            # Send reply to client
             try:
                 _send_all(client, reply)
             except BrokenPipeError:
                 self.logger.warning(f'Client {ident} disconnected (dead?).')
                 break
 
-        # Done
+        # Out of the loop: we are done with this client
         client.close()
 
         # Thread cleans itself up
         if self.admin == ident:
             self.admin = None
         self.threads.pop(ident)
+
+    def process_command(self, cmd):
+        """
+        Process a raw command sent by a client and prepare the reply.
+        """
+        # Check for escape
+        if cmd.startswith(self.ESCAPE_STRING):
+            cmd = cmd.strip(self.ESCAPE_STRING).strip()
+            reply = self.parse_escaped(cmd)
+        else:
+            # Pass (or parse) command for device
+            reply = self.device_cmd(cmd)
+        return reply
 
     def device_cmd(self, cmd):
         """
@@ -258,26 +258,26 @@ class DeviceServerBase:
             ident = threading.get_ident()
             if self.admin is None:
                 self.admin = ident
-                return b'OK'
+                return b'OK' + self.EOL
             if self.admin == ident:
-                return b'Already admin'
+                return b'Already admin' + self.EOL
             else:
-                return b'Admin rights claimed by other client'
+                return b'Admin rights claimed by other client' + self.EOL
 
         if cmd == b'AMIADMIN':
             ident = threading.get_ident()
             if self.admin == ident:
-                return b'True'
+                return b'True' + self.EOL
             else:
-                return b'False'
+                return b'False' + self.EOL
 
         if cmd == b'NOADMIN':
             ident = threading.get_ident()
             if self.admin != ident:
-                return b'Admin rights were not granted. Nothing to do.'
+                return b'Admin rights were not granted. Nothing to do.' + self.EOL
             else:
                 self.admin = None
-                return b'Admin rights rescinded'
+                return b'Admin rights rescinded' + self.EOL
 
         if cmd == b'DISCONNECT':
             # Understood by the thread loop as a thread shutdown signal
@@ -287,13 +287,13 @@ class DeviceServerBase:
             # Return some status.
             return self.driver_status()
 
-        return f'Error: unknown command {cmd}'
+        return f'Error: unknown command {cmd}'.encode() + self.EOL
 
     def driver_status(self):
         """
         Some info about the current state of the driver.
         """
-        return b'Not implemented'
+        return b'Not implemented' + self.EOL
 
     def shutdown(self):
         """
