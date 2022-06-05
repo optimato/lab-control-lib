@@ -187,12 +187,8 @@ class McLennanDaemon(SocketDeviceServerBase):
         """
         Parse extra commands because of persistence.
         """
-
-        print(f'parse_escaped received {cmd}')
-
         out = cmd.split(b'PERSIST')
 
-        print(f'cmd split -> {out}')
         if len(out) == 1:
             # Not a 'PERSIST' command. continue parsing
             return super().parse_escaped(cmd)
