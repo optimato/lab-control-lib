@@ -20,7 +20,10 @@ MCLENNAN1 = {'DAEMON': (CONTROL_HOST, 15100),
              'DEVICE': ("?.?.?.?", 7776)
              }
 
-MCLENNAN2 = {'DAEMON': (CONTROL_HOST, 15100),
-             'DEVICE': ("?.?.?.?", 7776)
+MCLENNAN2 = {'DAEMON': (CONTROL_HOST, 15101),
+             'DEVICE': ("?.?.?.?", 7777)
              }
 
+MECADEMIC = {'DAEMON': (CONTROL_HOST, 15200),
+             'DEVICE': ("?.?.?.?", 10000)
+             }
