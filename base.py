@@ -28,7 +28,7 @@ import time
 import atexit
 import socket
 import functools
-
+from select import select
 
 from . import conf_path
 
@@ -325,7 +325,13 @@ class SocketDeviceServerBase(DeviceServerBase):
 
         self.logger.debug(f'Daemon  {self.name} will connect to {self.device_address[0]}:{self.device_address[1]}')
 
-        self.polling_thread = None
+        # Attributes initialized (or re-initialized) in self.connect_device
+        # Buffer in which incoming data will be stored
+        self.recv_buffer = None
+        # Flag to inform other threads that data has arrived
+        self.recv_flag = None
+        # Listening/receiving thread
+        self.recv_thread = None
 
         # Connect to device
         self.connected = False
@@ -335,9 +341,10 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.initialized = False
         self.init_device()
 
-        self.device_N_noreply = 0
-
         # Start polling
+        # number of skipped answers in polling thread (not sure that's useful)
+        self.device_N_noreply = 0
+        # "keep alive" thread
         self.polling_thread = threading.Thread(target=self._keep_alive)
         self.polling_thread.daemon = True
         self.polling_thread.start()
@@ -362,6 +369,14 @@ class SocketDeviceServerBase(DeviceServerBase):
         if conn_errno != 0:
             raise RuntimeError('Connection refused.')
 
+        # Start receiving data
+        self.recv_buffer = b''
+        self.recv_flag = threading.Event()
+        self.recv_flag.clear()
+        self.recv_thread = threading.Thread(target=self._listen_recv)
+        self.recv_thread.daemon = True
+        self.recv_thread.start()
+
         self.connected = True
         self.logger.info(f'Daemon {self.name} connected to {self.device_address[0]}:{self.device_address[1]}')
 
@@ -371,6 +386,23 @@ class SocketDeviceServerBase(DeviceServerBase):
         """
         self.initialized = True
         raise NotImplementedError
+
+    def _listen_recv(self):
+        """
+        This threads receives all data in real time and stores it
+        in a local buffer. For devices that send data only after
+        receiving a command, the buffer is read and emptied immediately.
+        """
+        while True:
+            rlist, _, elist = select([self.device_sock], [], [self.device_sock], None)
+            if elist:
+                self.logger.critical('Exceptional event with device socket.')
+            if rlist:
+                # Incoming data
+                with self._lock:
+                    d = _recv_all(rlist[0])
+                    self.recv_buffer += d
+                    self.recv_flag.set()
 
     def _keep_alive(self):
         """
@@ -410,12 +442,25 @@ class SocketDeviceServerBase(DeviceServerBase):
             return b'Device not connected.' + self.EOL
         if not self.initialized:
             return b'Device not initialized.' + self.EOL
+
         with self._lock:
+            # Clear the "new data" flag so we can wait on the reply.
+            self.recv_flag.clear()
+
             # Pass command to device
             _send_all(self.device_sock, cmd)
 
-            # Receive reply
-            reply = _recv_all(self.device_sock, self.EOL)
+        # Wait for reply
+        self.recv_flag.wait()
+
+        # Just to be super safe: take the lock again
+        with self._lock:
+            # Reply is in the local buffer
+            reply = self.recv_buffer
+
+            # Clear the local buffer
+            self.recv_buffer = b''
+
         return reply
 
     def close_device(self):
