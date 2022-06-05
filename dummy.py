@@ -84,7 +84,7 @@ class Dummy(DriverBase):
         """
         Dummy driver status.
         """
-        return self.send_recv('STATUS\n')
+        return self.send_recv('STATUS\n').strip()
 
     def abort(self):
         """
@@ -118,7 +118,7 @@ class Dummy(DriverBase):
             while True:
                 # query axis status
                 status = self.status()
-                if status == 'IDLE':
+                if status == b'IDLE':
                     break
                 # Temporise
                 time.sleep(self.POLL_INTERVAL)
@@ -172,10 +172,10 @@ def dummy_device(timeout=5., latency=0.):
             while True:
                 # Read data
                 try:
-                    data = _recv_all(client).strip()
+                    data = _recv_all(client).strip().decode('ascii')
                 except socket.timeout:
                     continue
-                print(f'Command received: {data}')
+                print(f'Received: {data} | ', end=' ')
                 dt = time.time() - t0
                 if dt < delay:
                     pos = pos0 + dx*dt/10.
@@ -183,6 +183,7 @@ def dummy_device(timeout=5., latency=0.):
                     pos = pos0 + dx
                     pos0 = pos
                     dx = 0.
+                    t0 = 0.
                 if data == 'DO_INIT':
                     reply = 'INIT_OK'
                 elif data == 'STATUS':
@@ -211,6 +212,7 @@ def dummy_device(timeout=5., latency=0.):
                     reply = 'UNKNOWN_COMMAND'
                 # Return to client
                 time.sleep(latency)
+                print(f'Sent: {reply}')
                 client.sendall((reply+'\n').encode())
         except socket.timeout:
             continue
