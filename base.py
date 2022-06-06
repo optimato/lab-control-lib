@@ -153,6 +153,7 @@ class DeviceServerBase:
 
         # Prepare client socket connection
         self.client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
+        self.client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.client_sock.settimeout(self.CLIENT_TIMEOUT)
 
         # Shutdown flag
@@ -237,7 +238,7 @@ class DeviceServerBase:
         """
         # Check for escape
         if cmd.startswith(self.ESCAPE_STRING):
-            cmd = cmd.strip(self.ESCAPE_STRING).strip()
+            cmd = cmd.strip(self.ESCAPE_STRING).strip(self.EOL)
             reply = self.parse_escaped(cmd)
         else:
             # Pass (or parse) command for device
@@ -309,7 +310,7 @@ class SocketDeviceServerBase(DeviceServerBase):
     Base class for all serving connections to a socket device.
     """
 
-    DEVICE_TIMEOUT = 1        # Device socket timeout
+    DEVICE_TIMEOUT = None        # Device socket timeout
     KEEPALIVE_INTERVAL = 10.    # Default Polling (keep-alive) interval
 
     def __init__(self, serving_address, device_address):
@@ -400,7 +401,7 @@ class SocketDeviceServerBase(DeviceServerBase):
             if rlist:
                 # Incoming data
                 with self._lock:
-                    d = _recv_all(rlist[0])
+                    d = _recv_all(rlist[0], EOL=self.EOL)
                     self.recv_buffer += d
                     self.recv_flag.set()
 
@@ -619,7 +620,7 @@ class DriverBase:
         Send message to socket and return reply message, stripped from spaces and return carriages.
         (can be overloaded by subclass)
         """
-        return self._send_recv(msg).strip()
+        return self._send_recv(msg).strip(self.EOL)
 
     def ask_admin(self, ask=None):
         """
@@ -630,7 +631,7 @@ class DriverBase:
 
         if ask is None:
             reply = self.send_recv(self.ESCAPE_STRING + b'AMIADMIN' + self.EOL)
-            self.admin = (reply.strip() == b'True')
+            self.admin = (reply.strip(self.EOL) == b'True')
         elif ask is True:
             if self.ask_admin():
                 self.logger.info('Already admin.')
@@ -638,7 +639,7 @@ class DriverBase:
             else:
                 reply = self.send_recv(self.ESCAPE_STRING + b'ADMIN' + self.EOL)
                 self.admin = True
-                if reply.strip() != b'OK':
+                if reply.strip(self.EOL) != b'OK':
                     self.logger.warning(f'Could not request admin rights: {reply}')
                     self.admin = False
         elif ask is False:
@@ -648,7 +649,7 @@ class DriverBase:
             else:
                 reply = self.send_recv(self.ESCAPE_STRING + b'NOADMIN' + self.EOL)
                 self.admin = False
-                if reply.strip() != b'OK':
+                if reply.strip(self.EOL) != b'OK':
                     self.logger.warning(f'Could not rescind admin rights: {reply}')
 
         return self.admin
