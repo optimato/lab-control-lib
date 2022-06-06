@@ -2,6 +2,14 @@
 Mecademic meca500 interface
 
 TODO: more documentation here.
+
+TODO: how to deal with pseudomotors.
+Especially: pseudo motors that emulate translation of the sample
+wrt the axis of rotation.
+
+TODO: how to better define "free moving zones".
+
+
 """
 
 import numpy as np
@@ -59,7 +67,7 @@ class MecademicDaemon(SocketDeviceServerBase):
         """
         Keep-alive call
         """
-        r = self.device_cmd('GetStatusRobot')
+        r = self.device_cmd(b'GetStatusRobot' + self.EOL)
         if not r:
             raise DeviceDisconnectException
 
@@ -89,10 +97,14 @@ class Mecademic(DriverBase):
                             (-112., -24),
                             (-360., 360.))
 
-    def __init__(self, address, admin=True):
+    def __init__(self, address=None, admin=True):
         """
         Initialise Mecademic driver (robot arm).
         """
+
+        if address is None:
+            address = DEFAULT_NETWORK_CONF['DAEMON']
+
         super().__init__(address=address, admin=admin)
 
         # Set time
@@ -175,12 +187,14 @@ class Mecademic(DriverBase):
         # Format arguments
         cmd = b''
         for c, arg in zip(cmds, args):
+            cmd += c
             if arg is not None:
                 try:
                     arg = tuple(arg)
                 except TypeError:
                     arg = (arg, )
-                cmd += f'{arg}'.encode() + self.EOL
+                cmd += f'{arg}'.encode()
+            cmd += self.EOL
         reply = self.send_recv(cmd)
         return self.process_reply(reply)
 
@@ -190,7 +204,7 @@ class Mecademic(DriverBase):
         Raise error if needed.
         """
         # First split along EOL in case there are more than one reply
-        raw_replies = reply.split(self.EOL)[:-1]
+        raw_replies = reply.split(self.EOL)
         # Convert each
         formatted_replies = []
         for r in raw_replies:
@@ -212,11 +226,7 @@ class Mecademic(DriverBase):
                 rep = (code, message)
                 if reply2000 is not None:
                     # This should not happen
-                    self.logger.critical('Received more than one code 2000:\n'
-                                         + f'{reply2000:s}\n'
-                                         + 10*'-'
-                                         + '\n'
-                                         + f'{rep:s}')
+                    self.logger.warning(f'More code 2000:{reply2000[0]} - {reply2000[1]}')
                 reply2000 = rep
 
         return reply2000
