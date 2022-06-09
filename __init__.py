@@ -2,12 +2,14 @@
 OptImaTo control package
 """
 import logging
+import logging.handlers
 import os
 import optimatools as opt
 from . import util
 from .util import logs, FileDict
 from . import network_conf
 from ._version import version
+#from . import experiment
 
 # Package-wide default log level (this sets up console handler)
 util.logs.set_level(logging.INFO)
@@ -20,11 +22,11 @@ conf_file = os.path.join(conf_path, 'config.json')
 # Persistent configuration and parameters
 config = FileDict(conf_file)
 
-# Default state: not a daemon
-__DAEMON__ = False
+# Data paths
+data_path = '/data/optimato/'
 
 # Setup logging
-LOG_DIR = os.path.join(os.path.expanduser('~'), '.logs/')
+LOG_DIR = os.path.join(conf_path, 'logs/')
 LOG_FILE = os.path.join(LOG_DIR, 'optimato-labcontrol.log')
 
 
@@ -33,8 +35,7 @@ class ControllerRunningError(RuntimeError):
     pass
 
 
-if not os.path.exists(LOG_DIR):
-    os.mkdir(LOG_DIR)
+os.makedirs(LOG_DIR, exist_ok=True)
 file_handler = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=1024*1024*10, backupCount=300, encoding='utf-8')
 
 current_level = logging.root.level
