@@ -55,19 +55,17 @@ METHODS LIST
 
 import time
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop
+from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceDisconnectException
+from .network_conf import SMARACT as DEFAULT_NETWORK_CONF
 from .ui_utils import ask_yes_no
 
 __all__ = ['SmaractDaemon', 'Smaract', 'Motor']
 
-SMARACT_DAEMON_ADDRESS = "127.0.0.1"
-SMARACT_DAEMON_PORT = 15001
-SMARACT_DEVICE_ADDRESS = "?.?.?.?"
-SMARACT_DEVICE_PORT = 5000
-
 DEFAULT_SPEED = 1000000  # nm/s
 DEFAULT_ACCEL = 10000  # um/s^2 (!)
 SENSOR_MODES = {0: 'disabled', 1: 'enabled', 2: 'power save'}
+
+EOL = b'\n'
 
 
 class SmaractDaemon(SocketDeviceServerBase):
@@ -75,9 +73,14 @@ class SmaractDaemon(SocketDeviceServerBase):
     Smaract Daemon
     """
 
-    def __init__(self):
-        super().__init__(serving_address=(SMARACT_DAEMON_ADDRESS, SMARACT_DAEMON_PORT),
-                         device_address=(SMARACT_DEVICE_ADDRESS, SMARACT_DEVICE_PORT))
+    EOL = EOL
+
+    def __init__(self, serving_address=None, device_address=None):
+        if serving_address is None:
+            serving_address = DEFAULT_NETWORK_CONF['DAEMON']
+        if device_address is None:
+            device_address = DEFAULT_NETWORK_CONF['DEVICE']
+        super().__init__(serving_address=serving_address, device_address=device_address)
 
     def init_device(self):
         """
@@ -90,6 +93,14 @@ class SmaractDaemon(SocketDeviceServerBase):
         self.initialized = True
         return
 
+    def wait_call(self):
+        """
+        Keep-alive call
+        """
+        r = self.device_cmd(b':GS0\n')
+        if not r:
+            raise DeviceDisconnectException
+
 
 class Smaract(DriverBase):
     """
@@ -97,12 +108,13 @@ class Smaract(DriverBase):
     """
 
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
+    EOL = EOL
 
-    def __init__(self, admin=True):
+    def __init__(self, address, admin=True):
         """
         Connects to daemon.
         """
-        super().__init__(self, address=(SMARACT_DAEMON_ADDRESS, SMARACT_DAEMON_PORT), admin=admin)
+        super().__init__(address=address, admin=admin)
 
         # Get number of channels
         nc = self.send_recv(b':GNC\n')
@@ -156,14 +168,6 @@ class Smaract(DriverBase):
                 # Move all motors to the 0 position
                 self.logger.info('Moving to 0 position...')
                 self.move_abs(ind_channel, 0)
-
-    def mqtt_payload(self):
-        """
-        MQTT payload
-        """
-        return {'xnig/drivers/smaract/pos_x': self.get_pos(0),
-                'xnig/drivers/smaract/pos_y': self.get_pos(2),
-                'xnig/drivers/smaract/pos_z': self.get_pos(1)}
 
     def send_recv(self, msg):
         """
