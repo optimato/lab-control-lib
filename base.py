@@ -165,6 +165,9 @@ class DeviceServerBase:
         # Thread dictionary
         self.threads = {}
 
+        # Stats dictionary
+        self.stats = {'startup': time.time()}
+
     def listen(self):
         """
         Infinite listening loop for new connections.
@@ -194,6 +197,13 @@ class DeviceServerBase:
         Serve a new client.
         """
         ident = threading.get_ident()
+        ident_key = f'{ident}'
+        self.stats[ident_key] = {'startup': time.time(),
+                                 'reply_number': 0,
+                                 'total_reply_time': 0.,
+                                 'total_reply_time2': 0.,
+                                 'min_reply_time': 100.,
+                                 'max_reply_time': 0.}
 
         self.logger.info(f'Client #{ident} connected ({address})')
 
@@ -209,7 +219,17 @@ class DeviceServerBase:
                 break
 
             # Process the raw data sent by the client
+            t0 = time.time()
             reply = self.process_command(data)
+            dt = time.time() - t0
+
+            self.stats[ident_key]['reply_number'] += 1
+            self.stats[ident_key]['total_reply_time'] += dt
+            self.stats[ident_key]['total_reply_time2'] += dt*dt
+            minr = self.stats[ident_key]['min_reply_time']
+            maxr = self.stats[ident_key]['max_reply_time']
+            self.stats[ident_key]['min_reply_time'] = min(dt, minr)
+            self.stats[ident_key]['max_reply_time'] = max(dt, maxr)
 
             # Special case: reply is None means: exit the loop and shut down this client.
             if reply is None:
@@ -284,9 +304,11 @@ class DeviceServerBase:
             # Understood by the thread loop as a thread shutdown signal
             return None
 
-        if cmd == b'STATUS':
-            # Return some status.
-            return self.driver_status()
+        if cmd == b'STATS':
+            # Return some stats.
+            # This will fail if self.EOL appears in the stats, but
+            # that seems unlikely.
+            return json.dumps(self.stats).encode() + self.EOL
 
         return f'Error: unknown command {cmd}'.encode() + self.EOL
 
@@ -356,7 +378,6 @@ class SocketDeviceServerBase(DeviceServerBase):
         """
         # Prepare device socket connection
         self.device_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
-        self.device_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.device_sock.settimeout(self.DEVICE_TIMEOUT)
 
         for retry_count in range(self.NUM_CONNECTION_RETRY):
@@ -435,7 +456,7 @@ class SocketDeviceServerBase(DeviceServerBase):
 
     def device_cmd(self, cmd):
         """
-        Pass the command to the device.
+        Pass the command to the device, NOT adding EOL.
 
         By default, the command is simply forwarded.
         """
