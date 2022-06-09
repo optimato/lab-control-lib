@@ -3,7 +3,7 @@ Hard coded network values
 """
 
 # Controller IPs/hostnames
-CONTROL_HOST = '?.?.?.?'
+CONTROL_HOST = '127.0.0.1'
 CAMSERVER_HOST = '?.?.?.?'
 
 ################################
@@ -15,6 +15,10 @@ AEROTECH = {'DAEMON': (CONTROL_HOST, 15000),
             'DEVICE': ("?.?.?.?", 8000)
             }
 
+SMARACT = {'DAEMON': (CONTROL_HOST, 15001),
+           'DEVICE': ("?.?.?.?", 5000)
+           }
+
 # McLennan controller for bottom stages
 MCLENNAN1 = {'DAEMON': (CONTROL_HOST, 15100),
              'DEVICE': ("?.?.?.?", 7776)
@@ -25,5 +29,6 @@ MCLENNAN2 = {'DAEMON': (CONTROL_HOST, 15101),
              }
 
 MECADEMIC = {'DAEMON': (CONTROL_HOST, 15200),
-             'DEVICE': ("?.?.?.?", 10000)
+             #'DEVICE': ("172.19.248.34", 10000)
+             'DEVICE': ("mecademic.elettra.eu", 10000)
              }

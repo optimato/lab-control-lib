@@ -26,8 +26,8 @@ __all__ = ['MecademicDaemon', 'Mecademic']#, 'Motor']
 # This API uses null character (\0) as end-of-line.
 EOL = b'\0'
 
-# Default joint velocity: 25% of maximum ~= 90 degrees / s
-DEFAULT_VELOCITY = 25
+# Default joint velocity: 5% of maximum ~= 18 degrees / s
+DEFAULT_VELOCITY = 5
 
 
 class RobotException(Exception):
@@ -43,6 +43,7 @@ class MecademicDaemon(SocketDeviceServerBase):
     """
 
     EOL = EOL
+    KEEPALIVE_INTERVAL = 60
 
     def __init__(self, serving_address=None, device_address=None):
         if serving_address is None:
@@ -90,10 +91,11 @@ class Mecademic(DriverBase):
                               0.0)
 
     # theta 1 range can be quite dangerous.
-    DEFAULT_JOINT_LIMITS = ((-10., 10.),
+    # Undocumented feature: all limit ranges have to be at least 30 degree wide.
+    DEFAULT_JOINT_LIMITS = ((-15., 15.),
                             (-21., 17.),
                             (-45, 15),
-                            (-2., 2.),
+                            (-15., 15.),
                             (-112., -24),
                             (-360., 360.))
 
@@ -101,11 +103,15 @@ class Mecademic(DriverBase):
         """
         Initialise Mecademic driver (robot arm).
         """
-
         if address is None:
             address = DEFAULT_NETWORK_CONF['DAEMON']
 
         super().__init__(address=address, admin=admin)
+
+        self.last_error = None
+        self.motion_paused = False
+
+    def initialize(self):
 
         # Set time
         self.set_RTC()
@@ -124,7 +130,10 @@ class Mecademic(DriverBase):
             # Not activated
 
             # Set joint limits
-            self.set_joint_limits(self.DEFAULT_JOINT_LIMITS)
+            # Disabled
+            # self.set_joint_limits(self.DEFAULT_JOINT_LIMITS)
+            # Activate current custom joint limits.
+            self.send_cmd('SetJointLimitsCfg(1)')
 
             if ask_yes_no('Robot not activated. Activate?'):
                 self.activate()
@@ -143,20 +152,11 @@ class Mecademic(DriverBase):
         ######################################
 
         # Move to "default" original position
-
-        # Configuration (posture)
-        code, reply = self.send_cmd('Home')
-        if code == 2003:
-            # Already homed
-            self.logger.warning(reply)
-        else:
-            self.logger.info(reply)
-        return
-
+        self.move_to_default_position()
 
         # TODO: create pseudo-motors
 
-        self.logger.info(f"{self.name} initialization complete.")
+        self.logger.info("Initialization complete.")
         self.initialized = True
 
     def send_cmd(self, cmd, args=None):
@@ -216,10 +216,14 @@ class Mecademic(DriverBase):
         # Manage errors and other strange things here
         reply2000 = None
         for code, message in formatted_replies:
-            if code < 2000:
-                # Error code. No point continuing
-                raise RobotException(code, message)
-            if code > 2999:
+            if code == 2042:
+                # Motion paused - not useful
+                self.motion_paused = True
+            elif code < 2000:
+                # Error code.
+                self.last_error = (code, message)
+                self.logger.error(f'[{code}] - {message}')
+            elif code > 2999:
                 # Status message sent "out of the blue"
                 self.logger.warning(f'{code}: {message}')
             else:
@@ -229,7 +233,21 @@ class Mecademic(DriverBase):
                     self.logger.warning(f'More code 2000:{reply2000[0]} - {reply2000[1]}')
                 reply2000 = rep
 
+        # Manage cases where the only reply is e.g. a 3000
+        if reply2000 is None:
+            reply2000 = None, None
         return reply2000
+
+    @admin_only
+    def set_TRF_at_wrist(self):
+        """
+        Sets the Tool reference frame at the wrist of the robot (70 mm below the
+        flange). This makes all pose changes much easier to understand and predict.
+
+        This is not a good solution when the center of rotation has so be above the
+        flange (e.g. to keep a sample in place).
+        """
+        code, reply = self.send_cmd('SetTRF', (0, 0, -70, 0, 0, 0))
 
     def get_status(self):
         """
@@ -246,7 +264,12 @@ class Mecademic(DriverBase):
         eom: end of movement status (1 if robot is idle, 0 if robot is moving).
         """
         code, reply = self.send_cmd('GetStatusRobot')
-        return [bool(int(x)) for x in reply.split(',')]
+        try:
+            status = [bool(int(x)) for x in reply.split(',')]
+        except:
+            self.logger.error(f'get_status returned {reply}')
+            status = None
+        return status
 
     @admin_only
     def set_RTC(self, t=None):
@@ -256,8 +279,9 @@ class Mecademic(DriverBase):
         """
         if t is None:
             t = time.time()
-        # Send two command (the first one doesn't return anything
-        code, message = self.send_cmd(['SetRTC', 'GetRTC'], [t, None])
+        # Not documented, but setRTC actually sends a reply,
+        # So no need to send two commands
+        code, message = self.send_cmd('SetRTC', t)
         return
 
     @admin_only
@@ -307,6 +331,22 @@ class Mecademic(DriverBase):
         else:
             self.logger.info(reply)
         return
+
+    @admin_only
+    def set_joint_velocity(self, p):
+        """
+        Set joint velocity as a percentage of the maximum speed.
+        These are (in degrees per second)
+        theta 1: 150
+        theta 2: 150
+        theta 3: 180
+        theta 4: 300
+        theta 5: 300
+        theta 6: 500
+
+        The last is especially important for continuous tomographic scans.
+        """
+        code, reply = self.send_cmd('SetJointVel', p)
 
     @admin_only
     def move_joints(self, joints):
@@ -360,6 +400,8 @@ class Mecademic(DriverBase):
             while True:
                 # query axis status
                 status = self.get_status()
+                if status is None:
+                    continue
                 if status[6]:
                     break
                 # Temporise
@@ -390,14 +432,20 @@ class Mecademic(DriverBase):
     @admin_only
     def set_joint_limits(self, limits):
         """
-        Set joint limits. This must be done before robot activation.
+        Set joint limits. This must be done while robot is not active,
+        so can be complicated.
 
         Since this is a critical operation, the user is prompted,
         and the default is no.
         """
-        if not self.isactive:
-            self.logger.error('Cannot set limits when robot is active.')
-            return
+        self.logger.critical("changing joint limits is a risky and rare operation. This function is currently disabled.")
+
+        """        
+        if self.isactive:
+            prompt = 'Robot is active. Deactivate?'
+
+        # Enable custom joint limits
+        code, reply = self.send_cmd('SetJointLimitsCfg', 1)
 
         # Check if limits are already set
         current_limits = self.get_joint_limits()
@@ -409,7 +457,7 @@ class Mecademic(DriverBase):
         prompt = 'Preparing to change joint limits as follows:\n'
         for i, (low, high) in enumerate(limits):
             prompt += f' * theta {i+1}: ({low:9.5f}, {high:9.5f})\n'
-        prompt = 'Are you sure you want to proceed?'
+        prompt += 'Are you sure you want to proceed?'
         if not ask_yes_no(prompt, yes_is_default=False):
             self.logger.error('Setting limit cancelled.')
             return
@@ -418,6 +466,8 @@ class Mecademic(DriverBase):
             code, message = self.send_cmd('SetJointLimits', (i+1, low, high))
 
         self.logger.info("Joint limits have been changed.")
+        """
+
         return
 
     def abort(self):
@@ -436,3 +486,7 @@ class Mecademic(DriverBase):
     @property
     def isactive(self):
         return self.get_status()[0] == 1
+
+    @property
+    def ishomed(self):
+        return self.get_status()[1] == 1
