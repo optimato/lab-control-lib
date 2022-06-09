@@ -675,6 +675,14 @@ class DriverBase:
 
         return self.admin
 
+    def get_stats(self):
+        """
+        Obtain stats from the daemon.
+        """
+        reply = self.send_recv(self.ESCAPE_STRING + b'STATS' + self.EOL)
+        stats = json.loads(reply.decode())
+        return stats
+
 
 class MotorBase:
     """
