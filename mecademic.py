@@ -533,10 +533,7 @@ class Motor(MotorBase):
         """
         Set absolute position
         """
-        return self.driver.rot_abs(x)
-
-    def _set_rel_pos(self, x):
-        """
-        Set absolute position
-        """
-        return self.driver.rot_rel(x)
+        pose = self.driver.get_pose()
+        pose[self.axis] = x
+        new_pose = self.driver.move_pose(pose)
+        return new_pose[self.axis]
