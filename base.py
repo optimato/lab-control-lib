@@ -175,6 +175,14 @@ class DeviceServerBase:
         # Stats dictionary
         self.stats = {'startup': time.time()}
 
+    @classmethod
+    def run(cls, *args, **kwargs):
+        """
+        Creating an instance and start listening.
+        """
+        daemon_instance = cls(*args, **kwargs)
+        daemon_instance.listen()
+
     def listen(self):
         """
         Infinite listening loop for new connections.
@@ -308,7 +316,11 @@ class DeviceServerBase:
                 return b'Admin rights rescinded' + self.EOL
 
         if cmd == b'DISCONNECT':
-            # Understood by the thread loop as a thread shutdown signal
+            # Understood by the thread loop as a client thread shutdown signal
+            return None
+
+        if cmd == b'SHUTDOWN':
+            self.shutdown_requested = True
             return None
 
         if cmd == b'STATS':
@@ -332,6 +344,20 @@ class DeviceServerBase:
         # Tell the polling thread to abort. This will ensure that all the rest is wrapped up
         self.shutdown_requested = True
         self.logger.info('Shutting down.')
+
+    @classmethod
+    def kill(cls, address=None):
+        """
+        Request a shutdown of an instance of this daemon
+        serving at the given address.
+        """
+        # If no address was given, it means that the default
+        # address is a class attribute
+        if address is None:
+            address = cls.DEFAULT_SERVING_ADDRESS
+
+        d = DriverBase(address=address, admin=False)
+        d.send(ESCAPE_STRING + b'SHUTDOWN' + cls.EOL)
 
 
 class SocketDeviceServerBase(DeviceServerBase):
