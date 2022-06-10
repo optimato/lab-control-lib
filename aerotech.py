@@ -42,7 +42,7 @@ Initial Version: Hans Deyhle
 
 import time
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceDisconnectException
+from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
 from .network_conf import AEROTECH as DEFAULT_NETWORK_CONF
 from . import motors
 from .ui_utils import ask_yes_no
@@ -88,7 +88,8 @@ class AerotechDeamon(SocketDeviceServerBase):
         """
         r = self.device_cmd(b'AXISSTATUS(@0)\n')
         if not r:
-            raise DeviceDisconnectException
+            self.logger.critical('Disconnected')
+            raise DeviceException('Disconnected.')
 
 
 class Aerotech(DriverBase):

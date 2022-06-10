@@ -55,7 +55,7 @@ METHODS LIST
 
 import time
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceDisconnectException
+from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
 from .network_conf import SMARACT as DEFAULT_NETWORK_CONF
 from .ui_utils import ask_yes_no
 
@@ -99,7 +99,7 @@ class SmaractDaemon(SocketDeviceServerBase):
         """
         r = self.device_cmd(b':GS0\n')
         if not r:
-            raise DeviceDisconnectException
+            raise DeviceException
 
 
 class Smaract(DriverBase):

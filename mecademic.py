@@ -15,7 +15,7 @@ TODO: how to better define "free moving zones".
 import numpy as np
 import time
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceDisconnectException
+from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
 from .network_conf import MECADEMIC as DEFAULT_NETWORK_CONF
 from . import motors
 from .ui_utils import ask_yes_no
@@ -70,7 +70,7 @@ class MecademicDaemon(SocketDeviceServerBase):
         """
         r = self.device_cmd(b'GetStatusRobot' + self.EOL)
         if not r:
-            raise DeviceDisconnectException
+            raise DeviceException
 
 
 class Mecademic(DriverBase):

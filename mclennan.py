@@ -97,7 +97,7 @@ import logging
 import json
 from json_database import JsonStorage
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceDisconnectException
+from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException, ESCAPE_STRING
 from . import motors
 from .ui_utils import ask_yes_no
 from . import conf_path
@@ -226,7 +226,7 @@ class McLennanDaemon(SocketDeviceServerBase):
         """
         r = self.device_cmd('RV')
         if not r:
-            raise DeviceDisconnectException
+            raise DeviceException
 
 class McLennan(DriverBase):
     """
@@ -595,7 +595,7 @@ class McLennan(DriverBase):
         Get (software) position (in mm)
         """
         # Send escape command
-        request = self.ESCAPE_STRING + b'GETPERSISTposition' + self.EOL
+        request = ESCAPE_STRING + b'GETPERSISTposition' + self.EOL
         v = self.send_recv(request)
         return json.loads(v)['position']
 
@@ -607,7 +607,7 @@ class McLennan(DriverBase):
         """
         # Send escape command
         payload = json.dumps({'position': pos})
-        request = self.ESCAPE_STRING + f'SETPERSIST{payload}'.encode() + self.EOL
+        request = ESCAPE_STRING + f'SETPERSIST{payload}'.encode() + self.EOL
         v = self.send_recv(request)
         return
 
@@ -616,7 +616,7 @@ class McLennan(DriverBase):
         Get (software) limits (in mm)
         """
         # Send escape command
-        request = self.ESCAPE_STRING + b'GETPERSISTlimits' + self.EOL
+        request = ESCAPE_STRING + b'GETPERSISTlimits' + self.EOL
         v = self.send_recv(request)
         return json.loads(v)['limits']
 
@@ -627,7 +627,7 @@ class McLennan(DriverBase):
         """
         # Send escape command
         payload = json.dumps({'limits': limits})
-        request = self.ESCAPE_STRING + f'SETPERSIST{payload}'.encode() + self.EOL
+        request = ESCAPE_STRING + f'SETPERSIST{payload}'.encode() + self.EOL
         v = self.send_recv(request)
         return
 

@@ -33,11 +33,18 @@ from select import select
 from . import conf_path
 
 
+ESCAPE_STRING = b'^'
+
+
 class MotorLimitsException(Exception):
     pass
 
 
-class DeviceDisconnectException(Exception):
+class DeviceException(Exception):
+    pass
+
+
+class DaemonException(Exception):
     pass
 
 
@@ -116,6 +123,7 @@ class emergency_stop:
             return True
 
 
+
 class DeviceServerBase:
     """
     Base class for all serving connections to a device, meant to run as a daemon.
@@ -125,7 +133,6 @@ class DeviceServerBase:
 
     CLIENT_TIMEOUT = 1
     NUM_CONNECTION_RETRY = 10
-    ESCAPE_STRING = b'^'
     EOL = b'\n'           # End of API sequence (default is \n)
     logger = None
 
@@ -146,7 +153,7 @@ class DeviceServerBase:
 
         # Set default name here. Can be overriden by subclass, for instance to allow multiple instances to run
         # concurrently
-        self.name = self.__class__.__name__
+        self.name = self.__class__.__name__.lower()
 
         # Prepare thread lock
         self._lock = threading.Lock()
@@ -257,8 +264,8 @@ class DeviceServerBase:
         Process a raw command sent by a client and prepare the reply.
         """
         # Check for escape
-        if cmd.startswith(self.ESCAPE_STRING):
-            cmd = cmd.strip(self.ESCAPE_STRING).strip(self.EOL)
+        if cmd.startswith(ESCAPE_STRING):
+            cmd = cmd.strip(ESCAPE_STRING).strip(self.EOL)
             reply = self.parse_escaped(cmd)
         else:
             # Pass (or parse) command for device
@@ -393,7 +400,8 @@ class SocketDeviceServerBase(DeviceServerBase):
             time.sleep(.05)
 
         if conn_errno != 0:
-            raise RuntimeError('Connection refused.')
+            self.logger.critical("Can't connect to device")
+            raise DeviceException("Can't connect to device")
 
         # Start receiving data
         self.recv_buffer = b''
@@ -446,7 +454,7 @@ class SocketDeviceServerBase(DeviceServerBase):
                 self.device_N_noreply = 0
             except socket.timeout:
                 self.device_N_noreply += 1
-            except DeviceDisconnectException:
+            except DeviceException:
                 self.logger.critical('Device disconnected.')
                 self.close_device()
             time.sleep(self.KEEPALIVE_INTERVAL)
@@ -598,7 +606,8 @@ class DriverBase:
             time.sleep(.05)
 
         if conn_errno != 0:
-            raise RuntimeError('Connection refused.')
+            self.logger.critical("Cannot connect to daemon.")
+            raise DaemonException("Cannot connect to daemon.")
 
         self.connected = True
         self.logger.info(f'Driver {self.name} connected to {self.address[0]}:{self.address[1]}')
@@ -607,7 +616,10 @@ class DriverBase:
         """
         Clean shutdown of the driver.
         """
-        self.sock.close()
+        try:
+            self.sock.close()
+        except:
+            pass
         self.logger.debug(f'Driver {self.name}: connection to {self.address[0]}:{self.address[1]} closed.')
 
     def send(self, msg):
@@ -649,14 +661,14 @@ class DriverBase:
         """
 
         if ask is None:
-            reply = self.send_recv(self.ESCAPE_STRING + b'AMIADMIN' + self.EOL)
+            reply = self.send_recv(ESCAPE_STRING + b'AMIADMIN' + self.EOL)
             self.admin = (reply.strip(self.EOL) == b'True')
         elif ask is True:
             if self.ask_admin():
                 self.logger.info('Already admin.')
                 self.admin = True
             else:
-                reply = self.send_recv(self.ESCAPE_STRING + b'ADMIN' + self.EOL)
+                reply = self.send_recv(ESCAPE_STRING + b'ADMIN' + self.EOL)
                 self.admin = True
                 if reply.strip(self.EOL) != b'OK':
                     self.logger.warning(f'Could not request admin rights: {reply}')
@@ -666,7 +678,7 @@ class DriverBase:
                 self.logger.info('Already not admin.')
                 self.admin = False
             else:
-                reply = self.send_recv(self.ESCAPE_STRING + b'NOADMIN' + self.EOL)
+                reply = self.send_recv(ESCAPE_STRING + b'NOADMIN' + self.EOL)
                 self.admin = False
                 if reply.strip(self.EOL) != b'OK':
                     self.logger.warning(f'Could not rescind admin rights: {reply}')
@@ -677,9 +689,12 @@ class DriverBase:
         """
         Obtain stats from the daemon.
         """
-        reply = self.send_recv(self.ESCAPE_STRING + b'STATS' + self.EOL)
+        reply = self.send_recv(ESCAPE_STRING + b'STATS' + self.EOL)
         stats = json.loads(reply.decode())
         return stats
+
+    def __del__(self):
+        self.shutdown()
 
 
 class MotorBase:
