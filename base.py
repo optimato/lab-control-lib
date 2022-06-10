@@ -372,6 +372,10 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.polling_thread.daemon = True
         self.polling_thread.start()
 
+    def listen(self):
+        super().listen()
+        self.close_device()
+
     def connect_device(self):
         """
         Device connection
@@ -419,6 +423,7 @@ class SocketDeviceServerBase(DeviceServerBase):
             rlist, _, elist = select([self.device_sock], [], [self.device_sock], None)
             if elist:
                 self.logger.critical('Exceptional event with device socket.')
+                break
             if rlist:
                 # Incoming data
                 with self._lock:
@@ -492,13 +497,6 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.device_sock.close()
         self.connected = False
         self.initialized = False
-
-    def shutdown(self):
-        """
-        Shutdown driver.
-        """
-        self.close_device()
-        super().shutdown()
 
     def parse_escaped(self, cmd):
         """
