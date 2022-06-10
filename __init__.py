@@ -56,6 +56,7 @@ motors = {}
 # Import all driver submodules
 from . import aerotech
 from . import mclennan
+from . import mecademic
 from . import microscope
 from . import smaract
 
@@ -65,4 +66,4 @@ from . import xpsfun_ronan
 
 #from . import excillum
 
-from .ui import *
+#from .ui import *
