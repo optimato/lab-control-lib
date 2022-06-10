@@ -1,6 +1,14 @@
 """
 Hard coded network values
 """
+import socket
+import logging
+
+THIS_HOST = None
+try:
+    THIS_HOST = socket.gethostbyname(socket.gethostname() + '.local')
+except socket.gaierror:
+    logging.getLogger().warning('Could not find local IP')
 
 # Controller IPs/hostnames
 CONTROL_HOST = '127.0.0.1'

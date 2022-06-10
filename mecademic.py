@@ -313,6 +313,20 @@ class Mecademic(DriverBase):
         return
 
     @admin_only
+    def activate_sim(self):
+        """
+        Activate simulation mode
+        """
+        code, reply = self.send_cmd('ActivateSim')
+
+    @admin_only
+    def deactivate_sim(self):
+        """
+        Activate simulation mode
+        """
+        code, reply = self.send_cmd('DeactivateSim')
+
+    @admin_only
     def deactivate(self):
         """
         Deactivate the robot
@@ -357,6 +371,9 @@ class Mecademic(DriverBase):
         """
         # Send two commands because 'MoveJoints' doesn't immediately
         # return something
+        status = self.get_status()
+        if status[2]:
+            self.logger.warning('simulation mode')
         code, reply = self.send_cmd(['MoveJoints', 'GetStatusRobot'], [joints, None])
         self.check_done()
         return self.get_joints()
@@ -379,6 +396,9 @@ class Mecademic(DriverBase):
         """
         # Send two commands because 'MovePose' doesn't immediately
         # return something
+        status = self.get_status()
+        if status[2]:
+            self.logger.warning('simulation mode')
         code, reply = self.send_cmd(['MovePose', 'GetStatusRobot'], [pose, None])
         self.check_done()
         return self.get_pose()
@@ -492,3 +512,31 @@ class Mecademic(DriverBase):
     @property
     def ishomed(self):
         return self.get_status()[1] == 1
+
+
+class Motor(MotorBase):
+    def __init__(self, name, driver, axis):
+        super(Motor, self).__init__(name, driver)
+        self.axis = ['x', 'z', 'y', 'tilt', 'roll', 'rot'].index(axis)
+
+        # Convention for the lab is y up, z along propagation
+        if self.axis == 1:
+            self.scalar = -1.
+
+    def _get_pos(self):
+        """
+        Return position in mm
+        """
+        return self.driver.get_pose()[self.axis]
+
+    def _set_abs_pos(self, x):
+        """
+        Set absolute position
+        """
+        return self.driver.rot_abs(x)
+
+    def _set_rel_pos(self, x):
+        """
+        Set absolute position
+        """
+        return self.driver.rot_rel(x)
