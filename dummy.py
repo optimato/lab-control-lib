@@ -27,10 +27,15 @@ class DummyDeamon(SocketDeviceServerBase):
     """
     Dummy Daemon
     """
+    DEFAULT_SERVING_ADDRESS = (DUMMY_DAEMON_ADDRESS, DUMMY_DAEMON_PORT)
+    DEFAULT_DEVICE_ADDRESS = (DUMMY_DEVICE_ADDRESS, DUMMY_DEVICE_PORT)
 
-    def __init__(self):
-        super().__init__(serving_address=(DUMMY_DAEMON_ADDRESS, DUMMY_DAEMON_PORT),
-                         device_address=(DUMMY_DEVICE_ADDRESS, DUMMY_DEVICE_PORT))
+    def __init__(self, serving_address=None, device_address=None):
+        if serving_address is None:
+            serving_address = self.DEFAULT_SERVING_ADDRESS
+        if device_address is None:
+            device_address = self.DEFAULT_DEVICE_ADDRESS
+        super().__init__(serving_address=serving_address, device_address=device_address)
 
     def init_device(self):
         """
@@ -155,6 +160,7 @@ def dummy_device(timeout=5., latency=0.):
     """
     client_sock = socket.socket(
         socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
+    client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     client_sock.settimeout(1)
     client_sock.bind((DUMMY_DEVICE_ADDRESS, DUMMY_DEVICE_PORT))
     client_sock.listen(5)

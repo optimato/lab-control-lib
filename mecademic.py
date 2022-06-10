@@ -42,14 +42,16 @@ class MecademicDaemon(SocketDeviceServerBase):
     Mecademic Daemon, keeping connection with Robot arm.
     """
 
+    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
+    DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
 
     def __init__(self, serving_address=None, device_address=None):
         if serving_address is None:
-            serving_address = DEFAULT_NETWORK_CONF['DAEMON']
+            serving_address = self.DEFAULT_SERVING_ADDRESS
         if device_address is None:
-            device_address = DEFAULT_NETWORK_CONF['DEVICE']
+            device_address = self.DEFAULT_DEVICE_ADDRESS
         super().__init__(serving_address=serving_address, device_address=device_address)
 
     def init_device(self):
