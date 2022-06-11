@@ -40,3 +40,7 @@ MECADEMIC = {'DAEMON': (CONTROL_HOST, 15200),
              #'DEVICE': ("172.19.248.34", 10000)
              'DEVICE': ("mecademic.elettra.eu", 10000)
              }
+
+EXCILLUM = {'DAEMON': (CONTROL_HOST, 15300),
+            'DEVICE': ("?.?.?.?", 4944)
+            }

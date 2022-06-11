@@ -1,223 +1,207 @@
 """
-This code was written by Leo to change the state of the Liquid Metal Jet Source
-It was modified by Ronan to make it thread safe and for the implememntation.
-It was modified to replace code used to add metadata from the source to images.
-Always use send_and_receive to even when the response is not required, as it is thread
-safe and the extra response can cause issues.
+Deriver to access and change the state of the Excillum source.
+
+Rough history:
+First version: Leo 2018
+Current version Pierre 2022
 """
-import socket
 import time
 import sys
-import os
+
+from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
+from .network_conf import EXCILLUM as DEFAULT_NETWORK_CONF
+from .ui_utils import ask_yes_no
+
+EOL = b'\n'
 
 
-"""
-Use example:
-
-python labcontrol excillum
-would do
-from labcontrol.control import excillum
-excillum.LMJDaemon().start() # Will run until killed
-
-"""
-
-
-class LMJ(SocketDriverBase):
+class ExcillumDaemon(SocketDeviceServerBase):
     """
-    Driver for Liquid-metal-jet source.
+    Excillyum Daemon, keeping connection with Robot arm.
     """
 
-    def __init__(self, host, port):
+    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
+    DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
+    EOL = EOL
+    KEEPALIVE_INTERVAL = 60
+
+    def __init__(self, serving_address=None, device_address=None):
+        if serving_address is None:
+            serving_address = self.DEFAULT_SERVING_ADDRESS
+        if device_address is None:
+            device_address = self.DEFAULT_DEVICE_ADDRESS
+        super().__init__(serving_address=serving_address, device_address=device_address)
+
+    def init_device(self):
         """
-
+        Device initialization.
         """
-        super().__init__(host=host, port=port)
+        # ask for firmware version to see if connection works
+        version = self.device_cmd(b'#version' + self.EOL)
+        version = version.decode('utf-8').strip(self.EOL)
+        self.logger.debug(f'Firmware version is {version}')
 
-    def handshake(self):
+        self.initialized = True
+        return
+
+    def wait_call(self):
         """
-        Message to send right after socket connection
+        Keep-alive call
         """
-        self.send("#admin")
-        self.logger.info("Current state is: %s" % self.getstate())
+        r = self.device_cmd(b'state?' + self.EOL)
+        if not r:
+            raise DeviceException
 
-    def connect(self, retries=10):
+
+class Excillum(DriverBase):
+    """
+    Driver for the Excillum liquid-metal-jet source.
+    """
+
+    EOL = EOL
+
+    def __init__(self, address=None, admin=True):
         """
-        Connect to the LMJ source.
-        :param retries: Number of attempts before giving up
+        Initialization.
         """
-        connected = False
-        for i in range(retries):
-            try:
-                errno = self.sock.connect_ex((self.host, self.port))
-                if errno == 0:
-                    connected = True
-                    break
-            except:
-                pass
-            self.logger.error('Connection refused. Retrying %d/%d' % (i+1, retries))
-            time.sleep(2)
-        if not connected:
-            raise RuntimeError('Connection refused.')
+        if address is None:
+            address = DEFAULT_NETWORK_CONF['DAEMON']
 
-    def send(self, msg):
-        send_msg = msg + "\n"
-        self.sock.sendall(send_msg.encode())
+        super().__init__(address=address, admin=admin)
 
-    def rec(self):
-        buff = ""
-        while buff[-1:] != "\n":
-            data = self.sock.recv(16384)
-            if len(data) < 1:
-                break
-            buff += data
-        buff = buff.split("\n")
-        buff = buff[0].decode('utf-8')
-        return buff
+        state = self.get_state()
+        self.logger.info(f'Source state: {state}')
 
-    def send_and_receive(self, message):
-        """Combines sending and receiving and incluse a lock for threading"""
-        with self._lock:
-            try:
-                self.send(message)
-                msg = self.rec()
-                msg = msg.strip("'")
-            except:
-                # Reconnect
-                self.logger.error('Failed to communicate. Reconnecting')
-                try:
-                    self.sock.shutdown()
-                except:
-                    pass
-                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.sock.settimeout(10.0)
-                self.connect()
 
-        return msg
+    def send_cmd(self, cmd, replycmd=None):
+        """
+        Send properly formatted request to the driver
+        and parse the reply.
+        Replies from the robot are of the various form, so no
+        preprocessing is done.
 
-    def _finish(self):
-        """Clean socket shutdown"""
-        self.logger.debug("Shutting down.")
-        self.sock.shutdown()
-        self.sock.close()
+        if replycmd is not None, cmd and replycmd are sent
+        one after the other. This is a simple way to deal with
+        'cmd' that do not return anything.
 
-    def mqtt_payload(self):
-        return {'xnig/drivers/excillum/generator_emission_power_w': self.generator_emission_power_w,
-                'xnig/drivers/excillum/state': self.getstate()}
+        cmd and replycmd should not include the EOL (\\n)
+        """
+        # Convert to bytes
+        try:
+            cmd = cmd.encode()
+            replycmd = replycmd.encode()
+        except AttributeError:
+            pass
+
+        # Format arguments
+        if replycmd is not None:
+            cmd += self.EOL + replycmd + self.EOL
+        reply = self.send_recv(cmd)
+        return reply.strip(self.EOL).decode('utf-8', errors='ignore')
+
+    @admin_only
+    def source_admin(self):
+        """
+        Request the admin status for source control.
+        Needed for many commands, but should still be
+        used as little as possible.
+        """
+        return self.send_cmd('#admin', '#whoami')
+
+    def get_state(self):
+        """
+        Get source state.
+        """
+        return self.send_cmd('state?').strip("'")
+
+    def set_state(self, target_state, blocking=True):
+        """
+        Set the source state.
+
+        If blocking is false, return without waiting for state change
+        completion.
+        """
+        current_state = self.get_state()
+        if current_state == target_state:
+            self.logger.info(f'Already in state "{current_state}"')
+            return
+
+        if current_state.endswith("..."):
+            # This means that the source is still in the process
+            # of reaching the state
+            current_state = current_state.strip('.')
+            if current_state == target_state:
+                self.logger.info(f'Already going to state "{target_state}"')
+                return
+            if ask_yes_no('Source is busy. Override?', yes_is_default=True):
+                self.logger.info(f'Aborting "{current_state}..."')
+            else:
+                self.logger.info(f'Not changing state from "{current_state}..." to "{target_state}"')
+                return
+
+        self.logger.warning(f'Going from "{current_state}" to "{target_state}"')
+
+        # Send command
+        cmd = f'state={target_state}'
+        reply = self.send_cmd(cmd)
+
+        # Wait for completion
+        # This can go through multiple states
+        new_state = current_state + ""
+        while reply.endswith("..."):
+            reply = self.get_state()
+            if reply.startswith("error"):
+                raise RuntimeError(reply)
+            if new_state != reply:
+                self.logger.info(f'Going from "{new_state}" to "{reply}"')
+                new_state = reply
+                print(current_state)
+            if not blocking:
+                return
+            time.sleep(1)
+
+        self.logger.info(f'Source state: "{reply}"')
 
     @property
     def state(self):
-        return self.getstate()
+        return self.get_state()
 
     @state.setter
-    def state(self, statestr):
-        self.statechange(statestr)
+    def state(self, target_state):
+        self.set_state(target_state)
 
     @property
     def spotsize_x_um(self):
-        return self.send_and_receive("spotsize_x_um?")
+        return self.send_cmd("spotsize_x_um?")
 
     @property
     def spotsize_y_um(self):
-        return self.send_and_receive("spotsize_y_um?")
+        return self.send_cmd("spotsize_y_um?")
 
     @property
     def generator_emission_current_a(self):
-        return self.send_and_receive("generator_emission_current?")
+        return self.send_cmd("generator_emission_current?")
 
     @property
     def generator_emission_power_w(self):
-        return self.send_and_receive("generator_emission_power?")
+        return self.send_cmd("generator_emission_power?")
 
     @property
     def generator_high_voltage(self):
-        return self.send_and_receive("generator_high_voltage?")
+        return self.send_cmd("generator_high_voltage?")
 
     @property
     def vacuum_pressure_pa(self):
-        return self.send_and_receive("vacuum_pressure_mbar_short_average?")
+        return self.send_cmd("vacuum_pressure_mbar_short_average?")
 
     @property
     def jet_pressure_pa(self):
-        return self.send_and_receive("jet_pressure_average?")
+        return self.send_cmd("jet_pressure_average?")
 
     @property
     def spot_position_x_um(self):
-        return self.send_and_receive("spot_position_x_um?")
+        return self.send_cmd("spot_position_x_um?")
 
     @property
     def spot_position_y_um(self):
-        return self.send_and_receive("spot_position_y_um?")
-
-    # @spot_size.setter(self, value):
-
-    def _overridebool(self):
-        override = input("Excillum is busy, override? y/[n] ")
-        if override == '':
-            override = 'n'
-        while override != 'y' and override != 'n':
-            override = input("invalid input, please answer 'y' or 'n': ")
-        if override == 'y':
-            return True
-        else:
-            return False         
-
-    def statechange(self, statestr):
-        current_state = self.getstate()
-        if current_state.endswith("..."):
-            if self._overridebool():
-                self.logger.info("Aborting %s" % current_state)
-            else:
-                self.logger.info("Not changing state from %s to %s" % (current_state, statestr))
-                return
- 
-        print(("Changing state from %s to %s" % (current_state, statestr)))
-        cmd = "state=" + statestr
-
-        response = self.send_and_receive(cmd)
-        current_state = ""
-        while self.getstate().endswith("..."):
-            read_state = self.getstate()
-            if response.startswith("error"):
-                raise RuntimeError(response)
-            if current_state != read_state:
-                print("changing...")
-                current_state = read_state
-                print(current_state)
-            time.sleep(1)
-            print(("State is now %s" % self.getstate()))
-
-    def getstate(self):
-        state = self.send_and_receive("state?")
-        return state
-
-
-class LMJDaemon(DaemonDriverMixin, LMJ):
-    """
-    Daemon driver
-    """
-    def __init__(self, host, port, poll_interval):
-        super().__init__(host=host, port=port, poll_interval=poll_interval)
-
-
-
-def main():
-    ex = LMJ()
-    if sys.argv[1] == "critical":
-        ex.logger.critical("POWER FAILURE, SHUTDOWN IMMINENT, ATTEMPTING TO STOP AND VENT")
-#        timeout = 3000.  # 50 minute timeout
-#        t0 = time.time()
-#        while(ex.state != "vent" or time.time() - t0 < timeout):
-#           ex.state="stop"  # not sure if this works!
-#           ex.state="vent"
-        exit()
-
-    while True:
-        try:
-            cmd = eval(input("cmd: "))
-            ex.state = str(cmd)
-        except KeyboardInterrupt:
-            print("Exiting API")
-
-
-if __name__ == "__main__":
-    main()
+        return self.send_cmd("spot_position_y_um?")

@@ -10,7 +10,7 @@ import time
 
 from . import ui_utils
 from . import network_conf
-from .base import DriverBase, DaemonException
+from .base import DaemonException
 from .ui_utils import ask_yes_no
 from . import drivers, motors
 from . import aerotech
@@ -18,20 +18,9 @@ from . import mclennan
 from . import mecademic
 from . import microscope
 from . import smaract
-#from . import excillum
+from . import excillum
 
 logger = logging.getLogger()
-
-
-def daemon_running(address):
-    """
-    Checks if a daemon is listening at the given address.
-    """
-    try:
-        d = DriverBase(address=address, admin=False)
-    except DeviceException:
-        return False
-    return True
 
 
 def instantiate_driver(driver, daemon, daemon_address=None, name=None, admin=True):
@@ -75,14 +64,12 @@ def init_all(yes=None):
         ui_utils.user_interactive = False
 
     # Excillum
-    drivers['excillum'] = None
     if ask_yes_no("Connect to Excillum?"):
         driver = instantiate_driver(excillum.Excillum,
                                     excillum.ExcillumDaemon)
         drivers['excillum'] = driver
 
     # Smaract
-    drivers['smaract'] = None
     if ask_yes_no('Initialise smaracts?',
                   help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
         driver = instantiate_driver(smaract.Smaract,
@@ -94,8 +81,6 @@ def init_all(yes=None):
             motors['sz'] = smaract.Motor('sz', driver, axis=1)
 
     # Coarse stages
-    drivers['ssx'] = None
-    drivers['dsx'] = None
     if ask_yes_no('Initialise short branch coarse stages?'):
         # McLennan 1 (sample coarse x translation)
         driver = instantiate_driver(mclennan.McLennan,
@@ -131,14 +116,13 @@ def init_all(yes=None):
         if driver is not None:
             motors['rot'] = aerotech.Motor('rot', driver)
 
-
     if ask_yes_no('Initialise Newport XPS motors?'):
         print('TODO')
 
     if ask_yes_no('Initialize mecademic robot?'):
         driver = instantiate_driver(mecademic.Mecademic,
                                     mecademic.MecademicDaemon)
-        drivers['bot'] = driver
+        drivers['mecademic'] = driver
         if driver is not None:
             motors['bx'] = mecademic.Motor('bx', driver, 'x')
             motors['by'] = mecademic.Motor('by', driver, 'y')
