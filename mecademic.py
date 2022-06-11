@@ -11,13 +11,10 @@ TODO: how to better define "free moving zones".
 
 
 """
-
-import numpy as np
 import time
 
 from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
 from .network_conf import MECADEMIC as DEFAULT_NETWORK_CONF
-from . import motors
 from .ui_utils import ask_yes_no
 from . import conf_path
 
@@ -113,8 +110,15 @@ class Mecademic(DriverBase):
         self.last_error = None
         self.motion_paused = False
 
-    def initialize(self):
+        self.initialize()
 
+    @admin_only
+    def initialize(self):
+        """
+        First commands after connections.
+
+        Will probably be refined depending on how the robot is used.
+        """
         # Set time
         self.set_RTC()
 
@@ -129,15 +133,7 @@ class Mecademic(DriverBase):
                 self.logger.warning('Robot still in error mode after driver initialization.')
                 return
         if not status[0]:
-            # Not activated
-
-            # Set joint limits
-            # Disabled
-            # self.set_joint_limits(self.DEFAULT_JOINT_LIMITS)
-            # Activate current custom joint limits.
-            self.send_cmd('SetJointLimitsCfg(1)')
-
-            if ask_yes_no('Robot not activated. Activate?'):
+            if ask_yes_no('Robot deactivated. Activate?'):
                 self.activate()
             else:
                 self.logger.warning('Robot not activated after driver initialization')
@@ -150,16 +146,7 @@ class Mecademic(DriverBase):
                 self.logger.warning('Robot not homed after driver initialization.')
                 return
 
-        # Other important initialization steps
-        ######################################
-
-        # Move to "default" original position
-        self.move_to_default_position()
-
-        # TODO: create pseudo-motors
-
         self.logger.info("Initialization complete.")
-        self.initialized = True
 
     def send_cmd(self, cmd, args=None):
         """
