@@ -1,7 +1,7 @@
 import sys
 
 
-__all__ = ['_interactive', 'ask', 'ask_yes_no']
+__all__ = ['_interactive', 'ask', 'ask_yes_no', 'user_prompt']
 
 # Would be better to check if a client is connected...
 __interactive = hasattr(sys, 'ps1')
@@ -17,48 +17,65 @@ def _interactive():
     return user_interactive if user_interactive is not None else __interactive
 
 
-def ask(question, choices=None, default=None, help=None, assume=True):
+def ask(question, choices=None, clab=None, cval=None, default=None, help=None, assume=True, multiline=False):
     """
     Ask a question, offering given choices. Can also work in non-interactive cases
 
     :param question: The question asked
-    :param choices: possible answers. List or dict.
+    :param choices: List of strings representing choices
+    :param clab: optional choice labels to print instead of choices
+    :param cval: optional choice of values to return
     :param default: which of the choices to choose by default. If None, no default
     :param help: A help string that can be printed if the user enters "?"
     :param assume: if True (default) can work in non-interactive mode
     :return: the chosen element from choices or the corresponding value if choices is a dict
     """
-    # If input choices is a list, make a dict with keys equal to values
-    if isinstance(choices, dict):
-        keys = list(choices.keys())
+    # Use values if choice keys are not specified
+    if choices is None:
+        keys = [str(v).lower() for v in cval]
     else:
         keys = choices
-        choices = dict((k, k) for k in keys)
+
+    # values=keys if not specified
+    if cval is None:
+        values = dict((k, k) for k in keys)
+    else:
+        values = dict((k, v) for k, v in zip(keys, cval))
+
+    # labels=keys if not specified
+    if clab is None:
+        labels = dict((k, k) for k in keys)
+    else:
+        labels = dict((k, v) for k, v in zip(keys, clab))
+
+    if default not in keys:
+        RuntimeError(f'default {default} not part of choices.')
 
     # If not working interactive, accept all defaults and raise error for cases without default
     if not _interactive():
         if not assume or default is None:
             raise RuntimeError("Interactive mode only.")
-        return choices[default]
+        return values[default]
 
-    # Generate list of choices to display in the prompt
-    str_keys = [k if default != k else ('[%s]' % k) for k in keys]
-    ch_str = ', '.join(str_keys)
-
+    str_keys = [labels[k] if default != k else f'[{labels[k]}]' for k in keys]
     # Add '?' as a possible choice if a help string was provided
     if help is not None:
-        ch_str += ', ?'
+        str_keys += '?'
 
-    prompt = '%s (%s): ' % (question, ch_str)
+    if multiline:
+        ch_str = '\n ' + '\n '.join(str_keys) + '\n'
+    else:
+        ch_str = '(' + ', '.join(str_keys) + ')'
+
+    prompt = f'{question} {ch_str} '
 
     while True:
-        r = input(prompt).lower()
-        prompt = '%s %s:' % (question, ch_str)
+        r = input(prompt).lower().strip('\n ')
         if not r:
             if default is None:
                 print('No default answer. You must enter a choice')
                 continue
-            return choices[default]
+            return values[default]
         if r == '?':
             if help is None:
                 print('No help.')
@@ -74,9 +91,32 @@ def ask(question, choices=None, default=None, help=None, assume=True):
             print('Ambiguous choice.')
             continue
         elif len(picks) == 1:
-            return choices[picks[0]]
+            return values[picks[0]]
         elif r in keys:
-            return choices[r]
+            return values[r]
+
+
+def user_prompt(question, default=None, help=None):
+    """
+    Ask user text input.
+    """
+    if help is not None:
+        question += ' (? for help)'
+    while True:
+        r = input(question + ' ')
+        if not r:
+            if default is None:
+                print('No default answer. Enter text.')
+                continue
+            return default
+        if r == '?':
+            if help is None:
+                print('No help.')
+                continue
+            else:
+                print(help)
+                continue
+        return r
 
 
 def ask_yes_no(question, yes_is_default=True, help=None):
@@ -92,5 +132,5 @@ def ask_yes_no(question, yes_is_default=True, help=None):
         default = None
     else:
         default = 'yes' if yes_is_default else 'no'
-    return ask(question, choices={'yes': True, 'no': False}, default=default, help=help)
+    return ask(question, choices=['yes', 'no'], cval=[True, False], default=default, help=help)
 
