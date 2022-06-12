@@ -1,5 +1,9 @@
 """
-Full initialization procedure.
+Full initialization procedure and command line access for the
+startup of daemons.
+
+For instance typing `python -m labcontrol.startup mecademic`
+will start the mecademic daemon.
 """
 import logging
 import sys
@@ -23,7 +27,7 @@ from . import excillum
 logger = logging.getLogger()
 
 
-def instantiate_driver(driver, daemon, daemon_address=None, name=None, admin=True):
+def instantiate_driver(driver, daemon_address=None, name=None, admin=True):
     """
     Start a driver, spawning the corresponding daemon if necessary.
     """
@@ -65,15 +69,13 @@ def init_all(yes=None):
 
     # Excillum
     if ask_yes_no("Connect to Excillum?"):
-        driver = instantiate_driver(excillum.Excillum,
-                                    excillum.ExcillumDaemon)
+        driver = instantiate_driver(excillum.Excillum)
         drivers['excillum'] = driver
 
     # Smaract
     if ask_yes_no('Initialise smaracts?',
                   help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
-        driver = instantiate_driver(smaract.Smaract,
-                                    smaract.SmaractDaemon)
+        driver = instantiate_driver(smaract.Smaract)
         drivers['smaract'] = driver
         if driver is not None:
             motors['sx'] = smaract.Motor('sx', driver, axis=0)
@@ -83,18 +85,14 @@ def init_all(yes=None):
     # Coarse stages
     if ask_yes_no('Initialise short branch coarse stages?'):
         # McLennan 1 (sample coarse x translation)
-        driver = instantiate_driver(mclennan.McLennan,
-                                    mclennan.McLennanDaemon,
-                                    daemon_address=network_conf.MCLENNAN1['DAEMON'],
+        driver = instantiate_driver(mclennan.McLennan, daemon_address=network_conf.MCLENNAN1['DAEMON'],
                                     name='mclennan1')
         drivers['ssx'] = driver
         if driver is not None:
             motors['ssx'] = mclennan.Motor('ssx', driver)
 
         # McLennan 2 (detector coarse x translation)
-        driver = instantiate_driver(mclennan.McLennan,
-                                    mclennan.McLennanDaemon,
-                                    daemon_address=network_conf.MCLENNAN2['DAEMON'],
+        driver = instantiate_driver(mclennan.McLennan, daemon_address=network_conf.MCLENNAN2['DAEMON'],
                                     name='mclennan2')
         drivers['dsx'] = driver
         if driver is not None:
@@ -110,8 +108,7 @@ def init_all(yes=None):
         print('TODO')
 
     if ask_yes_no('Initialise rotation stage?'):
-        driver = instantiate_driver(aerotech.Aerotech,
-                                    aerotech.AerotechDeamon)
+        driver = instantiate_driver(aerotech.Aerotech)
         drivers['rot'] = driver
         if driver is not None:
             motors['rot'] = aerotech.Motor('rot', driver)
@@ -120,8 +117,7 @@ def init_all(yes=None):
         print('TODO')
 
     if ask_yes_no('Initialize mecademic robot?'):
-        driver = instantiate_driver(mecademic.Mecademic,
-                                    mecademic.MecademicDaemon)
+        driver = instantiate_driver(mecademic.Mecademic)
         drivers['mecademic'] = driver
         if driver is not None:
             motors['bx'] = mecademic.Motor('bx', driver, 'x')
