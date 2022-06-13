@@ -107,6 +107,10 @@ class Mecademic(DriverBase):
 
         super().__init__(address=address, admin=admin)
 
+        self.metacalls.update({'pose': self.get_pose,
+                               'joints': self.get_joints,
+                               'status': self.get_status})
+
         self.last_error = None
         self.motion_paused = False
 

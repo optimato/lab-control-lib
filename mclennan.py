@@ -247,6 +247,12 @@ class McLennan(DriverBase):
 
         super().__init__(address=address, admin=admin)
 
+        self.metacalls.update({'position': self.get_pos,
+                               'current': self.get_current,
+                               'velocity': self.get_vel,
+                               'microstep_resolution': self.get_microstep_resolution,
+                               'daemon_stats': self.get_stats})
+
         if ask_yes_no('Set defaults? (probably needed only the first time)', yes_is_default=False):
             self.logger.info('Setting defaults...')
             self.set_microstep_resolution(DEFAULT_MICROSTEPS)

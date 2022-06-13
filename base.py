@@ -616,6 +616,9 @@ class DriverBase:
         self.sock = None
         self.connected = False
 
+        # Base metacalls for all drivers
+        self.metacalls = {'daemon_stats': self.get_stats}
+
         # Connect
         self.connect()
 
@@ -728,7 +731,18 @@ class DriverBase:
         Note: returndict is used instead of a normal method return
         so that this method can be run on a different thread.
         """
-        raise NotImplementedError
+
+        if metakeys is None:
+            metakeys = self.metacalls.keys()
+
+        for key in metakeys:
+            call = self.metacalls.get(key)
+            if call is None:
+                returndict[key] = 'unknown'
+            else:
+                returndict[key] = call()
+
+        return
 
     def get_stats(self):
         """

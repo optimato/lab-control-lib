@@ -108,6 +108,8 @@ class Aerotech(DriverBase):
         """
         super().__init__(address=address, admin=admin)
 
+        self.metacalls.update({'rotation_angle': self.get_pos})
+
         # enable axis if not already done.
         ae_en = self.axis_enable().strip()
         self.logger.debug(f'Axis enabled is {ae_en}.')
@@ -303,21 +305,6 @@ class Aerotech(DriverBase):
         self.logger.info("Exiting.")
         self.sock.close()
 
-    def get_meta(self, metakeys, returndict):
-        """
-        Fetch metadata, put it in returndict.
-        """
-        if metakeys is None:
-            metakeys = ['rotation_angle',
-                        'daemon_stats']
-        for key in metakeys:
-            if key.lower() == 'rotation_angle':
-                returndict[key] = self.get_pos()
-            elif key.lower() == 'daemon_stats':
-                returndict[key] = self.get_stats()
-            else:
-                returndict[key] = 'unknown'
-        return
 
 class Motor(MotorBase):
     def __init__(self, name, driver):
