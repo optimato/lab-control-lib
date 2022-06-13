@@ -7,14 +7,12 @@ will start the mecademic daemon.
 """
 import logging
 import sys
-import subprocess
 import inspect
 import click
-import time
 
 from . import ui_utils
+from .manager import instantiate_driver, DRIVER_DATA
 from . import network_conf
-from .base import DaemonException
 from .ui_utils import ask_yes_no
 from . import drivers, motors
 from . import aerotech
@@ -25,33 +23,6 @@ from . import smaract
 from . import excillum
 
 logger = logging.getLogger()
-
-
-def instantiate_driver(driver, daemon_address=None, name=None, admin=True):
-    """
-    Start a driver, spawning the corresponding daemon if necessary.
-    """
-    if name is None:
-        name = driver.__name__.lower()
-
-    # Try to instantiate the driver:
-    d = None
-    try:
-        d = driver(address=daemon_address, admin=admin)
-    except DaemonException:
-        # Didn't connect. Let's try to spawn the Daemon.
-        if ask_yes_no('Daemon unreachable. Spawn it?'):
-            p = subprocess.Popen([sys.executable, '-m', f'labcontrol.startup {name}'],
-                             start_new_session=True,)
-                            # stdout=subprocess.DEVNULL,
-                            # stderr=subprocess.STDOUT)
-            logger.info(f'Deamon process {name} spawned.')
-            # Make sure the daemon is already listening before connecting
-            time.sleep(20)
-            d = driver(address=daemon_address)
-        else:
-            logger.error(f'Driver {driver.name} is not running.')
-    return d
 
 
 def init_all(yes=None):
@@ -69,13 +40,13 @@ def init_all(yes=None):
 
     # Excillum
     if ask_yes_no("Connect to Excillum?"):
-        driver = instantiate_driver(excillum.Excillum)
+        driver = instantiate_driver(**DRIVER_DATA['excillum'])
         drivers['excillum'] = driver
 
     # Smaract
     if ask_yes_no('Initialise smaracts?',
                   help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
-        driver = instantiate_driver(smaract.Smaract)
+        driver = instantiate_driver(**DRIVER_DATA['smaract'])
         drivers['smaract'] = driver
         if driver is not None:
             motors['sx'] = smaract.Motor('sx', driver, axis=0)
@@ -85,15 +56,13 @@ def init_all(yes=None):
     # Coarse stages
     if ask_yes_no('Initialise short branch coarse stages?'):
         # McLennan 1 (sample coarse x translation)
-        driver = instantiate_driver(mclennan.McLennan, daemon_address=network_conf.MCLENNAN1['DAEMON'],
-                                    name='mclennan1')
+        driver = instantiate_driver(**DRIVER_DATA['mclennan1'])
         drivers['ssx'] = driver
         if driver is not None:
             motors['ssx'] = mclennan.Motor('ssx', driver)
 
         # McLennan 2 (detector coarse x translation)
-        driver = instantiate_driver(mclennan.McLennan, daemon_address=network_conf.MCLENNAN2['DAEMON'],
-                                    name='mclennan2')
+        driver = instantiate_driver(**DRIVER_DATA['mclennan2'])
         drivers['dsx'] = driver
         if driver is not None:
             motors['dsx'] = mclennan.Motor('dsx', driver)
@@ -108,7 +77,7 @@ def init_all(yes=None):
         print('TODO')
 
     if ask_yes_no('Initialise rotation stage?'):
-        driver = instantiate_driver(aerotech.Aerotech)
+        driver = instantiate_driver(**DRIVER_DATA['aerotech'])
         drivers['rot'] = driver
         if driver is not None:
             motors['rot'] = aerotech.Motor('rot', driver)
@@ -117,7 +86,7 @@ def init_all(yes=None):
         print('TODO')
 
     if ask_yes_no('Initialize mecademic robot?'):
-        driver = instantiate_driver(mecademic.Mecademic)
+        driver = instantiate_driver(**DRIVER_DATA['mecademic'])
         drivers['mecademic'] = driver
         if driver is not None:
             motors['bx'] = mecademic.Motor('bx', driver, 'x')
