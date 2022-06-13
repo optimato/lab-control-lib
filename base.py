@@ -173,7 +173,7 @@ class DeviceServerBase:
         self.threads = {}
 
         # Stats dictionary
-        self.stats = {'startup': time.time()}
+        self.stats = {'daemon': {'startup': time.time()}}
 
     @classmethod
     def run(cls, *args, **kwargs):
@@ -218,7 +218,8 @@ class DeviceServerBase:
                                  'total_reply_time': 0.,
                                  'total_reply_time2': 0.,
                                  'min_reply_time': 100.,
-                                 'max_reply_time': 0.}
+                                 'max_reply_time': 0.,
+                                 'last_reply_time': 0.}
 
         self.logger.info(f'Client #{ident} connected ({address})')
 
@@ -245,6 +246,7 @@ class DeviceServerBase:
             maxr = self.stats[ident_key]['max_reply_time']
             self.stats[ident_key]['min_reply_time'] = min(dt, minr)
             self.stats[ident_key]['max_reply_time'] = max(dt, maxr)
+            self.stats[ident_key]['last_reply_time'] = t0
 
             # Special case: reply is None means: exit the loop and shut down this client.
             if reply is None:
@@ -327,9 +329,15 @@ class DeviceServerBase:
             # Return some stats.
             # This will fail if self.EOL appears in the stats, but
             # that seems unlikely.
-            return json.dumps(self.stats).encode() + self.EOL
+            return json.dumps(self.get_stats()).encode() + self.EOL
 
         return f'Error: unknown command {cmd}'.encode() + self.EOL
+
+    def get_stats(self):
+        """
+        Pass stats - can be overloaded
+        """
+        return self.stats
 
     def driver_status(self):
         """
@@ -710,6 +718,17 @@ class DriverBase:
                     self.logger.warning(f'Could not rescind admin rights: {reply}')
 
         return self.admin
+
+    def get_meta(self, metakeys, returndict):
+        """
+        Place in `returndict` the data described by the list
+        of keys in metakeys. If metakeys is None: return all
+        available meta.
+
+        Note: returndict is used instead of a normal method return
+        so that this method can be run on a different thread.
+        """
+        raise NotImplementedError
 
     def get_stats(self):
         """

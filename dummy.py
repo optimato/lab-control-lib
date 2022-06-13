@@ -136,6 +136,22 @@ class Dummy(DriverBase):
         self.logger.info("Exiting.")
         self.sock.close()
 
+    def get_meta(self, metakeys, returndict):
+        """
+        Fetch metadata, put it in returndict.
+        """
+        if metakeys is None:
+            metakeys = ['position',
+                        'daemon_stats']
+        for key in metakeys:
+            if key.lower() == 'position':
+                returndict[key] = self.get_pos()
+            elif key.lower() == 'daemon_stats':
+                returndict[key] = self.get_stats()
+            else:
+                returndict[key] = 'unknown'
+        return
+
 
 class Motor(MotorBase):
     def __init__(self, name, driver):
