@@ -166,6 +166,9 @@ class DeviceServerBase:
         # Shutdown flag
         self.shutdown_requested = False
 
+        # flag
+        self.isalive = None
+
         # No thread is admin
         self.admin = None
 
@@ -187,6 +190,7 @@ class DeviceServerBase:
         """
         Infinite listening loop for new connections.
         """
+        self.isalive = True
         self.client_sock.bind(self.serving_address)
         self.client_sock.listen(5)
         while True:
@@ -205,6 +209,7 @@ class DeviceServerBase:
                 continue
         # Driver is shut down
         self.logger.info('Shutdown complete')
+        self.isalive = False
         return
 
     def _serve(self, client, address):
@@ -349,6 +354,8 @@ class DeviceServerBase:
         """
         Clean shutdown of the driver.
         """
+        if not self.isalive:
+            return
         # Tell the polling thread to abort. This will ensure that all the rest is wrapped up
         self.shutdown_requested = True
         self.logger.info('Shutting down.')
@@ -364,7 +371,10 @@ class DeviceServerBase:
         if address is None:
             address = cls.DEFAULT_SERVING_ADDRESS
 
-        d = DriverBase(address=address, admin=False)
+        class DriverKiller(DriverBase):
+            pass
+
+        d = DriverKiller(address=address, admin=False)
         d.send(ESCAPE_STRING + b'SHUTDOWN' + cls.EOL)
 
 
@@ -622,6 +632,8 @@ class DriverBase:
         # Connect
         self.connect()
 
+        self.isalive = True
+
         # Request admin rights if needed
         if admin:
             self.ask_admin(True)
@@ -653,6 +665,7 @@ class DriverBase:
         """
         Clean shutdown of the driver.
         """
+        self.isalive = False
         try:
             self.sock.close()
         except:
@@ -673,6 +686,10 @@ class DriverBase:
         Read message from socket.
         """
         r = _recv_all(self.sock, EOL=self.EOL)
+        if not r:
+            self.logger.critical('Daemon disconnected.')
+            self.shutdown()
+            raise DaemonException('Daemon disconnected.')
         return r
 
     def _send_recv(self, msg):

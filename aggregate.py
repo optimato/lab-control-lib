@@ -43,6 +43,8 @@ def connect(name=None):
 def get_all_meta():
     """
     Collect all available metadata.
+
+    TODO: also motors
     """
     if not DRIVERS:
         logger.warning('No metadata can be collected: No running driver.')

@@ -118,6 +118,9 @@ class Smaract(DriverBase):
         """
         super().__init__(address=address, admin=admin)
 
+        self.metacalls.update({'position': lambda: [self.get_pos(0), self.get_pos(1), self.get_pos(2)],
+                               'speed': lambda: [self.get_speed(0), self.get_speed(1), self.get_speed(2)]})
+
         # Get number of channels
         nc = self.send_recv(b':GNC\n')
         self.no_channels = int(nc[1][0])

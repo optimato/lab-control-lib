@@ -356,7 +356,7 @@ class Mecademic(DriverBase):
         code, reply = self.send_cmd('SetJointVel', p)
 
     @admin_only
-    def move_joints(self, joints):
+    def move_joints(self, joints, block=True):
         """
         Move joints
         """
@@ -366,7 +366,8 @@ class Mecademic(DriverBase):
         if status[2]:
             self.logger.warning('simulation mode')
         code, reply = self.send_cmd(['MoveJoints', 'GetStatusRobot'], [joints, None])
-        self.check_done()
+        if block:
+            self.check_done()
         return self.get_joints()
 
     def get_joints(self):
