@@ -1,10 +1,16 @@
 """
 OptImaTo control package
+
+Dependencies (incomplete)
+
+json-database
+click
+
 """
 import logging
 import logging.handlers
 import os
-import optimatools as opt
+#import optimatools as opt
 from . import util
 from .util import logs, FileDict
 from . import network_conf
@@ -60,10 +66,10 @@ from . import mecademic
 from . import microscope
 from . import smaract
 
-from . import mtffun_hans
+#from . import mtffun_hans
 #from . import pcofun_hans
-from . import xpsfun_ronan
+#from . import xpsfun_ronan
 
-#from . import excillum
+from . import excillum
 
 #from .ui import *
