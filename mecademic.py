@@ -26,6 +26,7 @@ EOL = b'\0'
 # Default joint velocity: 5% of maximum ~= 18 degrees / s
 DEFAULT_VELOCITY = 5
 
+MAX_JOINT_VELOCITY = [150., 150., 180., 300., 300., 500.]
 
 class RobotException(Exception):
     def __init__(self, code, message=''):
@@ -343,13 +344,7 @@ class Mecademic(DriverBase):
     def set_joint_velocity(self, p):
         """
         Set joint velocity as a percentage of the maximum speed.
-        These are (in degrees per second)
-        theta 1: 150
-        theta 2: 150
-        theta 3: 180
-        theta 4: 300
-        theta 5: 300
-        theta 6: 500
+        (See MAX_JOINT_VELOCITY)
 
         The last is especially important for continuous tomographic scans.
         """
@@ -368,7 +363,53 @@ class Mecademic(DriverBase):
         code, reply = self.send_cmd(['MoveJoints', 'GetStatusRobot'], [joints, None])
         if block:
             self.check_done()
+        else:
+            self.logger.info('Non-blocking motion started.')
         return self.get_joints()
+
+    @admin_only
+    def move_single_joint(self, angle, joint_number, block=True):
+        """
+        Move a single joint to given angle.
+        """
+        # Send two commands because 'MoveJoints' doesn't immediately
+        # return something
+        status = self.get_status()
+        if status[2]:
+            self.logger.warning('simulation mode')
+        # Get current joints and change only one value
+        joints = self.get_joints()
+        joints[joint_number - 1] = angle
+
+        # Ask to move
+        code, reply = self.send_cmd(['MoveJoints', 'GetStatusRobot'], [joints, None])
+        if block:
+            self.check_done()
+        else:
+            self.logger.info('Non-blocking motion started.')
+        return self.get_joints()
+
+    def rotate_continuous(self, end_angle, duration, start_angle=None, joint_number=6, block=False):
+        """
+        Rotate one joint (by default 6th) from start_angle (by default current)
+        to given end_angle, setting the joint velocity for the rotation to last
+        given duration.
+
+        NOTE: This function is non-blocking by default
+        """
+        # Move to start.
+        self.move_single_joint(start_angle, joint_number=joint_number)
+
+        # Velocity in degrees / seconds
+        vel = abs(end_angle - start_angle)/duration
+
+        # Percentage of maximum velocity
+        p = 100 * vel/MAX_JOINT_VELOCITY[joint_number-1]
+        self.logger.info(f'Setting velocity of joint {joint_number} to {vel:0.3f} degrees/seconds (p = {p})')
+        self.set_joint_velocity(p)
+
+        # Now start move
+        self.move_single_joint(end_angle, joint_number=joint_number, block=block)
 
     def get_joints(self):
         """
