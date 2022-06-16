@@ -52,7 +52,7 @@ class MecademicMonitor():
     NUM_CONNECTION_RETRY = 10
     MAX_BUFFER_LENGTH = 1000
 
-    def __init__(self, monitor_address=None):
+    def __init__(self, monitor_address=None, filename=None):
 
         if monitor_address is None:
             monitor_address = self.DEFAULT_MONITOR_ADDRESS
@@ -62,6 +62,8 @@ class MecademicMonitor():
         # Store device address
         self.monitor_address = monitor_address
         self.monitor_sock = None
+
+        self.filename = filename
 
         # Buffer in which incoming data will be stored
         self.recv_buffer = None
@@ -117,12 +119,35 @@ class MecademicMonitor():
         in a local buffer. For devices that send data only after
         receiving a command, the buffer is read and emptied immediately.
         """
-        while True:
-            if self.shutdown_requested:
-                break
-            d = _recv_all(self.monitor_sock, EOL=self.EOL)
-            self.recv_buffer += d
-            self.consume_buffer()
+        with open(self.filename, 'at') as f:
+            while True:
+                if self.shutdown_requested:
+                    break
+                d = _recv_all(self.monitor_sock, EOL=self.EOL)
+                self.recv_buffer += d
+                #self.consume_buffer()
+                self.dump_buffer(f)
+
+    def dump_buffer(self, f):
+        """
+        Parse buffered messages and dump them in a file.
+        """
+        tokens = self.recv_buffer.split(EOL)
+        for t in tokens:
+            ts = t.decode('ascii', errors='ignore')
+            if not ts:
+                continue
+            code, message = ts.strip('[]').split('][')
+            code = int(code)
+            f.write(f'{message}\n')
+            continue                
+            if not self.messages.get(code):
+                self.messages[code] = []
+            self.messages[code].append(message)
+            if len(self.messages[code]) > self.MAX_BUFFER_LENGTH:
+                self.messages[code].pop(0)
+            self.callbacks.get(code, lambda m: None)(message)
+        self.recv_buffer = b''
 
     def consume_buffer(self):
         """
@@ -131,15 +156,20 @@ class MecademicMonitor():
         tokens = self.recv_buffer.split(EOL)
         for t in tokens:
             ts = t.decode('ascii', errors='ignore')
+            print(ts)
+            continue
             code, message = ts.strip('[]').split('][')
             code = int(code)
             if not self.messages.get(code):
                 self.messages[code] = []
             self.messages[code].append(message)
-            if len(self.messages[code] > self.MAX_BUFFER_LENGTH):
+            if len(self.messages[code]) > self.MAX_BUFFER_LENGTH:
                 self.messages[code].pop(0)
             self.callbacks.get(code, lambda m: None)(message)
         self.recv_buffer = b''
+
+    def shutdown(self):
+        self.shutdown_requested = True
 
 
 class MecademicDaemon(SocketDeviceServerBase):
@@ -366,10 +396,18 @@ class Mecademic(DriverBase):
         """
         code, reply = self.send_cmd('GetStatusRobot')
         try:
-            status = [bool(int(x)) for x in reply.split(',')]
+            status = []
+            for x in reply.split(','):
+                if x.strip() == '1':
+                    status.append(True)
+                elif x.strip() == '0':
+                    status.append(False)
+                else:
+                    raise RuntimeError()
         except:
             self.logger.error(f'get_status returned {reply}')
-            status = None
+            # try again
+            status = self.get_status()
         return status
 
     @admin_only
