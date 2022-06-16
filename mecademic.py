@@ -12,6 +12,7 @@ TODO: how to better define "free moving zones".
 
 """
 import time
+import threading
 
 from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
 from .network_conf import MECADEMIC as DEFAULT_NETWORK_CONF
@@ -133,7 +134,7 @@ class Mecademic(DriverBase):
         if status[3]:
             # Error mode
             if ask_yes_no('Robot in error mode. Clear?'):
-                self.clear_error()
+                self.clear_errors()
             else:
                 self.logger.warning('Robot still in error mode after driver initialization.')
                 return
@@ -350,6 +351,14 @@ class Mecademic(DriverBase):
         """
         code, reply = self.send_cmd('SetJointVel', p)
 
+    def get_joint_velocity(self):
+        """
+        Get joint velocity as a percentage of the maximum speed.
+        (See MAX_JOINT_VELOCITY)
+        """
+        code, reply = self.send_cmd('GetJointVel')
+        return float(reply)
+
     @admin_only
     def move_joints(self, joints, block=True):
         """
@@ -397,8 +406,14 @@ class Mecademic(DriverBase):
 
         NOTE: This function is non-blocking by default
         """
-        # Move to start.
-        self.move_single_joint(start_angle, joint_number=joint_number)
+        if start_angle is not None:
+            # Move to start.
+            self.move_single_joint(start_angle, joint_number=joint_number)
+        else:
+            start_angle = self.get_joints()[joint_number-1]
+
+        # Get current velocity
+        cv = self.get_joint_velocity()
 
         # Velocity in degrees / seconds
         vel = abs(end_angle - start_angle)/duration
@@ -410,6 +425,24 @@ class Mecademic(DriverBase):
 
         # Now start move
         self.move_single_joint(end_angle, joint_number=joint_number, block=block)
+        
+        self.logger.info(f'velocity will be {p} but was {cv} before.')
+        
+        # Reset the velocity
+        # self.when_done(self.set_joint_velocity)
+
+    def when_done(self, fct):
+        """
+        Execute fct only when motion is over.
+        """
+        def do_after_done():
+            self.check_done()
+            fct()
+
+        t = threading.Thread(target=do_after_done)
+        t.daemon = True
+        t.start()
+        return
 
     def get_joints(self):
         """
@@ -419,6 +452,9 @@ class Mecademic(DriverBase):
         """
         code, reply = self.send_cmd('GetRtJointPos')
         joints = [float(x) for x in reply.split(',')]
+        if joints[0] < 1600000000:
+            # That's not right. Try again.
+            return self.get_joints()
         # Drop the first element (timestamp)
         return joints[1:]
 
@@ -524,6 +560,21 @@ class Mecademic(DriverBase):
         """
 
         return
+
+    def create_motors(self):
+        """
+        Create the 6 pose motors.
+        
+        TODO: make this more flexible.
+        """
+        motors = {}
+        motors['bx'] = Motor('bx', self, 'x')
+        motors['by'] = Motor('by', self, 'y')
+        motors['bz'] = Motor('bz', self, 'z')
+        motors['btilt'] = Motor('btilt', self, 'tilt')
+        motors['broll'] = Motor('broll', self, 'roll')
+        motors['brot'] = Motor('brot', self, 'rot')
+        return motors
 
     def abort(self):
         """

@@ -89,12 +89,7 @@ def init_all(yes=None):
         driver = instantiate_driver(**DRIVER_DATA['mecademic'])
         drivers['mecademic'] = driver
         if driver is not None:
-            motors['bx'] = mecademic.Motor('bx', driver, 'x')
-            motors['by'] = mecademic.Motor('by', driver, 'y')
-            motors['bz'] = mecademic.Motor('bz', driver, 'z')
-            motors['btilt'] = mecademic.Motor('btilt', driver, 'tilt')
-            motors['broll'] = mecademic.Motor('broll', driver, 'roll')
-            motors['brot'] = mecademic.Motor('brot', driver, 'rot')
+            motors.update(driver.create_motors())
 
     if ask_yes_no('Initialise stage pseudomotors?'):
         print('TODO')
