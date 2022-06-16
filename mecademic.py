@@ -52,7 +52,7 @@ class MecademicMonitor():
     NUM_CONNECTION_RETRY = 10
     MAX_BUFFER_LENGTH = 1000
 
-    def __init__(self, monitor_address=None, filename=None):
+    def __init__(self, monitor_address=None):
 
         if monitor_address is None:
             monitor_address = self.DEFAULT_MONITOR_ADDRESS
@@ -62,8 +62,6 @@ class MecademicMonitor():
         # Store device address
         self.monitor_address = monitor_address
         self.monitor_sock = None
-
-        self.filename = filename
 
         # Buffer in which incoming data will be stored
         self.recv_buffer = None
@@ -75,15 +73,12 @@ class MecademicMonitor():
         # dict of received messages (key is message code)
         self.messages = []
 
-        self.callback = lambda m : None
-
         self.shutdown_requested = False
 
         # Connect to device
         self.connected = False
-        self.connect_device()
 
-    def connect_device(self):
+    def start(self):
         """
         Device connection
         """
@@ -119,14 +114,22 @@ class MecademicMonitor():
         in a local buffer. For devices that send data only after
         receiving a command, the buffer is read and emptied immediately.
         """
-        with open(self.filename, 'at') as f:
-            while True:
-                if self.shutdown_requested:
-                    break
-                d = _recv_all(self.monitor_sock, EOL=self.EOL)
-                self.recv_buffer += d
-                #self.consume_buffer()
-                self.dump_buffer(f)
+        while True:
+            if self.shutdown_requested:
+                break
+            d = _recv_all(self.monitor_sock, EOL=self.EOL)
+            self.recv_buffer += d
+            self.consume_buffer()
+            #self.dump_buffer(f)
+
+    def callback(self, g):
+        return
+
+    def callback_print(self, g):
+        """
+        print content of group
+        """
+        print(g)
 
     def dump_buffer(self, f):
         """
@@ -154,6 +157,7 @@ class MecademicMonitor():
             if not ts:
                 # New group
                 self.messages.append(g)
+                self.last_message = g
                 self.callback(g)
                 g = {}
             try:
@@ -167,6 +171,23 @@ class MecademicMonitor():
 
     def shutdown(self):
         self.shutdown_requested = True
+
+
+class MecademicMonitorLog(MecademicMonitor):
+
+    def __init__(self, filename, monitor_address=None):
+        super().__init__(monitor_address=monitor_address)
+        self.filename = filename
+
+    def callback(self, g):
+        """
+        Save time and joints 
+        """
+        with open(self.filename, 'at') as f:
+            if 2230 not in g:
+                return
+            f.write(f'{g[2230]}, {g[2026]}\n')
+
 
 
 class MecademicDaemon(SocketDeviceServerBase):
