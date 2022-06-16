@@ -73,9 +73,9 @@ class MecademicMonitor():
         self.recv_thread = None
 
         # dict of received messages (key is message code)
-        self.messages = {}
+        self.messages = []
 
-        self.callbacks = {}
+        self.callback = lambda m : None
 
         self.shutdown_requested = False
 
@@ -141,12 +141,6 @@ class MecademicMonitor():
             code = int(code)
             f.write(f'{message}\n')
             continue                
-            if not self.messages.get(code):
-                self.messages[code] = []
-            self.messages[code].append(message)
-            if len(self.messages[code]) > self.MAX_BUFFER_LENGTH:
-                self.messages[code].pop(0)
-            self.callbacks.get(code, lambda m: None)(message)
         self.recv_buffer = b''
 
     def consume_buffer(self):
@@ -154,18 +148,21 @@ class MecademicMonitor():
         Parse buffered messages - running on the same thread as _listen_recv.
         """
         tokens = self.recv_buffer.split(EOL)
+        g = {}
         for t in tokens:
             ts = t.decode('ascii', errors='ignore')
-            print(ts)
-            continue
-            code, message = ts.strip('[]').split('][')
+            if not ts:
+                # New group
+                self.messages.append(g)
+                self.callback(g)
+                g = {}
+            try:
+                code, message = ts.strip('[]').split('][')
+            except:
+                code = 0
+                message = ts
             code = int(code)
-            if not self.messages.get(code):
-                self.messages[code] = []
-            self.messages[code].append(message)
-            if len(self.messages[code]) > self.MAX_BUFFER_LENGTH:
-                self.messages[code].pop(0)
-            self.callbacks.get(code, lambda m: None)(message)
+            g[code] = message
         self.recv_buffer = b''
 
     def shutdown(self):
