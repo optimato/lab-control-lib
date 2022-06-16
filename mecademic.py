@@ -11,10 +11,14 @@ TODO: how to better define "free moving zones".
 
 
 """
+import logging
 import time
+import socket
+import os
 import threading
+import select
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
+from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException, _recv_all
 from .network_conf import MECADEMIC as DEFAULT_NETWORK_CONF
 from .ui_utils import ask_yes_no
 from . import conf_path
@@ -29,11 +33,113 @@ DEFAULT_VELOCITY = 5
 
 MAX_JOINT_VELOCITY = [150., 150., 180., 300., 300., 500.]
 
+
 class RobotException(Exception):
     def __init__(self, code, message=''):
         self.code = code
         self.message = f'{code}: {message}'
         super().__init__(self.message)
+
+
+class MecademicMonitor():
+    """
+    Light weight class that connects to the monitor port.
+    """
+
+    EOL = EOL
+    DEFAULT_MONITOR_ADDRESS = DEFAULT_NETWORK_CONF['MONITOR']
+    MONITOR_TIMEOUT = 1
+    NUM_CONNECTION_RETRY = 10
+    MAX_BUFFER_LENGTH = 1000
+
+    def __init__(self, monitor_address=None):
+
+        if monitor_address is None:
+            monitor_address = self.DEFAULT_MONITOR_ADDRESS
+
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+        # Store device address
+        self.monitor_address = monitor_address
+        self.monitor_sock = None
+
+        # Buffer in which incoming data will be stored
+        self.recv_buffer = None
+        # Flag to inform other threads that data has arrived
+        self.recv_flag = None
+        # Listening/receiving thread
+        self.recv_thread = None
+
+        # dict of received messages (key is message code)
+        self.messages = {}
+
+        self.callbacks = {}
+
+        self.shutdown_requested = False
+
+        # Connect to device
+        self.connected = False
+        self.connect_device()
+
+    def connect_device(self):
+        """
+        Device connection
+        """
+        # Prepare device socket connection
+        self.monitor_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
+        self.monitor_sock.settimeout(self.MONITOR_TIMEOUT)
+
+        for retry_count in range(self.NUM_CONNECTION_RETRY):
+            conn_errno = self.monitor_sock.connect_ex(self.monitor_address)
+            if conn_errno == 0:
+                break
+
+            self.logger.critical(os.strerror(conn_errno))
+            time.sleep(.05)
+
+        if conn_errno != 0:
+            self.logger.critical("Can't connect to device")
+            raise DeviceException("Can't connect to device")
+
+        # Start receiving data
+        self.recv_buffer = b''
+        self.recv_flag = threading.Event()
+        self.recv_flag.clear()
+        self.recv_thread = threading.Thread(target=self._listen_recv)
+        self.recv_thread.daemon = True
+        self.recv_thread.start()
+
+        self.connected = True
+
+    def _listen_recv(self):
+        """
+        This threads receives all data in real time and stores it
+        in a local buffer. For devices that send data only after
+        receiving a command, the buffer is read and emptied immediately.
+        """
+        while True:
+            if self.shutdown_requested:
+                break
+            d = _recv_all(self.monitor_sock, EOL=self.EOL)
+            self.recv_buffer += d
+            self.consume_buffer()
+
+    def consume_buffer(self):
+        """
+        Parse buffered messages - running on the same thread as _listen_recv.
+        """
+        tokens = self.recv_buffer.split(EOL)
+        for t in tokens:
+            ts = t.decode('ascii', errors='ignore')
+            code, message = ts.strip('[]').split('][')
+            code = int(code)
+            if not self.messages.get(code):
+                self.messages[code] = []
+            self.messages[code].append(message)
+            if len(self.messages[code] > self.MAX_BUFFER_LENGTH):
+                self.messages[code].pop(0)
+            self.callbacks.get(code, lambda m: None)(message)
+        self.recv_buffer = b''
 
 
 class MecademicDaemon(SocketDeviceServerBase):
