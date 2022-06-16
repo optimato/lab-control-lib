@@ -36,9 +36,11 @@ MCLENNAN2 = {'DAEMON': (CONTROL_HOST, 15101),
              'DEVICE': ("?.?.?.?", 7777)
              }
 
+MECA_ADDRESS = "172.19.234.28"
 MECADEMIC = {'DAEMON': (CONTROL_HOST, 15200),
              #'DEVICE': ("172.19.248.34", 10000)
-             'DEVICE': ("mecademic.elettra.eu", 10000)
+             'DEVICE': (MECA_ADDRESS, 10000),
+             'MONITOR': (MECA_ADDRESS, 10001)
              }
 
 EXCILLUM = {'DAEMON': (CONTROL_HOST, 15300),
