@@ -12,23 +12,19 @@ import socket
 import multiprocessing
 
 from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, _recv_all
+from .network_conf import DUMMY as DEFAULT_NETWORK_CONF
 from . import motors
 from .ui_utils import ask_yes_no
 
-__all__ = ['DummyDeamon', 'Dummy', 'Motor']
-
-DUMMY_DAEMON_ADDRESS = "127.0.0.1"
-DUMMY_DAEMON_PORT = 15000
-DUMMY_DEVICE_ADDRESS = "127.0.0.1"
-DUMMY_DEVICE_PORT = 8000
+__all__ = ['DummyDaemon', 'Dummy', 'Motor']
 
 
-class DummyDeamon(SocketDeviceServerBase):
+class DummyDaemon(SocketDeviceServerBase):
     """
     Dummy Daemon
     """
-    DEFAULT_SERVING_ADDRESS = (DUMMY_DAEMON_ADDRESS, DUMMY_DAEMON_PORT)
-    DEFAULT_DEVICE_ADDRESS = (DUMMY_DEVICE_ADDRESS, DUMMY_DEVICE_PORT)
+    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
+    DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
 
     def __init__(self, serving_address=None, device_address=None):
         if serving_address is None:
@@ -59,11 +55,14 @@ class Dummy(DriverBase):
     # temporization for rapid status checks during moves.
     POLL_INTERVAL = 0.01
 
-    def __init__(self, admin=True):
+    def __init__(self, address=None, admin=True, **kwargs):
         """
         Connect to daemon.
         """
-        super().__init__(address=(DUMMY_DAEMON_ADDRESS, DUMMY_DAEMON_PORT), admin=admin)
+        if address is None:
+            address = DEFAULT_NETWORK_CONF['DAEMON']
+
+        super().__init__(address=address, admin=admin)
 
         self.metacalls.update({'position': self.get_pos})
 
@@ -71,8 +70,8 @@ class Dummy(DriverBase):
         self.logger.info('Do init replied %s' % reply.strip())
 
         # Create motor
-        self.motor = {'dummy': Motor('dummy', self)}
-        motors['dummy'] = self.motor['dummy']
+        self.motor = {'dum': Motor('dum', self)}
+        motors['dum'] = self.motor['dum']
 
         self.logger.info("Dummy initialization complete.")
         self.initialized = True
@@ -164,7 +163,7 @@ def dummy_device(timeout=5., latency=0.):
         socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
     client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     client_sock.settimeout(1)
-    client_sock.bind((DUMMY_DEVICE_ADDRESS, DUMMY_DEVICE_PORT))
+    client_sock.bind(DEFAULT_NETWORK_CONF['DEVICE'])
     client_sock.listen(5)
     client = None
     delay = 10.

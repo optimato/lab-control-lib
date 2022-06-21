@@ -18,6 +18,7 @@ from . import drivers, motors
 from . import aerotech
 from . import mclennan
 from . import mecademic
+from . import dummy
 from . import microscope
 from . import smaract
 from . import excillum
@@ -107,6 +108,20 @@ def init_all(yes=None):
 
     return
 
+
+def init_dummy(yes=None):
+    """
+    Initialize the dummy component for testing
+    """
+    if yes:
+        # Fake non-interactive to answer all questions automatically
+        ui_utils.user_interactive = False
+
+    if ask_yes_no("Start dummy driver?"):
+        driver = instantiate_driver(**DRIVER_DATA['dummy'])
+        drivers['dummy'] = driver
+
+
 # Command Line Interface
 
 @click.group(help='Labcontrol daemon management')
@@ -127,6 +142,10 @@ def start(name):
     if name == 'mecademic':
         click.echo(f'Starting daemon {name}')
         mecademic.MecademicDaemon.run()
+        sys.exit(0)
+    if name == 'dummy':
+        click.echo(f'Starting daemon {name}')
+        dummy.DummyDaemon.run()
         sys.exit(0)
     if name == 'smaract':
         click.echo(f'Starting daemon {name}')

@@ -123,7 +123,6 @@ class emergency_stop:
             return True
 
 
-
 class DeviceServerBase:
     """
     Base class for all serving connections to a device, meant to run as a daemon.
@@ -385,6 +384,7 @@ class SocketDeviceServerBase(DeviceServerBase):
 
     DEVICE_TIMEOUT = None        # Device socket timeout
     KEEPALIVE_INTERVAL = 10.    # Default Polling (keep-alive) interval
+    EOLr = None                 # Receiving EOL (from device) if None will be set to self.EOL
 
     def __init__(self, serving_address, device_address):
         """
@@ -392,6 +392,10 @@ class SocketDeviceServerBase(DeviceServerBase):
         """
         # Prepare serving side
         super().__init__(serving_address=serving_address)
+
+        # Receiving EOL
+        if self.EOLr is None:
+            self.EOLr = self.EOL
 
         # Store device address
         self.device_address = device_address
@@ -479,7 +483,7 @@ class SocketDeviceServerBase(DeviceServerBase):
             if rlist:
                 # Incoming data
                 with self._lock:
-                    d = _recv_all(rlist[0], EOL=self.EOL)
+                    d = _recv_all(rlist[0], EOL=self.EOLr)
                     self.recv_buffer += d
                     self.recv_flag.set()
 

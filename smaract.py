@@ -112,10 +112,13 @@ class Smaract(DriverBase):
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
     EOL = EOL
 
-    def __init__(self, address, admin=True):
+    def __init__(self, address, admin=True, **kwargs):
         """
         Connects to daemon.
         """
+        if address is None:
+            address = DEFAULT_NETWORK_CONF['DAEMON']
+
         super().__init__(address=address, admin=admin)
 
         self.metacalls.update({'position': lambda: [self.get_pos(0), self.get_pos(1), self.get_pos(2)],

@@ -102,10 +102,13 @@ class Aerotech(DriverBase):
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
     EOL = EOL
 
-    def __init__(self, address, admin=True):
+    def __init__(self, address, admin=True, **kwargs):
         """
         Connect to daemon.
         """
+        if address is None:
+            address = DEFAULT_NETWORK_CONF['DAEMON']
+
         super().__init__(address=address, admin=admin)
 
         self.metacalls.update({'rotation_angle': self.get_pos})

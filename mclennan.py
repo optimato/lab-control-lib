@@ -228,6 +228,7 @@ class McLennanDaemon(SocketDeviceServerBase):
         if not r:
             raise DeviceException
 
+
 class McLennan(DriverBase):
     """
     Driver for the coarse bottom stages.

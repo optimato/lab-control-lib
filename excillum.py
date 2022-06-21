@@ -17,7 +17,7 @@ EOL = b'\n'
 
 class ExcillumDaemon(SocketDeviceServerBase):
     """
-    Excillyum Daemon, keeping connection with Robot arm.
+    Excillyum Daemon, keeping connection with the source.
     """
 
     DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
@@ -60,7 +60,7 @@ class Excillum(DriverBase):
 
     EOL = EOL
 
-    def __init__(self, address=None, admin=True):
+    def __init__(self, address=None, admin=True, **kwargs):
         """
         Initialization.
         """

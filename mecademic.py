@@ -75,6 +75,9 @@ class MecademicMonitor():
 
         self.shutdown_requested = False
 
+        # Start with empty message
+        self.message = {}
+
         # Connect to device
         self.connected = False
 
@@ -131,21 +134,6 @@ class MecademicMonitor():
         """
         print(g)
 
-    def dump_buffer(self, f):
-        """
-        Parse buffered messages and dump them in a file.
-        """
-        tokens = self.recv_buffer.split(EOL)
-        for t in tokens:
-            ts = t.decode('ascii', errors='ignore')
-            if not ts:
-                continue
-            code, message = ts.strip('[]').split('][')
-            code = int(code)
-            f.write(f'{message}\n')
-            continue                
-        self.recv_buffer = b''
-
     def consume_buffer(self):
         """
         Parse buffered messages - running on the same thread as _listen_recv.
@@ -156,8 +144,7 @@ class MecademicMonitor():
             ts = t.decode('ascii', errors='ignore')
             if not ts:
                 # New group
-                self.messages.append(g)
-                self.last_message = g
+                self.message = g
                 self.callback(g)
                 g = {}
             try:
@@ -187,7 +174,6 @@ class MecademicMonitorLog(MecademicMonitor):
             if 2230 not in g:
                 return
             f.write(f'{g[2230]}, {g[2026]}\n')
-
 
 
 class MecademicDaemon(SocketDeviceServerBase):
@@ -254,7 +240,7 @@ class Mecademic(DriverBase):
                             (-112., -24),
                             (-360., 360.))
 
-    def __init__(self, address=None, admin=True):
+    def __init__(self, address=None, admin=True, **kwargs):
         """
         Initialise Mecademic driver (robot arm).
         """
@@ -270,6 +256,8 @@ class Mecademic(DriverBase):
         self.last_error = None
         self.motion_paused = False
 
+        self.monitor = None
+
         self.initialize()
 
     @admin_only
@@ -279,6 +267,10 @@ class Mecademic(DriverBase):
 
         Will probably be refined depending on how the robot is used.
         """
+        # Create monitor
+        self.monitor = MecademicMonitor()
+        self.monitor.start()
+
         # Set time
         self.set_RTC()
 

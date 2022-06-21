@@ -28,21 +28,29 @@ SMARACT = {'DAEMON': (CONTROL_HOST, 15001),
            }
 
 # McLennan controller for bottom stages
-MCLENNAN1 = {'DAEMON': (CONTROL_HOST, 15100),
+MCLENNAN1 = {'DAEMON': (CONTROL_HOST, 15003),
              'DEVICE': ("?.?.?.?", 7776)
              }
 
-MCLENNAN2 = {'DAEMON': (CONTROL_HOST, 15101),
+MCLENNAN2 = {'DAEMON': (CONTROL_HOST, 15004),
              'DEVICE': ("?.?.?.?", 7777)
              }
 
 MECA_ADDRESS = "172.19.234.28"
-MECADEMIC = {'DAEMON': (CONTROL_HOST, 15200),
+MECADEMIC = {'DAEMON': (CONTROL_HOST, 15005),
              #'DEVICE': ("172.19.248.34", 10000)
              'DEVICE': (MECA_ADDRESS, 10000),
              'MONITOR': (MECA_ADDRESS, 10001)
              }
 
-EXCILLUM = {'DAEMON': (CONTROL_HOST, 15300),
+EXCILLUM = {'DAEMON': (CONTROL_HOST, 15100),
             'DEVICE': ("?.?.?.?", 4944)
             }
+
+XPS = {'DAEMON': (CONTROL_HOST, 15006),
+       'DEVICE': ("?.?.?.?", 5001)
+      }
+
+DUMMY = {'DAEMON': (CONTROL_HOST, 16789),
+         'DEVICE': (CONTROL_HOST, 6789)
+        }

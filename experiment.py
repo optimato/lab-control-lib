@@ -11,8 +11,15 @@ import os
 
 from . import data_path
 from .ui_utils import ask, user_prompt
+from .aggregate import get_all_meta
 
-# Initial state - these will represent the current state when assigned
+# INVESTIGATION and EXPERIMENT will be populated by user prompts or other ways
+# SCAN will be None unless a scan is ongoing, in which case it will be
+# equal to the current Scan context manager (see below).
+# The current idea is to scan for next available scan always based on directory
+# structure to reduce to risk of overwriting existing data. It could be done
+# differently.
+
 INVESTIGATION = None
 EXPERIMENT = None
 SCAN = None
@@ -40,19 +47,18 @@ def choose_investigation(name=None):
 
     if name is not None:
         inv = name
-        return inv
-
-    if not investigations:
-        inv = user_prompt('Enter new investigation name:')
     else:
-        invkeys = list(investigations.keys())
-        values = list(range(len(invkeys)+1))
-        labels = ['0) [new investigation]'] + [f'{i+1}) {v}' for i, v in enumerate(invkeys)]
-        ichoice = ask('Select investigation', clab=labels, cval=values, multiline=True)
-        if ichoice == 0:
+        if not investigations:
             inv = user_prompt('Enter new investigation name:')
         else:
-            inv = invkeys[ichoice-1]
+            invkeys = list(investigations.keys())
+            values = list(range(len(invkeys)+1))
+            labels = ['0) [new investigation]'] + [f'{i+1}) {v}' for i, v in enumerate(invkeys)]
+            ichoice = ask('Select investigation', clab=labels, cval=values, multiline=True)
+            if ichoice == 0:
+                inv = user_prompt('Enter new investigation name:')
+            else:
+                inv = invkeys[ichoice-1]
     inv_path = os.path.join(data_path, inv)
     print(f'Investigation: {inv} at {inv_path}')
     os.makedirs(inv_path, exist_ok=True)
@@ -81,19 +87,18 @@ def choose_experiment(inv=None, name=None):
     # Now select or create new experiment
     if name is not None:
         exp = name
-        return exp
-
-    if not experiments:
-        exp = user_prompt('Enter new experiment name:')
     else:
-        expkeys = list(experiments.keys())
-        values = list(range(len(expkeys) + 1))
-        labels = ['0) [new experiment]'] + [f'{i+1}) {v}' for i, v in enumerate(expkeys)]
-        ichoice = ask('Select experiment:', clab=labels, cval=values, multiline=True)
-        if ichoice == 0:
+        if not experiments:
             exp = user_prompt('Enter new experiment name:')
         else:
-            exp = expkeys[ichoice]
+            expkeys = list(experiments.keys())
+            values = list(range(len(expkeys) + 1))
+            labels = ['0) [new experiment]'] + [f'{i+1}) {v}' for i, v in enumerate(expkeys)]
+            ichoice = ask('Select experiment:', clab=labels, cval=values, multiline=True)
+            if ichoice == 0:
+                exp = user_prompt('Enter new experiment name:')
+            else:
+                exp = expkeys[ichoice]
     exp_path = os.path.join(os.path.join(data_path, inv), exp)
     print(f'Experiment: {exp} at {exp_path}')
     os.makedirs(exp_path, exist_ok=True)
@@ -177,11 +182,14 @@ class Scan:
         self.logger = logging.getLogger(self.scan_name)
         self.logger.info(f'Starting scan {self.scan_name}')
 
-        # TODO: flag aggregator
+        # This is a non-blocking call.
+        self.meta = get_all_meta()
 
     def __exit__(self, exception_type, exception_value, traceback):
         """
         Exit scan context
+
+        TODO: manage exceptions
         """
         globals()['SCAN'] = None
 

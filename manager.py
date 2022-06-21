@@ -15,6 +15,7 @@ from . import smaract
 from . import mclennan
 from . import aerotech
 from . import excillum
+from . import dummy
 
 DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                 'smaract': {'driver': smaract.Smaract},
@@ -26,6 +27,7 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                               'daemon_address': network_conf.MCLENNAN2['DAEMON'],
                               'name': 'mclennan2'},
                 'excillum': {'driver': excillum.Excillum},
+                'dummy': {'driver': dummy.Dummy}
               # 'xps': {},
               # 'pco': {},
               # 'varex': {},
@@ -46,15 +48,15 @@ def instantiate_driver(driver, daemon_address=None, name=None, admin=True, spawn
     # Try to instantiate the driver:
     d = None
     try:
-        d = driver(address=daemon_address, admin=admin)
+        d = driver(address=daemon_address, name=name, admin=admin)
     except DaemonException:
         if not spawn:
-            logger.warning('Daemon for driver {name} unreachable')
+            logger.warning(f'Daemon for driver {name} unreachable')
             return None
 
         # Didn't connect. Let's try to spawn the Daemon.
         if ask_yes_no('Daemon unreachable. Spawn it?'):
-            p = subprocess.Popen([sys.executable, '-m', f'labcontrol.startup start {name}'],
+            p = subprocess.Popen([sys.executable, '-m', 'labcontrol.startup', 'start', f'{name}'],
                                  start_new_session=True,)
                                # stdout=subprocess.DEVNULL,
                                # stderr=subprocess.STDOUT)
