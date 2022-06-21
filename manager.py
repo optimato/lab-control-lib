@@ -1,8 +1,7 @@
 """
-Manage metadata aggregation.
-
-
+Manage driver and daemon creation.
 """
+
 import logging
 import subprocess
 import time
@@ -38,7 +37,8 @@ logger = logging.getLogger("manager")
 
 def instantiate_driver(driver, daemon_address=None, name=None, admin=True, spawn=True):
     """
-    Start a driver, spawning the corresponding daemon if necessary and requested.
+    Helper function to instantiate a driver and
+    spawning the corresponding daemon if necessary and requested.
     """
     if name is None:
         name = driver.__name__.lower()

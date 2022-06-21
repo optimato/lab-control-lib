@@ -863,7 +863,10 @@ class MotorBase:
         Return *user* soft limits
         """
         # Limits as stored in dialed values. Here they are offset into user values
-        return self._dial_to_user(self.limits[0]), self._dial_to_user(self.limits[1])
+        if self.scalar > 0:
+            return self._dial_to_user(self.limits[0]), self._dial_to_user(self.limits[1])
+        else:
+            return self._dial_to_user(self.limits[1]), self._dial_to_user(self.limits[0])
 
     def set_lm(self, low, high):
         """
@@ -909,6 +912,25 @@ class MotorBase:
         self.scalar = scalar
         self._save_config()
         print ('You have just changed the scalar. The motor limits may need to be manually updated.')
+
+    def get_meta(self, returndict):
+        """
+        Place metadata in `returndict`.
+
+        Note: returndict is used instead of a normal method return
+        so that this method can be run on a different thread.
+        """
+
+        dx, ux = self.where()
+        returndict['scalar'] = self.scalar
+        returndict['offset'] = self.offset
+        returndict['pos_dial'] = dx
+        returndict['pos_user'] = ux
+        returndict['lim_user'] = self.lm()
+        returndict['lim_dial'] = self.limits
+        returndict['driver'] = self.driver.name
+
+        return
 
     def _within_limits(self, x):
         """

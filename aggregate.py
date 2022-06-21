@@ -15,7 +15,9 @@ DRIVERS = {}
 def connect(name=None):
     """
     Instantiate one or multiple drivers.
+    If name is None, instatiate all available.
     """
+
     if name is None:
         for name in DRIVER_DATA.keys():
             return connect(name)
@@ -51,6 +53,8 @@ def get_all_meta():
         return {}
 
     meta = {k: {} for k in DRIVERS.keys()}
+
+    # Use threads to optimize I/O
     workers = []
     for k, d in meta.items():
         t = threading.Thread(target=DRIVERS[k].get_meta, args=(None, d))
