@@ -107,6 +107,7 @@ class emergency_stop:
         [do something that could be interrupted, e.g. motor move]
         [this code is interrupted and self.stop is called if ctrl-C is hit]
     TODO: add some logging
+    TODO: find a more resilient way to implement this.
     """
     def __init__(self, stop_method):
         """
@@ -130,9 +131,9 @@ class DeviceServerBase:
     This base class implements the server socket on which clients can connect.
     """
 
-    CLIENT_TIMEOUT = 1
-    NUM_CONNECTION_RETRY = 10
-    EOL = b'\n'           # End of API sequence (default is \n)
+    DEFAULT_SERVING_ADDRESS = None     # Address for clients to connect to
+    CLIENT_TIMEOUT = 1                 # Timeout for the client socket
+    EOL = b'\n'                        # End of API sequence (default is \n)
     logger = None
 
     def __init__(self, serving_address):
@@ -382,9 +383,11 @@ class SocketDeviceServerBase(DeviceServerBase):
     Base class for all serving connections to a socket device.
     """
 
-    DEVICE_TIMEOUT = None        # Device socket timeout
-    KEEPALIVE_INTERVAL = 10.    # Default Polling (keep-alive) interval
-    EOLr = None                 # Receiving EOL (from device) if None will be set to self.EOL
+    DEFAULT_DEVICE_ADDRESS = None  # The default address of the device socket.
+    DEVICE_TIMEOUT = None          # Device socket timeout
+    NUM_CONNECTION_RETRY = 10      # Number of tries when reaching the device
+    KEEPALIVE_INTERVAL = 10.       # Default Polling (keep-alive) interval
+    EOLr = None                    # Receiving EOL (from device) if None will be set to self.EOL
 
     def __init__(self, serving_address, device_address):
         """
@@ -517,7 +520,7 @@ class SocketDeviceServerBase(DeviceServerBase):
 
     def device_cmd(self, cmd):
         """
-        Pass the command to the device, NOT adding EOL.
+        Pass the command to the device, NOT adding EOL and return the reply.
 
         By default, the command is simply forwarded.
         """
@@ -597,11 +600,12 @@ class DriverBase:
     Base for all drivers
     """
 
-    TIMEOUT = 15
-    NUM_CONNECTION_RETRY = 10
-    ESCAPE_STRING = b'^'
-    EOL = b'\n'
-    logger = None
+    DEFAULT_SERVER_ADDRESS = None    # Default address to reach the server. To be defined in subclasses
+    TIMEOUT = 15                     # Time out for socket connection with the server. May need to be increased in some cases
+    NUM_CONNECTION_RETRY = 10        # Number of tries when establishing connection (not really relevant)
+    ESCAPE_STRING = b'^'             # Default escape string when sending a command to the server and not to the device
+    EOL = b'\n'                      # End-of-Line. Needs to be aligned with the server and device API
+    logger = None                    # Place holder. Gets defined at construction.
 
     def __init__(self, address, admin):
         """
@@ -775,6 +779,25 @@ class DriverBase:
 
     def __del__(self):
         self.shutdown()
+
+    @classmethod
+    def terminal(cls, address):
+        """
+        Debugging tool.
+        Create a terminal session after connecting to the daemon.
+        """
+
+        class TerminalDriver(DriverBase):
+            pass
+
+        d = TerminalDriver(address=address, admin=False)
+        prompt = f'[{cls.__name__}] >> '
+        while True:
+            cmd = input(prompt)
+            if not cmd:
+                break
+            reply = d.send(cmd.encode() + cls.EOL)
+            print(reply.decode('utf-8'))
 
 
 class MotorBase:
