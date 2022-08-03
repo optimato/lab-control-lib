@@ -12,7 +12,7 @@ except socket.gaierror:
 
 # Controller IPs/hostnames
 CONTROL_HOST = '127.0.0.1'
-CAMSERVER_HOST = '?.?.?.?'
+VAREX_HOST = '?.?.?.?'
 
 ################################
 # Device IPs/hostnames + ports #
@@ -49,8 +49,11 @@ EXCILLUM = {'DAEMON': (CONTROL_HOST, 15100),
 
 XPS = {'DAEMON': (CONTROL_HOST, 15006),
        'DEVICE': ("?.?.?.?", 5001)
-      }
+       }
+
+VAREX = {'DAEMON': (VAREX_HOST, 15200)
+         }
 
 DUMMY = {'DAEMON': (CONTROL_HOST, 16789),
          'DEVICE': (CONTROL_HOST, 6789)
-        }
+         }
