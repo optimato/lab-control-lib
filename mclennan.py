@@ -95,12 +95,13 @@ and subsequently calling the relative movement function.
 import time
 import logging
 import json
-from json_database import JsonStorage
 
 from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException, ESCAPE_STRING
 from . import motors
 from .ui_utils import ask_yes_no
 from . import conf_path
+from . import FileDict
+
 
 __all__ = ['McLennanDaemon', 'McLennan', 'Motor']
 
@@ -178,7 +179,7 @@ class McLennanDaemon(SocketDeviceServerBase):
         self.device_cmd('PR4')
 
         # Load persistence file
-        self.persistence_conf = JsonStorage(self.persistence_filename)
+        self.persistence_conf = FileDict(self.persistence_filename)
 
         self.initialized = True
         return
@@ -205,7 +206,6 @@ class McLennanDaemon(SocketDeviceServerBase):
         if cmd == b'SET':
             # Set a persistence value
             self.persistence_conf.update(json.loads(payload))
-            self.persistence_conf.store()
             return b'OK'
         else:
             return b'Error: unknown command ' + cmd
