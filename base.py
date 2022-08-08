@@ -796,8 +796,11 @@ class DriverBase:
             cmd = input(prompt)
             if not cmd:
                 break
-            reply = d.send(cmd.encode() + cls.EOL)
-            print(reply.decode('utf-8'))
+            try:
+                reply = d.send_recv(cmd.encode() + cls.EOL)
+                print(reply.decode('utf-8'))
+            except Exception as e:
+                print(repr(e))
 
 
 class MotorBase:
