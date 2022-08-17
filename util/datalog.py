@@ -1,4 +1,3 @@
-from json_database import JsonDatabase
 from datetime import datetime, timedelta
 import os
 import gzip
@@ -28,8 +27,8 @@ class DataLogger:
         # add timestamp
         entry['datetime'] = datetime.now().isoformat(timespec='milliseconds')
         db_filename = self.db_filename()
-        with JsonDatabase("logs", db_filename) as db:
-            db.add_item(entry)
+        with open(db_filename, 'a') as f:
+            f.write(json.dumps(entry))
         self.logger.debug(f'Added {entry}')
 
     def db_filename(self):
