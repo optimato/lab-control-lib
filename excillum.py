@@ -77,8 +77,6 @@ class Excillum(DriverBase):
         """
         Send properly formatted request to the driver
         and parse the reply.
-        Replies from the robot are of the various form, so no
-        preprocessing is done.
 
         if replycmd is not None, cmd and replycmd are sent
         one after the other. This is a simple way to deal with
