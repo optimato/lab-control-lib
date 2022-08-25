@@ -11,8 +11,9 @@ except socket.gaierror:
     logging.getLogger().warning('Could not find local IP')
 
 # Controller IPs/hostnames
-CONTROL_HOST = '127.0.0.1'
-VAREX_HOST = '?.?.?.?'
+CONTROL_HOST = '172.19.248.35'
+VAREX_HOST = '172.19.248.36'
+EXCILLUM_HOST = '10.19.48.3'
 
 ################################
 # Device IPs/hostnames + ports #
@@ -44,7 +45,7 @@ MECADEMIC = {'DAEMON': (CONTROL_HOST, 15005),
              }
 
 EXCILLUM = {'DAEMON': (CONTROL_HOST, 15100),
-            'DEVICE': ("?.?.?.?", 4944)
+            'DEVICE': (EXCILLUM_HOST, 4944)
             }
 
 XPS = {'DAEMON': (CONTROL_HOST, 15006),

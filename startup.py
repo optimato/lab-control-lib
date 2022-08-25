@@ -168,8 +168,8 @@ def start(name):
         aerotech.AerotechDeamon.run()
         sys.exit(0)
     if name == 'excillum':
-        click.echo(f'Excillum driver not implemented yet')
-        # excillum.ExcillumDaemon.run()
+        #click.echo(f'Excillum driver not implemented yet')
+        excillum.ExcillumDaemon.run()
         sys.exit(0)
     # pco, varex, xspectrum, xps
 
