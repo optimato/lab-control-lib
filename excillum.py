@@ -38,8 +38,8 @@ class ExcillumDaemon(SocketDeviceServerBase):
         """
         # ask for firmware version to see if connection works
         version = self.device_cmd(b'#version' + self.EOL)
-        version = version.decode('utf-8').strip(self.EOL)
-        self.logger.debug(f'Firmware version is {version}')
+        version = version.strip(self.EOL).decode('utf-8')
+        self.logger.info(f'Firmware version is {version}')
 
         self.initialized = True
         return
@@ -92,8 +92,9 @@ class Excillum(DriverBase):
             pass
 
         # Format arguments
+        cmd += self.EOL
         if replycmd is not None:
-            cmd += self.EOL + replycmd + self.EOL
+            cmd += replycmd + self.EOL
         reply = self.send_recv(cmd)
         return reply.strip(self.EOL).decode('utf-8', errors='ignore')
 
@@ -112,6 +113,7 @@ class Excillum(DriverBase):
         """
         return self.send_cmd('state?').strip("'")
 
+    @admin_only
     def set_state(self, target_state, blocking=True):
         """
         Set the source state.
@@ -203,3 +205,7 @@ class Excillum(DriverBase):
     @property
     def spot_position_y_um(self):
         return self.send_cmd("spot_position_y_um?")
+
+    @property
+    def jetpump_frequency(self):
+        return self.send_cmd('jetpump_frequency?')

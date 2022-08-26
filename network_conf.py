@@ -11,8 +11,8 @@ except socket.gaierror:
     logging.getLogger().warning('Could not find local IP')
 
 # Controller IPs/hostnames
-CONTROL_HOST = '172.19.248.35'
-VAREX_HOST = '172.19.248.36'
+CONTROL_HOST = '172.19.248.36'
+VAREX_HOST = '172.19.248.35'
 EXCILLUM_HOST = '10.19.48.3'
 
 ################################
