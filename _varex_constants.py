@@ -16,8 +16,10 @@ next_k.k = 0
 
 
 class FullWellModes:
-    Low = next_k()    # The low noise reduced dynamic range mode
-    High = next_k()  # The normal full well mode
+    # The low noise reduced dynamic range mode
+    Low = next_k()
+    # The normal full well mode
+    High = next_k()
 
 
 class ExposureModes:
