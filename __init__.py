@@ -68,6 +68,11 @@ config = FileDict(conf_file)
 data_path = '/data/optimato/'
 
 # Setup logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
 LOG_DIR = os.path.join(conf_path, 'logs/')
 LOG_FILE = os.path.join(LOG_DIR, 'optimato-labcontrol.log')
 
