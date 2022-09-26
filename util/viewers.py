@@ -8,7 +8,7 @@ import numpy as np
 import time
 import logging
 
-from imstream import FramePublisher, FrameSubscriber
+from .imstream import FrameSubscriber
 
 
 class ViewerBase:
