@@ -16,25 +16,29 @@ class FileDict(dict):
             self._save()
 
     def __getitem__(self, y):
-        self._load()
+        #self._load()
         return dict.__getitem__(self, y)
 
     def __setitem__(self, i, y):
+        self._load()
         dict.__setitem__(self, i, y)
         self._save()
         return None
 
     def __delitem__(self, key):
+        self._load()
         dict.__delitem__(self, key)
         self._save()
         return None
 
     def pop(self, k, *args):
+        self._load()
         r = dict.pop(self, k, *args)
         self._save()
         return r
 
     def popitem(self):
+        self._load()
         r = dict.popitem(self)
         self._save()
         return r
@@ -44,7 +48,7 @@ class FileDict(dict):
         self._save()
 
     def get(self, k, *args):
-        self._load()
+        #self._load()
         return dict.get(self, k, *args)
 
     def _load(self):
@@ -56,6 +60,7 @@ class FileDict(dict):
             json.dump(dict(self), f)
 
     def __delitem__(self, key):
+        self._load()
         dict.__delitem__(self, key)
         self._save()
         return None
