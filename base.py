@@ -30,8 +30,7 @@ import socket
 import functools
 from select import select
 
-from . import conf_path
-
+from . import conf_path, FileDict
 
 ESCAPE_STRING = b'^'
 
@@ -134,6 +133,7 @@ class DeviceServerBase:
     DEFAULT_SERVING_ADDRESS = None     # Address for clients to connect to
     CLIENT_TIMEOUT = 1                 # Timeout for the client socket
     EOL = b'\n'                        # End of API sequence (default is \n)
+    ESCAPE_STRING = b'^'               # Escape string (or character) for daemon commands
     logger = None
 
     def __init__(self, serving_address):
@@ -155,6 +155,10 @@ class DeviceServerBase:
         # concurrently
         self.name = self.__class__.__name__.lower()
 
+        # Load (or create) config dictionary
+        self.config_filename = os.path.join(conf_path, 'drivers', self.name + '.json')
+        self.config = FileDict(self.config_filename)
+
         # Prepare thread lock
         self._lock = threading.Lock()
 
@@ -162,6 +166,9 @@ class DeviceServerBase:
         self.client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
         self.client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.client_sock.settimeout(self.CLIENT_TIMEOUT)
+
+        # Escaped command help (populated by self.parse_escaped and augmented by subclasses)
+        self.escape_help = ""
 
         # Shutdown flag
         self.shutdown_requested = False
@@ -279,8 +286,8 @@ class DeviceServerBase:
         Process a raw command sent by a client and prepare the reply.
         """
         # Check for escape
-        if cmd.startswith(ESCAPE_STRING):
-            cmd = cmd.strip(ESCAPE_STRING).strip(self.EOL)
+        if cmd.startswith(self.ESCAPE_STRING):
+            cmd = cmd.strip(self.ESCAPE_STRING).strip(self.EOL)
             reply = self.parse_escaped(cmd)
         else:
             # Pass (or parse) command for device
@@ -296,6 +303,15 @@ class DeviceServerBase:
     def parse_escaped(self, cmd):
         """
         Parse escaped command and return reply.
+        """
+
+        self.escape_help += """
+        ADMIN: Request admin rights.
+        AMIADMIN: Whether asking client has admin rights.
+        NOADMIN: Rescind admin rights.
+        DISCONNECT: Clean client disconnect
+        SHUTDOWN: Shut down request - same effect as disconnect
+        STATS: Send statistics  
         """
         if cmd == b'ADMIN':
             ident = threading.get_ident()
@@ -375,7 +391,7 @@ class DeviceServerBase:
             pass
 
         d = DriverKiller(address=address, admin=False)
-        d.send(ESCAPE_STRING + b'SHUTDOWN' + cls.EOL)
+        d.send(cls.ESCAPE_STRING + b'SHUTDOWN' + cls.EOL)
 
 
 class SocketDeviceServerBase(DeviceServerBase):
@@ -562,6 +578,12 @@ class SocketDeviceServerBase(DeviceServerBase):
         Parse escaped command.
         """
 
+        self.escape_help +="""
+        STOP: Close (disconnect) device
+        START: Connect and initialize device.
+        RESTART: Close then reconnect.
+        """
+
         if cmd == b'STOP':
             if not self.connected:
                 return b'Device not connected'
@@ -612,6 +634,8 @@ class DriverBase:
         Initialization.
         If admin is True, control is asked.
         """
+        if address is None:
+            address = self.DEFAULT_SERVER_ADDRESS
 
         # Get logger if not set in subclass
         if self.logger is None:
@@ -700,7 +724,7 @@ class DriverBase:
             raise DaemonException('Daemon disconnected.')
         return r
 
-    def _send_recv(self, msg):
+    def _send_recv(self, msg: bytes) -> bytes:
         """
         Send message to socket and return reply message.
         """
@@ -708,7 +732,7 @@ class DriverBase:
         r = self.recv()
         return r
 
-    def send_recv(self, msg):
+    def send_recv(self, msg: bytes) -> bytes:
         """
         Send message to socket and return reply message, stripped from spaces and return carriages.
         (can be overloaded by subclass)
@@ -723,14 +747,14 @@ class DriverBase:
         """
 
         if ask is None:
-            reply = self.send_recv(ESCAPE_STRING + b'AMIADMIN' + self.EOL)
+            reply = self.send_recv(self.ESCAPE_STRING + b'AMIADMIN' + self.EOL)
             self.admin = (reply.strip(self.EOL) == b'True')
         elif ask is True:
             if self.ask_admin():
                 self.logger.info('Already admin.')
                 self.admin = True
             else:
-                reply = self.send_recv(ESCAPE_STRING + b'ADMIN' + self.EOL)
+                reply = self.send_recv(self.ESCAPE_STRING + b'ADMIN' + self.EOL)
                 self.admin = True
                 if reply.strip(self.EOL) != b'OK':
                     self.logger.warning(f'Could not request admin rights: {reply}')
@@ -740,7 +764,7 @@ class DriverBase:
                 self.logger.info('Already not admin.')
                 self.admin = False
             else:
-                reply = self.send_recv(ESCAPE_STRING + b'NOADMIN' + self.EOL)
+                reply = self.send_recv(self.ESCAPE_STRING + b'NOADMIN' + self.EOL)
                 self.admin = False
                 if reply.strip(self.EOL) != b'OK':
                     self.logger.warning(f'Could not rescind admin rights: {reply}')
@@ -773,7 +797,7 @@ class DriverBase:
         """
         Obtain stats from the daemon.
         """
-        reply = self.send_recv(ESCAPE_STRING + b'STATS' + self.EOL)
+        reply = self.send_recv(self.ESCAPE_STRING + b'STATS' + self.EOL)
         stats = json.loads(reply.decode())
         return stats
 

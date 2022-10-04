@@ -13,7 +13,9 @@ from .imstream import FrameSubscriber
 
 class ViewerBase:
 
-    def __init__(self, compress=False, max_fps=25, yield_timeout=15):
+    DEFAULT_ADDRESS = ('localhost', 5555)
+
+    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15):
         self.compress = compress
         self.max_fps = max_fps
         self.yield_timeout = yield_timeout
@@ -22,6 +24,11 @@ class ViewerBase:
 
         # Start with no frame source
         self.frame_subscriber = None
+
+        if address is None:
+            self.address = self.DEFAULT_ADDRESS
+        else:
+            self.address = address
 
         self.prepare_viewer()
 
@@ -70,7 +77,7 @@ class ViewerBase:
         """
         Initialize a subscriber to the frame source and start the viewer.
         """
-        self.frame_subscriber = FrameSubscriber(frames=not self.compress)
+        self.frame_subscriber = FrameSubscriber(address=self.address, frames=not self.compress)
         self.start_viewer()
 
     def stop(self):
@@ -88,7 +95,7 @@ class ViewerBase:
         if self.frame_subscriber is not None:
             self.update_viewer(next(self.yield_new_frame()))
         else:
-            with FrameSubscriber(frames=not self.compress) as f:
+            with FrameSubscriber(address=self.address, frames=not self.compress) as f:
                 frame, msg = f.receive(timeout=timeout)
             self.update_viewer(frame)
 
@@ -100,10 +107,10 @@ class ViewerBase:
 
 class NapariViewer(ViewerBase):
 
-    def __init__(self, compress=False, max_fps=25, yield_timeout=15):
+    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15):
         self.v = None
         self.worker = None
-        super().__init__(compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
+        super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
 
     def prepare_viewer(self):
         pass
@@ -142,12 +149,12 @@ class NapariViewer(ViewerBase):
 
 class CvViewer(ViewerBase):
 
-    def __init__(self, compress=False, max_fps=25, yield_timeout=15):
+    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15):
         import cv2
         self.cv2 = cv2
         self.thread = None
         self._stop = False
-        super().__init__(compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
+        super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
 
     def prepare_viewer(self):
         self.thread = threading.Thread(target=self._imshow)

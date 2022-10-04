@@ -52,8 +52,8 @@ XPS = {'DAEMON': (CONTROL_HOST, 15006),
        'DEVICE': ("?.?.?.?", 5001)
        }
 
-VAREX = {'DAEMON': (VAREX_HOST, 15200)
-         }
+VAREX = {'DAEMON': (VAREX_HOST, 15200),
+         'BROADCAST': ('0.0.0.0', 5555)}
 
 DUMMY = {'DAEMON': (CONTROL_HOST, 16789),
          'DEVICE': (CONTROL_HOST, 6789)

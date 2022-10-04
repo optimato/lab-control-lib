@@ -6,9 +6,10 @@ import threading
 import time
 
 from . import motors
+from .util import now
 from .manager import instantiate_driver, DRIVER_DATA
 from .base import DaemonException
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 # Dictionary of running drivers
 DRIVERS = {}
@@ -58,7 +59,8 @@ def get_all_meta(block=False):
     meta = {k: {} for k in DRIVERS.keys()}
     meta.update({motor_name: {} for motor_name in motors.keys()})
 
-    meta['meta'] = {'collection_start': time.time()}
+    t0 = time.time()
+    meta['meta'] = {'collection_start': now()}
 
     # Use threads to optimize I/O
     workers = []
@@ -73,11 +75,13 @@ def get_all_meta(block=False):
         workers.append(t)
 
     # Thread watcher will add key "collection_end" once done. This is a way
-    # evaluate overall colletion time, and whether collection is finished.
+    # to evaluate overall collection time, and whether collection is finished.
     def watch_threads(wlist, d):
         for w in wlist:
             w.join()
-        d['meta']['collection_end'] = time.time()
+        d['meta']['collection_end'] = now()
+        dt = time.time() - t0
+        logger.info(f'Metadata collection completed in {dt*1000:f3.2} ms')
 
     watcher = threading.Thread(target=watch_threads, args=(workers, meta))
     watcher.start()

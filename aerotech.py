@@ -99,16 +99,14 @@ class Aerotech(DriverBase):
     Driver for the Aerotech rotation stage.
     """
 
+    DEFAULT_SERVER_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
     EOL = EOL
 
-    def __init__(self, address, admin=True, **kwargs):
+    def __init__(self, address=None, admin=True, **kwargs):
         """
         Connect to daemon.
         """
-        if address is None:
-            address = DEFAULT_NETWORK_CONF['DAEMON']
-
         super().__init__(address=address, admin=admin)
 
         self.metacalls.update({'rotation_angle': self.get_pos})
