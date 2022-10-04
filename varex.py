@@ -1,17 +1,5 @@
 """
-Driver for Varex flat panel
-
-The DexelaPy library wrapper (available only under windows) is not
-documented at all, but everything seems to be the same as the C++
-API.
-
-TODO: Many question marks, so many checks needed.
-
-1. Does OpenBoard / CloseBoard need to be called often? Is there a
-downside do calling OpenBoard on startup and keep it like this for weeks?
-
-
-
+Driver for Varex flat panel based on our home-grown "dexela" API wrapper.
 """
 
 import time
@@ -20,41 +8,37 @@ import sys
 import logging
 import json
 
-from .base import DriverBase, DeviceServerBase, admin_only, emergency_stop, DeviceException
+from .base import admin_only
+from .camera import CameraServerBase, CameraDriverBase
 from .network_conf import VAREX as DEFAULT_NETWORK_CONF
 from .ui_utils import ask_yes_no
-from .camera import CameraBase
-from . import _varex_constants as vc
-from . import FileDict
 
 logger = logging.getLogger(__name__)
 
+BASE_PATH = "C:\\DATA\\"
 
-PIXEL_SIZE = 74.8e-6   # Physical pixel pitch in meters
-SHAPE = (1536, 1944)   # Native array shape
-
-# Try to import DexelaPy
-if importlib.util.find_spec('DexelaPy') is not None:
-    import DexelaPy
-    from _varex_mappings import API_map
+# Try to import dexela
+if importlib.util.find_spec('dexela') is not None:
+    import dexela
 else:
-    logger.info("Module DexelaPy unavailable")
-
-    class FakeDexelaPy:
+    logger.info("Module dexela unavailable")
+    class FakeDexela:
         def __getattr__(self, item):
-            raise RuntimeError('Attempting to access DexelaPy on a system where it is no present!')
-
-    globals().update({'DexelaPy': FakeDexelaPy()})
+            raise RuntimeError('Attempting to access "dexela" on a system where it is no present!')
+    globals().update({'DexelaPy': FakeDexela()})
 
 __all__ = ['VarexDaemon', 'Varex', 'Camera']
 
 
-class VarexDaemon(DeviceServerBase):
+class VarexDaemon(CameraServerBase):
     """
     Varex Daemon
     """
 
+    BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
     DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
+    PIXEL_SIZE = 74.8e-6  # Physical pixel pitch in meters
+    SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal)
 
     def __init__(self, serving_address=None):
         """
@@ -67,39 +51,75 @@ class VarexDaemon(DeviceServerBase):
         self.detector = None
         self.detector_info = None
 
-        # Used to store and restore current settings.
-        self.config_filename = self.name + '.conf'
-
-        self.config = FileDict(self.config_filename)
-
         settings = self.config.get('settings', {})
 
-        settings.update({'well_mode': settings.get('well_mode', vc.FullWellModes.High),
-                     'exp_mode': settings.get('exp_mode', vc.ExposureModes.Expose_and_read),
-                     'exp_time': settings.get('exp_time', 200),
-                     'trigger': settings.get('trigger', vc.ExposureTriggerSource.Internal_Software),
-                     'binning': settings.get('binning', vc.Bins.x11),
-                     'num_exp': settings.get('num_exp', 1),
-                     'gap_time': settings.get('gap_time', 0)})
+        # Get stored settings, use defaults for parameters that can't be found
+        settings.update({'full_well_mode': settings.get('full_well_mode', 'High'),
+                         'exposure_mode': settings.get('exposure_mode', 'Expose_and_read'),
+                         'exposure_time': settings.get('exposure_time', 200),
+                         'bins': settings.get('bins', 'x11'),
+                         'num_of_exposures': settings.get('num_of_exposures', 1),
+                         'readout_mode': settings.get('readout_mode', 'ContinuousReadout')
+                         'gap_time': settings.get('gap_time', 0)})
+
         # Save settings
         self.config['settings'] = settings
 
 
     def init_device(self):
         """
-        Access detector using provided library
+        Access detector with the library
         """
-        scanner = DexelaPy.BusScannerPy()
-        count = scanner.EnumerateGEDevices()
-        if count == 0:
-            self.logger.critical("DexelaPy library did not find a connected device!")
-            raise RuntimeError
-
-        self.detector_info = scanner.GetDeviceGE(0)
-        self.detector = DexelaPy.DexelaDetectorGE_Py(self.detector_info)
+        self.detector = dexela.DexelaDetector()
         self.logger.info('GigE detector is online')
-        self.detector.OpenBoard()
         self._apply_settings()
+
+    def device_cmd(self, cmd) -> bytes:
+        """
+        Varex specific commands.
+        """
+        cmds = cmd.strip(self.EOL).split()
+        c = cmds.pop(0)
+        if c == b'GET':
+            c = cmds.pop(0)
+            if c == b'FULL_WELL_MODE':
+                return self.fr(self.get_full_well_mode())
+            if c == b'READOUT_MODE':
+                    return self.fr(self.get_readout_mode())
+
+        elif c == b'SET':
+            c = cmds.pop(0)
+            if c == b'EXPOSURE_TIME':
+                return self.fr(self.set_exposure_time(*cmds))
+                if c == b'FULL_WELL_MODE':
+                    return self.fr(self.get_full_well_mode())
+                if c == b'READOUT_MODE':
+                    return self.fr(self.get_readout_mode())
+            elif c == b'EXPOSURE_MODE':
+                return self.fr(self.set_exposure_mode(*cmds))
+
+    def _apply_settings(self, settings=None):
+        """
+        Apply the settings in the settings dictionary.
+        If settings is None, use self.settings
+        """
+        if settings is None:
+            settings = self.config['settings']
+        detector = self.detector
+        detector.set_full_well_mode(settings['full_well_mode'])
+        detector.set_fexposure_mode(settings['exposure_mode'])
+        detector.set_exposure_time(settings['exposure_time'])
+        detector.set_num_of_exposures(settings['num_of_exposures'])
+        detector.set_gap_time(settings['gap_time'])
+        detector.set_bins(settings['bins'])
+
+    def go_live(self, fps=10):
+        """
+        Put the camera in live mode (frames are not saved)
+        """
+        self.logger.warning("Entering live mode. Frames are not saved.")
+        self.
+
 
 
     def device_cmd(self, cmd):
@@ -129,22 +149,6 @@ class VarexDaemon(DeviceServerBase):
     def snap(self):
 
 
-    def _apply_settings(self, settings=None):
-        """
-        Apply the settings in the settings dictionary.
-        If settings is None, use self.settings
-        """
-        if settings is None:
-            settings = self.config['settings']
-        detector = self.detector
-        detector.SetFullWellMode(API_map[settings['well_mode']])
-        detector.SetExposureTime(API_map[settings['exp_time']])
-        detector.SetBinningMode(API_map[settings['binning']])
-        detector.SetNumOfExposures(API_map[settings['num_exp']])
-        detector.SetTriggerSource(API_map[settings['trigger']])
-        detector.SetGapTime(API_map[settings['gap_time']])
-        detector.SetExposureMode(API_map[settings['exp_mode']])
-
     def _save_frame(self, frame):
         """
         Store buffered image to disk
@@ -173,6 +177,20 @@ class Varex(DriverBase):
         super().__init__(address=address, admin=admin)
 
         self.metacalls.update({}) # TODO
+
+    def send_cmd(self, cmd, **kwargs):
+        """
+        Send a command to the Daemon.
+        """
+        msg = json.dumps([cmd, kwargs]).encode()
+        return self.send_recv(msg + self.EOL)
+
+    def go_live(self, fps=10):
+        """
+        Put the camera in live mode (frames are not saved)
+        """
+        self.logger.warning("Entering live mode. Frames are not saved.")
+        self.send_cmd('go_live', fps=fps)
 
     def set_FullWellMode(self, mode):
         """
