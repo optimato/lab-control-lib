@@ -10,14 +10,31 @@ class A:
         self.x = x
         self.a = 'abc'
 
+    # A non-exposed call
+    def do_something(self, y):
+        self.x += y
+
+    # An exposed call
     @proxycall()
     def get_multiple(self, y):
         return self.x * y
 
+    # An exposed call allowed only for the client with admin rights
     @proxycall(admin=True)
     def set_a(self, a):
         self.a = a
 
+    # A long task. Must be made non-blocking otherwise the sever will wait for return value
+    @proxycall(block=False)
+    def long_task(self):
+        time.sleep(10)
+
+    # Declaring the abort call, to be sent when ctrl-C is hit during a long call.
+    @proxycall(interrupt=true)
+    def abort(self):
+        print('I would abort the long call!)
+
+    # An exposed property
     @proxycall()
     @property
     def x_value(self):
@@ -43,6 +60,8 @@ import zmq
 import time
 import atexit
 import threading
+import inspect
+
 from .future import Future
 
 
@@ -726,11 +745,11 @@ class proxydevice:
             try:
                 if type(v) is property:
                     api_info = v.fget.api_info
-                    self.make_property(Client, k, v.__doc__)
+                    self.make_property(Client, k, v)
                     logger.debug(f'Added property {k} to client proxy.')
                 else:
                     api_info = v.api_info
-                    self.make_method(Client, k, v.__doc__)
+                    self.make_method(Client, k, v)
                     logger.debug(f'Added method {k} to client proxy.')
             except AttributeError:
                 continue
@@ -741,22 +760,26 @@ class proxydevice:
         return cls
 
     @staticmethod
-    def make_method(obj, name, doc=None):
+    def make_method(obj, name, ref_method):
         """
-        Adds a method called name and with documentation doc to class obj. The method body forwards the request
-        to the server.
+        Adds a method called `name` to class obj. The method body forwards the request
+        to the server. Information is drawn from the reference method (signature, doc).
         """
 
         def new_method(self, *args, **kwargs):
             return self._proxy.send_recv([self._proxy.ID, name, args, kwargs])
 
         new_method.__name__ = name
-        if doc is not None:
-            new_method.__doc__ = doc
+
+        s = str(inspect.signature(ref_method))
+        doc = f"{name}{s}\n"
+        if ref_method.__doc__ is not None:
+            doc += ref_method.__doc__
+        new_method.__doc__ = doc
         setattr(obj, name, new_method)
 
     @staticmethod
-    def make_property(obj, name, doc=None):
+    def make_property(obj, name, ref_method):
         """
         Like make_method, but creates a property instead.
         """
@@ -768,5 +791,5 @@ class proxydevice:
 
         fget.__name__ = name
         fset.__name__ = name
-        new_prop = property(fget, fset, None, doc=doc)
+        new_prop = property(fget, fset, None, doc=ref_method.__doc__)
         setattr(obj, name, new_prop)
