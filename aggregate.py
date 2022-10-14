@@ -2,11 +2,11 @@
 Aggregator for metadata.
 """
 import logging
-import threading
 import time
 
 from . import motors
 from .util import now
+from .util.future import Future
 from .manager import instantiate_driver, DRIVER_DATA
 from .base import DaemonException
 logger = logging.getLogger(__name__)
@@ -56,36 +56,32 @@ def get_all_meta(block=False):
         logger.warning('No metadata can be collected: No running driver.')
         return {}
 
-    meta = {k: {} for k in DRIVERS.keys()}
+    t0 = time.time()
+    meta = {'meta': {'collection_start': now()}}
+    meta.update({k: {} for k in DRIVERS.keys()})
     meta.update({motor_name: {} for motor_name in motors.keys()})
 
-    t0 = time.time()
-    meta['meta'] = {'collection_start': now()}
-
     # Use threads to optimize I/O
-    workers = []
+    workers = {}
     for k in DRIVERS.keys():
-        t = threading.Thread(target=DRIVERS[k].get_meta, args=(None, meta[k]))
-        t.start()
-        workers.append(t)
+        f = Future(target=DRIVERS[k].get_meta)
+        workers[k] = f
 
     for motor_name, motor in motors.items():
-        t = threading.Thread(target=motor.get_meta, args=(meta[motor_name],))
-        t.start()
-        workers.append(t)
+        f = Future(target=motor.get_meta)
+        workers['motor_name'] = f
 
     # Thread watcher will add key "collection_end" once done. This is a way
     # to evaluate overall collection time, and whether collection is finished.
-    def watch_threads(wlist, d):
-        for w in wlist:
-            w.join()
+    def watch_futures(workers, d):
+        for k, w in workers.items():
+            d[k] = w.result()
         d['meta']['collection_end'] = now()
         dt = time.time() - t0
         logger.info(f'Metadata collection completed in {dt*1000:f3.2} ms')
 
-    watcher = threading.Thread(target=watch_threads, args=(workers, meta))
-    watcher.start()
+    watcher = Future(target=watch_futures, args=(workers, meta))
     if block:
-        watcher.join()
+        watcher.result()
 
     return meta
