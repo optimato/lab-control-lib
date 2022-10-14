@@ -42,31 +42,30 @@ Initial Version: Hans Deyhle
 
 import time
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
+from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .network_conf import AEROTECH as DEFAULT_NETWORK_CONF
 from . import motors
+from .util.proxydevice import proxydevice, proxycall
 from .ui_utils import ask_yes_no
 
-__all__ = ['AerotechDeamon', 'Aerotech', 'Motor']
-
-EOL = b'\n'
+__all__ = ['Aerotech', 'Motor']
 
 
-class AerotechDeamon(SocketDeviceServerBase):
+@proxydevice(address=DEFAULT_NETWORK_CONF['DAEMON'])
+class Aerotech(SocketDriverBase):
     """
-    Aerotech Daemon
+    Aerotech socket driver.
     """
 
-    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
     DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
-    EOL = EOL
+    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
+    EOL = b'\n'
 
-    def __init__(self, serving_address=None, device_address=None):
-        if serving_address is None:
-            serving_address = self.DEFAULT_SERVING_ADDRESS
+    def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
-        super().__init__(serving_address=serving_address, device_address=device_address)
+        super().__init__(device_address=device_address)
+        self.metacalls.update({'rotation_angle': self.get_pos})
 
     def init_device(self):
         """
@@ -76,10 +75,27 @@ class AerotechDeamon(SocketDeviceServerBase):
         version = self.device_cmd(b'VERSION\n')
         self.logger.debug('Firmware version is %s.' % version.strip())
 
-        # Set wait mode to NOWAIT. In this case, the controller will acknowledge all
-        # commands immediately. This will prevent timeout errors. It should now also
-        # be possible to query the AXISSTATUS while the axis is moving
+        # Set wait mode to NOWAIT to get immediate acknowledgement.
         self.device_cmd(b'WAIT MODE NOWAIT\n')
+
+        # enable axis if not already done.
+        ae_en = self.axis_enable().strip()
+        self.logger.debug(f'Axis enabled is {ae_en}.')
+
+        # check if axis is already homed
+        status = self.axis_status()
+        if int(status[-2]) == 0:
+            self.logger.warning('Caution, axis not homed!')
+        else:
+            self.logger.info('Axis already homed.')
+
+        """
+        # Create motor
+        self.motor = {'rot': Motor('rot', self)}
+        motors['rot'] = self.motor['rot']
+        """
+
+        self.logger.info(f"{self.name} initialization complete.")
 
         self.initialized = True
         return
@@ -93,56 +109,14 @@ class AerotechDeamon(SocketDeviceServerBase):
             self.logger.critical('Disconnected')
             raise DeviceException('Disconnected.')
 
-
-class Aerotech(DriverBase):
-    """
-    Driver for the Aerotech rotation stage.
-    """
-
-    DEFAULT_SERVER_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
-    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
-    EOL = EOL
-
-    def __init__(self, address=None, admin=True, **kwargs):
-        """
-        Connect to daemon.
-        """
-        super().__init__(address=address, admin=admin)
-
-        self.metacalls.update({'rotation_angle': self.get_pos})
-
-        # enable axis if not already done.
-        ae_en = self.axis_enable().strip()
-        self.logger.debug(f'Axis enabled is {ae_en}.')
-
-        # home axis (user input)
-        # ---------------------------------------------------------------------------
-        # check if axis is already homed
-        status = self.axis_status()
-        if int(status[-2]) == 0:
-            if ask_yes_no('Axis not homed, perform axis homing?', yes_is_default=False):
-                self.axis_home()
-            else:
-                self.logger.warning('Caution, axis not homed!')
-        else:
-            self.logger.info('Axis already homed.')
-
-        # Create motor
-        self.motor = {'rot': Motor('rot', self)}
-        motors['rot'] = self.motor['rot']
-
-        self.logger.info("AeroTech initialization complete.")
-        self.initialized = True
-
+    @proxycall()
     def axis_status(self):
         """
         Check the current status of axis. The status is bit encoded.
         Returns axis status
         """
-
-        # ---------------------------------------------------------------------------
         # query status
-        status = self.send_recv(b'AXISSTATUS(@0)\n')
+        status = self.device_cmd(b'AXISSTATUS(@0)\n')
 
         # parse status (32-bit)
         status = int(status[1:-1])  # need to get rid of the acknowledge and EOS characters
@@ -151,6 +125,7 @@ class Aerotech(DriverBase):
         # now ceck individual bins and look at status? Need to come up with a good way of doing this
         return status
 
+    @proxycall()
     @property
     def axis_enabled(self):
         """
@@ -159,7 +134,7 @@ class Aerotech(DriverBase):
         status = self.axis_status()
         return int(status[-1]) == 1
 
-    @admin_only
+    @proxycall(admin=True)
     def axis_enable(self):
         """
         Enable axis connection on socket.
@@ -170,7 +145,7 @@ class Aerotech(DriverBase):
             self.axis_fault()
             self.logger.critical('Try axis_fault() to check for errors.')
 
-    @admin_only
+    @proxycall(admin=True)
     def axis_disable(self):
         """
         Disable axis connected on socket
@@ -179,7 +154,7 @@ class Aerotech(DriverBase):
         if self.axis_enabled:
             self.logger.critical('Error disabling axis.')
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def axis_home(self):
         """
         Home the axis
@@ -193,6 +168,7 @@ class Aerotech(DriverBase):
         self.check_done()
         return homed
 
+    @proxycall(interrupt=True)
     def abort(self):
         """
         Emergency stop.
@@ -200,6 +176,7 @@ class Aerotech(DriverBase):
         self.logger.info("ABORTING ROTATION!")
         self.send_recv(b'ABORT @0\n')
 
+    @proxycall()
     def get_pos(self):
         """
         Get calibration corrected position in user units
@@ -212,6 +189,7 @@ class Aerotech(DriverBase):
             raise Warning("position was not returned as a number, this can occur when you cancel a move command")
         return pos
 
+    @proxycall()
     def get_velocity(self):
         """
         Get velocity
@@ -221,7 +199,7 @@ class Aerotech(DriverBase):
         vel = float(vel[1:-1])
         return vel
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def rot_abs(self, angle, speed=45):
         """
         Rotate the axis absolute to <angle> [deg] with <speed> [deg/s]
@@ -237,7 +215,7 @@ class Aerotech(DriverBase):
         self.check_done()
         return self.get_pos()
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def rot_rel(self, angle, speed=45):
         """
         Rotate the axis relative by <angle> [deg] with <speed> [deg/s]
@@ -250,6 +228,7 @@ class Aerotech(DriverBase):
         self.check_done()
         return self.get_pos()
 
+    @proxycall(admin=True)
     def check_done(self):
         """
         Poll until movement is complete.
@@ -264,6 +243,7 @@ class Aerotech(DriverBase):
                 time.sleep(self.POLL_INTERVAL)
         self.logger.info("Finished moving theta stage.")
 
+    @proxycall()
     def axis_fault(self):
         """
         Query the bit coded axis fault
@@ -289,6 +269,7 @@ class Aerotech(DriverBase):
             else:
                 self.logger.info('To clear all errors run axis_fault_clear().')
 
+    @proxycall(admin=True)
     def axis_fault_clear(self):
         """
         Clear task errors and axis faults.

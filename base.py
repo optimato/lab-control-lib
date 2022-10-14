@@ -27,10 +27,12 @@ import errno
 import time
 import atexit
 import socket
-import functools
+import signal
 from select import select
 
 from . import conf_path, FileDict
+from .util.future import Future
+from .util.proxydevice import proxycall
 
 ESCAPE_STRING = b'^'
 
@@ -85,342 +87,114 @@ def nonblock(fin):
     return fout
 
 
-def admin_only(method):
-    """
-    Decorator for methods that can be executed only in admin mode.
-    """
-    @functools.wraps(method)
-    def f(self, *args, **kwargs):
-        if self.admin:
-            return method(self, *args, **kwargs)
-        raise RuntimeError("Method '{0}.{1}' requires admin rights".format(self.__class__.__name__, method.__name__))
-    return f
-
-
 class emergency_stop:
-    """
-    Simple context manager to call emergency stop in case of keyboard interrupt.
-    By default the exception is reraised in case the calling code has more clean up to do.
 
-    with emergency_stop(self.stop):
-        [do something that could be interrupted, e.g. motor move]
-        [this code is interrupted and self.stop is called if ctrl-C is hit]
-    TODO: add some logging
-    TODO: find a more resilient way to implement this.
-    """
+    stop_method = None
+
     def __init__(self, stop_method):
-        """
-        Register stop_method as emergency stop method.
-        """
-        self.stop_method = stop_method
+        self.local_stop_method = stop_method
+
+    @classmethod
+    def set_stop_method(cls, stop_method):
+        cls.stop_method = stop_method
+
+    @classmethod
+    def signal_handler(cls, sig, frame):
+        if cls.stop_method is not None:
+            cls.stop_method()
 
     def __enter__(self):
-        pass
+        self.set_stop_method(self.local_stop_method)
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if exc_type is KeyboardInterrupt:
-            self.stop_method()
-            return True
+        self.__class__.stop_method = None
 
 
-class DeviceServerBase:
+signal.signal(signal.SIGINT, emergency_stop.signal_handler)
+
+
+class DriverBase:
     """
-    Base class for all serving connections to a device, meant to run as a daemon.
-
-    This base class implements the server socket on which clients can connect.
+    Base for all drivers
     """
 
-    DEFAULT_SERVING_ADDRESS = None     # Address for clients to connect to
-    CLIENT_TIMEOUT = 1                 # Timeout for the client socket
-    EOL = b'\n'                        # End of API sequence (default is \n)
-    ESCAPE_STRING = b'^'               # Escape string (or character) for daemon commands
-    logger = None
+    logger = None                    # Place-holder. Gets defined at construction.
 
-    def __init__(self, serving_address):
+    def __init__(self):
         """
         Initialization.
         """
-
         # Get logger if not set in subclass
         if self.logger is None:
             self.logger = logging.getLogger(self.__class__.__name__)
 
-        # Store address
-        self.serving_address = serving_address
-
-        # register exit functions
-        atexit.register(self.shutdown)
-
         # Set default name here. Can be overriden by subclass, for instance to allow multiple instances to run
         # concurrently
-        self.name = self.__class__.__name__.lower()
+        if not hasattr(self, 'name'):
+            self.name = self.__class__.__name__
 
         # Load (or create) config dictionary
         self.config_filename = os.path.join(conf_path, 'drivers', self.name + '.json')
         self.config = FileDict(self.config_filename)
 
-        # Prepare thread lock
-        self._lock = threading.Lock()
+        # Dictionary of metadata calls
+        self.metacalls = {}
 
-        # Prepare client socket connection
-        self.client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
-        self.client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.client_sock.settimeout(self.CLIENT_TIMEOUT)
-
-        # Escaped command help (populated by self.parse_escaped and augmented by subclasses)
-        self.escape_help = ""
-
-        # Shutdown flag
-        self.shutdown_requested = False
-
-        # flag
-        self.isalive = None
-
-        # No thread is admin
-        self.admin = None
-
-        # Thread dictionary
-        self.threads = {}
-
-        # Stats dictionary
-        self.stats = {'daemon': {'startup': time.time()}}
-
-    @classmethod
-    def run(cls, *args, **kwargs):
+    def init_device(self):
         """
-        Creating an instance and start listening.
+        Device initalization.
         """
-        daemon_instance = cls(*args, **kwargs)
-        daemon_instance.listen()
-
-    def listen(self):
-        """
-        Infinite listening loop for new connections.
-        """
-        self.isalive = True
-        self.client_sock.bind(self.serving_address)
-        self.client_sock.listen(5)
-        while True:
-            if self.shutdown_requested:
-                self.shutdown()
-                break
-            try:
-                client, address = self.client_sock.accept()
-                # Client is in blocking mode
-                client.settimeout(None)
-                new_thread = threading.Thread(target=self._serve, args=(client, address))
-                new_thread.daemon = True
-                new_thread.start()
-                self.threads[new_thread.ident] = new_thread
-            except socket.timeout:
-                continue
-        # Driver is shut down
-        self.logger.info('Shutdown complete')
-        self.isalive = False
-        return
-
-    def _serve(self, client, address):
-        """
-        Serve a new client.
-        """
-        ident = threading.get_ident()
-        ident_key = f'{ident}'
-        self.stats[ident_key] = {'startup': time.time(),
-                                 'reply_number': 0,
-                                 'total_reply_time': 0.,
-                                 'total_reply_time2': 0.,
-                                 'min_reply_time': 100.,
-                                 'max_reply_time': 0.,
-                                 'last_reply_time': 0.}
-
-        self.logger.info(f'Client #{ident} connected ({address})')
-
-        while True:
-            # Check for shutdown signal
-            if self.shutdown_requested:
-                break
-
-            # Read data
-            data = _recv_all(client, EOL=self.EOL)
-            if not data:
-                self.logger.warning(f'Client {ident} disconnected.')
-                break
-
-            # Process the raw data sent by the client
-            t0 = time.time()
-            reply = self.process_command(data)
-            dt = time.time() - t0
-
-            self.stats[ident_key]['reply_number'] += 1
-            self.stats[ident_key]['total_reply_time'] += dt
-            self.stats[ident_key]['total_reply_time2'] += dt*dt
-            minr = self.stats[ident_key]['min_reply_time']
-            maxr = self.stats[ident_key]['max_reply_time']
-            self.stats[ident_key]['min_reply_time'] = min(dt, minr)
-            self.stats[ident_key]['max_reply_time'] = max(dt, maxr)
-            self.stats[ident_key]['last_reply_time'] = t0
-
-            # Special case: reply is None means: exit the loop and shut down this client.
-            if reply is None:
-                # Send acknowledgement to client
-                _send_all(client, b'OK' + self.EOL)
-                break
-
-            # Send reply to client
-            try:
-                _send_all(client, reply)
-            except BrokenPipeError:
-                self.logger.warning(f'Client {ident} disconnected (dead?).')
-                break
-
-        # Out of the loop: we are done with this client
-        client.close()
-
-        # Thread cleans itself up
-        if self.admin == ident:
-            self.admin = None
-        self.threads.pop(ident)
-
-    def process_command(self, cmd):
-        """
-        Process a raw command sent by a client and prepare the reply.
-        """
-        # Check for escape
-        if cmd.startswith(self.ESCAPE_STRING):
-            cmd = cmd.strip(self.ESCAPE_STRING).strip(self.EOL)
-            reply = self.parse_escaped(cmd)
-        else:
-            # Pass (or parse) command for device
-            reply = self.device_cmd(cmd)
-        return reply
-
-    def device_cmd(self, cmd):
-        """
-        Pass the command to the device.
-        """
+        self.initialized = True
         raise NotImplementedError
 
-    def parse_escaped(self, cmd):
+    def get_meta(self, metakeys):
         """
-        Parse escaped command and return reply.
+        Return the data described by the list
+        of keys in metakeys. If metakeys is None: return all
+        available meta.
         """
 
-        self.escape_help += """
-        ADMIN: Request admin rights.
-        AMIADMIN: Whether asking client has admin rights.
-        NOADMIN: Rescind admin rights.
-        DISCONNECT: Clean client disconnect
-        SHUTDOWN: Shut down request - same effect as disconnect
-        STATS: Send statistics  
-        """
-        if cmd == b'ADMIN':
-            ident = threading.get_ident()
-            if self.admin is None:
-                self.admin = ident
-                return b'OK' + self.EOL
-            if self.admin == ident:
-                return b'Already admin' + self.EOL
+        if metakeys is None:
+            metakeys = self.metacalls.keys()
+
+        meta = {}
+        for key in metakeys:
+            call = self.metacalls.get(key)
+            if call is None:
+                meta[key] = 'unknown'
             else:
-                return b'Admin rights claimed by other client' + self.EOL
-
-        if cmd == b'AMIADMIN':
-            ident = threading.get_ident()
-            if self.admin == ident:
-                return b'True' + self.EOL
-            else:
-                return b'False' + self.EOL
-
-        if cmd == b'NOADMIN':
-            ident = threading.get_ident()
-            if self.admin != ident:
-                return b'Admin rights were not granted. Nothing to do.' + self.EOL
-            else:
-                self.admin = None
-                return b'Admin rights rescinded' + self.EOL
-
-        if cmd == b'DISCONNECT':
-            # Understood by the thread loop as a client thread shutdown signal
-            return None
-
-        if cmd == b'SHUTDOWN':
-            self.shutdown_requested = True
-            return None
-
-        if cmd == b'STATS':
-            # Return some stats.
-            # This will fail if self.EOL appears in the stats, but
-            # that seems unlikely.
-            return json.dumps(self.get_stats()).encode() + self.EOL
-
-        return f'Error: unknown command {cmd}'.encode() + self.EOL
-
-    def get_stats(self):
-        """
-        Pass stats - can be overloaded
-        """
-        return self.stats
-
-    def driver_status(self):
-        """
-        Some info about the current state of the driver.
-        """
-        return b'Not implemented' + self.EOL
-
-    def shutdown(self):
-        """
-        Clean shutdown of the driver.
-        """
-        if not self.isalive:
-            return
-        # Tell the polling thread to abort. This will ensure that all the rest is wrapped up
-        self.shutdown_requested = True
-        self.logger.info('Shutting down.')
-
-    @classmethod
-    def kill(cls, address=None):
-        """
-        Request a shutdown of an instance of this daemon
-        serving at the given address.
-        """
-        # If no address was given, it means that the default
-        # address is a class attribute
-        if address is None:
-            address = cls.DEFAULT_SERVING_ADDRESS
-
-        class DriverKiller(DriverBase):
-            pass
-
-        d = DriverKiller(address=address, admin=False)
-        d.send(cls.ESCAPE_STRING + b'SHUTDOWN' + cls.EOL)
+                meta[key] = call()
+        return meta
 
 
-class SocketDeviceServerBase(DeviceServerBase):
+class SocketDriverBase(DriverBase):
     """
-    Base class for all serving connections to a socket device.
+    Base class for all drivers working through a socket.
     """
 
+    EOL = b'\n'                        # End of API sequence (default is \n)
+    ESCAPE_STRING = b'^'               # Escape string (or character) for daemon commands
     DEFAULT_DEVICE_ADDRESS = None  # The default address of the device socket.
     DEVICE_TIMEOUT = None          # Device socket timeout
-    NUM_CONNECTION_RETRY = 10      # Number of tries when reaching the device
+    NUM_CONNECTION_RETRY = 10      # Number of times to try to connect
     KEEPALIVE_INTERVAL = 10.       # Default Polling (keep-alive) interval
-    EOLr = None                    # Receiving EOL (from device) if None will be set to self.EOL
+    logger = None
 
-    def __init__(self, serving_address, device_address):
+    def __init__(self, device_address):
         """
         Initialization.
         """
-        # Prepare serving side
-        super().__init__(serving_address=serving_address)
+        super().__init__()
 
-        # Receiving EOL
-        if self.EOLr is None:
-            self.EOLr = self.EOL
+        # register exit functions
+        atexit.register(self.shutdown)
 
         # Store device address
         self.device_address = device_address
         self.device_sock = None
+        self.shutdown_requested = False
 
-        self.logger.debug(f'Daemon  {self.name} will connect to {self.device_address[0]}:{self.device_address[1]}')
+        self.logger.debug(f'Driver {self.name} will connect to {self.device_address[0]}:{self.device_address[1]}')
 
         # Attributes initialized (or re-initialized) in self.connect_device
         # Buffer in which incoming data will be stored
@@ -429,6 +203,8 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.recv_flag = None
         # Listening/receiving thread
         self.recv_thread = None
+        # Receiver lock
+        self._lock = threading.Lock()
 
         # Connect to device
         self.connected = False
@@ -442,13 +218,7 @@ class SocketDeviceServerBase(DeviceServerBase):
         # number of skipped answers in polling thread (not sure that's useful)
         self.device_N_noreply = 0
         # "keep alive" thread
-        self.polling_thread = threading.Thread(target=self._keep_alive)
-        self.polling_thread.daemon = True
-        self.polling_thread.start()
-
-    def listen(self):
-        super().listen()
-        self.close_device()
+        self.future_keep_alive = Future(self._keep_alive)
 
     def connect_device(self):
         """
@@ -474,19 +244,10 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.recv_buffer = b''
         self.recv_flag = threading.Event()
         self.recv_flag.clear()
-        self.recv_thread = threading.Thread(target=self._listen_recv)
-        self.recv_thread.daemon = True
-        self.recv_thread.start()
+        self.recv_thread = Future(target=self._listen_recv)
 
         self.connected = True
-        self.logger.info(f'Daemon {self.name} connected to {self.device_address[0]}:{self.device_address[1]}')
-
-    def init_device(self):
-        """
-        Device initalization.
-        """
-        self.initialized = True
-        raise NotImplementedError
+        self.logger.info(f'Driver {self.name} connected to {self.device_address[0]}:{self.device_address[1]}')
 
     def _listen_recv(self):
         """
@@ -495,16 +256,18 @@ class SocketDeviceServerBase(DeviceServerBase):
         receiving a command, the buffer is read and emptied immediately.
         """
         while True:
-            rlist, _, elist = select([self.device_sock], [], [self.device_sock], None)
+            rlist, _, elist = select([self.device_sock], [], [self.device_sock], .5)
             if elist:
                 self.logger.critical('Exceptional event with device socket.')
                 break
             if rlist:
                 # Incoming data
                 with self._lock:
-                    d = _recv_all(rlist[0], EOL=self.EOLr)
+                    d = _recv_all(rlist[0], EOL=self.EOL)
                     self.recv_buffer += d
                     self.recv_flag.set()
+            if self.shutdown_requested:
+                break
 
     def _keep_alive(self):
         """
@@ -534,16 +297,14 @@ class SocketDeviceServerBase(DeviceServerBase):
         """
         raise NotImplementedError
 
-    def device_cmd(self, cmd):
+    def device_cmd(self, cmd: bytes) -> bytes:
         """
-        Pass the command to the device, NOT adding EOL and return the reply.
-
-        By default, the command is simply forwarded.
+        Send command to the device, NOT adding EOL and return the reply.
         """
         if not self.connected:
-            return b'Device not connected.' + self.EOL
+            raise RuntimeError('Device not connected.')
         if not self.initialized:
-            return b'Device not initialized.' + self.EOL
+            raise RuntimeError('Device not initialized.')
 
         with self._lock:
             # Clear the "new data" flag so we can wait on the reply.
@@ -565,6 +326,22 @@ class SocketDeviceServerBase(DeviceServerBase):
 
         return reply
 
+    def terminal(self):
+        """
+        Create a terminal session to send commands directly to the device.
+        """
+        print('Enter command and hit return. Empty line will exit.')
+        prompt = f'[{self.__name__}] >> '
+        while True:
+            cmd = input(prompt)
+            if not cmd:
+                break
+            try:
+                reply = self.device_cmd(cmd.encode() + self.EOL)
+                print(reply)
+            except Exception as e:
+                print(repr(e))
+
     def close_device(self):
         """
         Driver clean up on shutdown.
@@ -573,258 +350,35 @@ class SocketDeviceServerBase(DeviceServerBase):
         self.connected = False
         self.initialized = False
 
-    def parse_escaped(self, cmd):
+    def driver_status(self):
         """
-        Parse escaped command.
+        Some info about the current state of the driver.
         """
-
-        self.escape_help +="""
-        STOP: Close (disconnect) device
-        START: Connect and initialize device.
-        RESTART: Close then reconnect.
-        """
-
-        if cmd == b'STOP':
-            if not self.connected:
-                return b'Device not connected'
-            try:
-                self.close_device()
-                return b'OK'
-            except BaseException as error:
-                return str(error).encode()
-
-        if cmd == b'START':
-            if self.connected:
-                return b'Device already connected'
-            try:
-                self.connect_device()
-                self.init_device()
-                return b'OK'
-            except BaseException as error:
-                return str(error).encode()
-
-        if cmd == b'RESTART':
-            if not self.connected:
-                return b'Device not connected'
-            try:
-                self.close_device()
-                self.connect_device()
-                self.init_device()
-                return b'OK'
-            except BaseException as error:
-                return str(error).encode()
-
-        return super().parse_escaped(cmd)
-
-
-class DriverBase:
-    """
-    Base for all drivers
-    """
-
-    DEFAULT_SERVER_ADDRESS = None    # Default address to reach the server. To be defined in subclasses
-    TIMEOUT = 15                     # Time out for socket connection with the server. May need to be increased in some cases
-    NUM_CONNECTION_RETRY = 10        # Number of tries when establishing connection (not really relevant)
-    ESCAPE_STRING = b'^'             # Default escape string when sending a command to the server and not to the device
-    EOL = b'\n'                      # End-of-Line. Needs to be aligned with the server and device API
-    logger = None                    # Place holder. Gets defined at construction.
-
-    def __init__(self, address, admin):
-        """
-        Initialization.
-        If admin is True, control is asked.
-        """
-        if address is None:
-            address = self.DEFAULT_SERVER_ADDRESS
-
-        # Get logger if not set in subclass
-        if self.logger is None:
-            self.logger = logging.getLogger(self.__class__.__name__)
-
-        # Store host and port
-        self.address = address
-
-        # register exit functions
-        atexit.register(self.shutdown)
-
-        # Set default name here. Can be overriden by subclass, for instance to allow multiple instances to run
-        # concurrently
-        if not hasattr(self, 'name'):
-            self.name = self.__class__.__name__
-
-        self.logger.debug(f'Driver {self.name} will connect to {self.address[0]}:{self.address[1]}')
-
-        self.admin = None
-        self.sock = None
-        self.connected = False
-
-        # Base metacalls for all drivers
-        self.metacalls = {'daemon_stats': self.get_stats}
-
-        # Connect
-        self.connect()
-
-        self.isalive = True
-
-        # Request admin rights if needed
-        if admin:
-            self.ask_admin(True)
-
-    def connect(self):
-        """
-        Connect socket.
-        """
-        # Prepare device socket connection
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
-        self.sock.settimeout(self.TIMEOUT)
-
-        for retry_count in range(self.NUM_CONNECTION_RETRY):
-            conn_errno = self.sock.connect_ex(self.address)
-            if conn_errno == 0:
-                break
-
-            self.logger.critical(os.strerror(conn_errno))
-            time.sleep(.05)
-
-        if conn_errno != 0:
-            self.logger.critical("Cannot connect to daemon.")
-            raise DaemonException("Cannot connect to daemon.")
-
-        self.connected = True
-        self.logger.info(f'Driver {self.name} connected to {self.address[0]}:{self.address[1]}')
+        raise NotImplementedError
 
     def shutdown(self):
         """
         Clean shutdown of the driver.
         """
-        self.isalive = False
-        try:
-            self.sock.close()
-        except:
-            pass
-        self.logger.debug(f'Driver {self.name}: connection to {self.address[0]}:{self.address[1]} closed.')
+        if not self.connected:
+            return
+        # Tell the polling thread to abort. This will ensure that all the rest is wrapped up
+        self.shutdown_requested = True
+        self.logger.info('Shutting down connection to driver.')
 
-    def send(self, msg):
-        """
-        Send message (byte string) to socket.
-        """
-        try:
-            _send_all(self.sock, msg)
-        except socket.timeout:
-            raise RuntimeError('Communication timed out')
-
-    def recv(self):
-        """
-        Read message from socket.
-        """
-        r = _recv_all(self.sock, EOL=self.EOL)
-        if not r:
-            self.logger.critical('Daemon disconnected.')
-            self.shutdown()
-            raise DaemonException('Daemon disconnected.')
-        return r
-
-    def _send_recv(self, msg: bytes) -> bytes:
-        """
-        Send message to socket and return reply message.
-        """
-        self.send(msg)
-        r = self.recv()
-        return r
-
-    def send_recv(self, msg: bytes) -> bytes:
-        """
-        Send message to socket and return reply message, stripped from spaces and return carriages.
-        (can be overloaded by subclass)
-        """
-        return self._send_recv(msg).strip(self.EOL)
-
-    def ask_admin(self, ask=None):
-        """
-        Ask admin rights.
-        Without and argument, returns whether we are admin.
-        With True or False, request/rescind admin rights.
-        """
-
-        if ask is None:
-            reply = self.send_recv(self.ESCAPE_STRING + b'AMIADMIN' + self.EOL)
-            self.admin = (reply.strip(self.EOL) == b'True')
-        elif ask is True:
-            if self.ask_admin():
-                self.logger.info('Already admin.')
-                self.admin = True
-            else:
-                reply = self.send_recv(self.ESCAPE_STRING + b'ADMIN' + self.EOL)
-                self.admin = True
-                if reply.strip(self.EOL) != b'OK':
-                    self.logger.warning(f'Could not request admin rights: {reply}')
-                    self.admin = False
-        elif ask is False:
-            if not self.ask_admin():
-                self.logger.info('Already not admin.')
-                self.admin = False
-            else:
-                reply = self.send_recv(self.ESCAPE_STRING + b'NOADMIN' + self.EOL)
-                self.admin = False
-                if reply.strip(self.EOL) != b'OK':
-                    self.logger.warning(f'Could not rescind admin rights: {reply}')
-
-        return self.admin
-
-    def get_meta(self, metakeys, returndict):
-        """
-        Place in `returndict` the data described by the list
-        of keys in metakeys. If metakeys is None: return all
-        available meta.
-
-        Note: returndict is used instead of a normal method return
-        so that this method can be run on a different thread.
-        """
-
-        if metakeys is None:
-            metakeys = self.metacalls.keys()
-
-        for key in metakeys:
-            call = self.metacalls.get(key)
-            if call is None:
-                returndict[key] = 'unknown'
-            else:
-                returndict[key] = call()
-
+    def stop(self):
+        if not self.connected:
+            raise RuntimeError('Not connected.')
+        self.close_device()
         return
 
-    def get_stats(self):
-        """
-        Obtain stats from the daemon.
-        """
-        reply = self.send_recv(self.ESCAPE_STRING + b'STATS' + self.EOL)
-        stats = json.loads(reply.decode())
-        return stats
-
-    def __del__(self):
-        self.shutdown()
-
-    @classmethod
-    def terminal(cls, address):
-        """
-        Debugging tool.
-        Create a terminal session after connecting to the daemon.
-        """
-
-        class TerminalDriver(DriverBase):
+    def restart(self):
+        try:
+            self.stop()
+        except RuntimeError:
             pass
-
-        d = TerminalDriver(address=address, admin=False)
-        prompt = f'[{cls.__name__}] >> '
-        while True:
-            cmd = input(prompt)
-            if not cmd:
-                break
-            try:
-                reply = d.send_recv(cmd.encode() + cls.EOL)
-                print(reply.decode('utf-8'))
-            except Exception as e:
-                print(repr(e))
+        self.connect_device()
+        self.init_device()
 
 
 class MotorBase:

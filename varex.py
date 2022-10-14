@@ -8,9 +8,9 @@ import sys
 import logging
 import json
 
-from .base import admin_only
-from .camera import CameraServerBase, CameraDriverBase
+from .camera import CameraBase
 from .network_conf import VAREX as DEFAULT_NETWORK_CONF
+from .util.proxydevice import proxycall, proxydevice
 from .ui_utils import ask_yes_no
 
 logger = logging.getLogger(__name__)
@@ -27,29 +27,29 @@ else:
             raise RuntimeError('Attempting to access "dexela" on a system where it is no present!')
     globals().update({'DexelaPy': FakeDexela()})
 
-__all__ = ['VarexDaemon', 'Varex', 'Camera']
+__all__ = ['Varex', 'Camera']
 
 
-class VarexDaemon(CameraServerBase):
+@proxydevice(address=DEFAULT_NETWORK_CONF['DAEMON'])
+class VarexDaemon(CameraBase):
     """
     Varex Daemon
     """
 
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
-    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
     PIXEL_SIZE = 74.8e-6  # Physical pixel pitch in meters
     SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal)
+    DEFAULT_BROADCAST_PORT = DEFAULT_NETWORK_CONF['BROADCAST']
 
-    def __init__(self, serving_address=None):
+    def __init__(self, broadcast_port=None):
         """
         Initialization.
         """
-        if serving_address is None:
-            serving_address = self.DEFAULT_SERVING_ADDRESS
-        super().__init__(serving_address=serving_address)
+        super().__init__(broadcast_port=broadcast_port)
 
-        self.detector = None
-        self.detector_info = None
+        self.detector = dexela.DexelaDetector()
+
+        self.logger.info('GigE detector is online')
 
         settings = self.config.get('settings', {})
 
@@ -59,44 +59,12 @@ class VarexDaemon(CameraServerBase):
                          'exposure_time': settings.get('exposure_time', 200),
                          'bins': settings.get('bins', 'x11'),
                          'num_of_exposures': settings.get('num_of_exposures', 1),
-                         'readout_mode': settings.get('readout_mode', 'ContinuousReadout')
+                         'readout_mode': settings.get('readout_mode', 'ContinuousReadout'),
                          'gap_time': settings.get('gap_time', 0)})
 
         # Save settings
         self.config['settings'] = settings
-
-
-    def init_device(self):
-        """
-        Access detector with the library
-        """
-        self.detector = dexela.DexelaDetector()
-        self.logger.info('GigE detector is online')
         self._apply_settings()
-
-    def device_cmd(self, cmd) -> bytes:
-        """
-        Varex specific commands.
-        """
-        cmds = cmd.strip(self.EOL).split()
-        c = cmds.pop(0)
-        if c == b'GET':
-            c = cmds.pop(0)
-            if c == b'FULL_WELL_MODE':
-                return self.fr(self.get_full_well_mode())
-            if c == b'READOUT_MODE':
-                    return self.fr(self.get_readout_mode())
-
-        elif c == b'SET':
-            c = cmds.pop(0)
-            if c == b'EXPOSURE_TIME':
-                return self.fr(self.set_exposure_time(*cmds))
-                if c == b'FULL_WELL_MODE':
-                    return self.fr(self.get_full_well_mode())
-                if c == b'READOUT_MODE':
-                    return self.fr(self.get_readout_mode())
-            elif c == b'EXPOSURE_MODE':
-                return self.fr(self.set_exposure_mode(*cmds))
 
     def _apply_settings(self, settings=None):
         """
@@ -107,103 +75,61 @@ class VarexDaemon(CameraServerBase):
             settings = self.config['settings']
         detector = self.detector
         detector.set_full_well_mode(settings['full_well_mode'])
-        detector.set_fexposure_mode(settings['exposure_mode'])
+        detector.set_exposure_mode(settings['exposure_mode'])
         detector.set_exposure_time(settings['exposure_time'])
         detector.set_num_of_exposures(settings['num_of_exposures'])
         detector.set_gap_time(settings['gap_time'])
         detector.set_bins(settings['bins'])
 
-    def go_live(self, fps=10):
-        """
-        Put the camera in live mode (frames are not saved)
-        """
-        self.logger.warning("Entering live mode. Frames are not saved.")
-        self.
+    def grab_frame(self):
+        pass
 
+    def _get_exposure_time(self):
+        # Convert from milliseconds to seconds
+        return self.detector.get_exposure_time() * 1000
 
+    def _set_exposure_time(self, value):
+        etime = int(value*1000)
+        self.detector.set_exposure_time(etime)
 
-    def device_cmd(self, cmd):
-        """
-        Implementation of the basic API:
-         `DO:[some python code]`
-           Take the python code and exec it. Return a jsoned version of the content of the 'out' dictionary
+    def _get_exposure_number(self):
+        return self.detector.get_num_of_exposure()
 
-         `SNAP`
-           Take a frame and save it with all current settings.
+    def _set_exposure_number(self, value):
+        # TODO: IMPLEMENT THIS
+        pass
 
-         `CAPTURE:SCAN_NUMBER`
-           Take a frame with current settings, for scan number `SCAN_NUMBER`.
+    def _get_exposure_mode(self):
+        return self.detector.get_exposure_mode()
 
-         `CONTINUOUS_START`
-           Start continuous scan with current settings.
+    def _set_exposure_mode(self, value):
+        # TODO: IMPLEMENT THIS
+        pass
 
-         `CONTINUOUS_STOP`
-           Stop continuous scan with current settings.
+    def _get_binning(self):
+        return self.detector.get_bins()
 
-        """
-        if cmd.startswith(b'DO:'):
-            ret = {'DexelaPy': DexelaPy, 'D':self, 'out':{}}
-            exec(cmd.decode('utf-8'), {}, ret)
-            return json.dumps(ret['out']).encode() + self.EOL
+    def _set_binning(self, value):
+        self.detector.set_bins(value)
 
-    def snap(self):
+    def _get_psize(self):
+        bins = self.binning
+        if bins == 'x11':
+            return self.PIXEL_SIZE
+        elif bins == 'x22':
+            return 2*self.PIXEL_SIZE
+        elif bins == 'x44':
+            return 4*self.PIXEL_SIZE
+        else:
+            raise RuntimeError("Unknown (or not implemented) binning for pixel size calculation.")
 
-
-    def _save_frame(self, frame):
-        """
-        Store buffered image to disk
-        """
-
-    def _finish(self):
-        """
-        Disconnect socket.
-        """
-        self.logger.info("Exiting.")
-        self.detector.CloseBoard()
-
-
-class Varex(DriverBase):
-    """
-    Varex driver
-    """
-
-    def __init__(self, address, admin=True, **kwargs):
-        """
-        Connects to daemon.
-        """
-        if address is None:
-            address = DEFAULT_NETWORK_CONF['DAEMON']
-
-        super().__init__(address=address, admin=admin)
-
-        self.metacalls.update({}) # TODO
-
-    def send_cmd(self, cmd, **kwargs):
-        """
-        Send a command to the Daemon.
-        """
-        msg = json.dumps([cmd, kwargs]).encode()
-        return self.send_recv(msg + self.EOL)
-
-    def go_live(self, fps=10):
-        """
-        Put the camera in live mode (frames are not saved)
-        """
-        self.logger.warning("Entering live mode. Frames are not saved.")
-        self.send_cmd('go_live', fps=fps)
-
-    def set_FullWellMode(self, mode):
-        """
-        Low = 0    # The low noise reduced dynamic range mode
-        High = 1   # The normal full well mode
-        """
-        if mode not in [0, 1]:
-            raise RuntimeError('Full Well Mode can only be 0 or 1')
-
-        self.
-
-
-class Camera(CameraBase):
-    """
-    Camera class for Varex driver
-    """
+    def _get_shape(self) -> tuple:
+        bins = self.binning
+        if bins == 'x11':
+            return self.SHAPE
+        elif bins == 'x22':
+            return self.SHAPE[0]//2, self.SHAPE[1]//2
+        elif bins == 'x44':
+            return self.SHAPE[0]//4, self.SHAPE[1]//4
+        else:
+            raise RuntimeError("Unknown (or not implemented) binning for shape calculation.")

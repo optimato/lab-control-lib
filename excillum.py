@@ -6,40 +6,41 @@ First version: Leo 2018
 Current version Pierre 2022
 """
 import time
-import sys
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
+from .base import SocketDriverBase, DeviceException
 from .network_conf import EXCILLUM as DEFAULT_NETWORK_CONF
 from .ui_utils import ask_yes_no
+from .util.proxydevice import proxydevice, proxycall
 
 EOL = b'\n'
 
 
-class ExcillumDaemon(SocketDeviceServerBase):
+@proxydevice(address=DEFAULT_NETWORK_CONF['DAEMON'])
+class Excillum(SocketDriverBase):
     """
-    Excillyum Daemon, keeping connection with the source.
+    Excillum Driver.
     """
 
-    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
     DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
 
-    def __init__(self, serving_address=None, device_address=None):
-        if serving_address is None:
-            serving_address = self.DEFAULT_SERVING_ADDRESS
+    def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
-        super().__init__(serving_address=serving_address, device_address=device_address)
+        super().__init__(device_address=device_address)
 
     def init_device(self):
         """
         Device initialization.
         """
         # ask for firmware version to see if connection works
-        version = self.device_cmd(b'#version' + self.EOL)
-        version = version.strip(self.EOL).decode('utf-8')
+        version = self.send_cmd(b'#version')
         self.logger.info(f'Firmware version is {version}')
+
+        # Announce current state
+        state = self.get_state()
+        self.logger.info(f'Source state: {state}')
 
         self.initialized = True
         return
@@ -48,30 +49,9 @@ class ExcillumDaemon(SocketDeviceServerBase):
         """
         Keep-alive call
         """
-        r = self.device_cmd(b'state?' + self.EOL)
+        r = self.send_cmd(b'state?')
         if not r:
             raise DeviceException
-
-
-class Excillum(DriverBase):
-    """
-    Driver for the Excillum liquid-metal-jet source.
-    """
-
-    EOL = EOL
-
-    def __init__(self, address=None, admin=True, **kwargs):
-        """
-        Initialization.
-        """
-        if address is None:
-            address = DEFAULT_NETWORK_CONF['DAEMON']
-
-        super().__init__(address=address, admin=admin)
-
-        state = self.get_state()
-        self.logger.info(f'Source state: {state}')
-
 
     def send_cmd(self, cmd, replycmd=None):
         """
@@ -95,10 +75,10 @@ class Excillum(DriverBase):
         cmd += self.EOL
         if replycmd is not None:
             cmd += replycmd + self.EOL
-        reply = self.send_recv(cmd)
+        reply = self.device_cmd(cmd)
         return reply.strip(self.EOL).decode('utf-8', errors='ignore')
 
-    @admin_only
+    @proxycall(admin=True)
     def source_admin(self):
         """
         Request the admin status for source control.
@@ -107,13 +87,14 @@ class Excillum(DriverBase):
         """
         return self.send_cmd('#admin', '#whoami')
 
+    @proxycall()
     def get_state(self):
         """
         Get source state.
         """
         return self.send_cmd('state?').strip("'")
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def set_state(self, target_state, blocking=True):
         """
         Set the source state.
@@ -162,6 +143,7 @@ class Excillum(DriverBase):
 
         self.logger.info(f'Source state: "{reply}"')
 
+    @proxycall(admin=True)
     @property
     def state(self):
         return self.get_state()
@@ -170,26 +152,32 @@ class Excillum(DriverBase):
     def state(self, target_state):
         self.set_state(target_state)
 
+    @proxycall()
     @property
     def spotsize_x_um(self):
         return self.send_cmd("spotsize_x_um?")
 
+    @proxycall()
     @property
     def spotsize_y_um(self):
         return self.send_cmd("spotsize_y_um?")
 
+    @proxycall()
     @property
     def generator_emission_current_a(self):
         return self.send_cmd("generator_emission_current?")
 
+    @proxycall()
     @property
     def generator_emission_power_w(self):
         return self.send_cmd("generator_emission_power?")
 
+    @proxycall()
     @property
     def generator_high_voltage(self):
         return self.send_cmd("generator_high_voltage?")
 
+    @proxycall()
     @property
     def vacuum_pressure_pa(self):
         return self.send_cmd("vacuum_pressure_mbar_short_average?")
@@ -198,14 +186,17 @@ class Excillum(DriverBase):
     def jet_pressure_pa(self):
         return self.send_cmd("jet_pressure_average?")
 
+    @proxycall()
     @property
     def spot_position_x_um(self):
         return self.send_cmd("spot_position_x_um?")
 
+    @proxycall()
     @property
     def spot_position_y_um(self):
         return self.send_cmd("spot_position_y_um?")
 
+    @proxycall()
     @property
     def jetpump_frequency(self):
         return self.send_cmd('jetpump_frequency?')

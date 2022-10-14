@@ -1,20 +1,21 @@
 """
 Base behaviour for all detectors.
 """
-import concurrent.futures
 import os
 import json
 
 from optimatools.io.h5rw import h5write
 
 from . import experiment, aggregate
-from .base import DriverBase, DeviceServerBase
+from .base import DriverBase
 from .util import now, FramePublisher
+from .util.proxydevice import proxydevice, proxycall
+from .util.future import Future
 
 DEFAULT_FILE_FORMAT = 'hdf5'
 
 
-class CameraServerBase(DeviceServerBase):
+class CameraBase(DriverBase):
     """
     Base class for camera daemons.
     """
@@ -25,8 +26,8 @@ class CameraServerBase(DeviceServerBase):
     SHAPE = (0, 0)            # Native array dimensions (before binning)
     DATATYPE = 'uint16'            # Expected datatype
 
-    def __init__(self, serving_address, broadcast_port=None):
-        super().__init__(serving_addres=serving_address)
+    def __init__(self, broadcast_port=None):
+        super().__init__()
         if broadcast_port is None:
             self.broadcast_port = self.DEFAULT_BROADCAST_PORT
         else:
@@ -42,9 +43,8 @@ class CameraServerBase(DeviceServerBase):
         if 'magnification' not in self.config:
             self.config['magnification'] = 1.
 
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
-        self.acq_future = None        # Will be replaced with a concurrent future when starting to acquire.
-        self.store_future = None      # Will be replaced with a conccurent future when starting to store.
+        self.acq_future = None        # Will be replaced with a future when starting to acquire.
+        self.store_future = None      # Will be replaced with a future when starting to store.
 
         # Used for file naming when acquiring sequences
         self.counter = 0
@@ -55,71 +55,13 @@ class CameraServerBase(DeviceServerBase):
         # Broadcasting
         self.broadcaster = None
         if self.config['do_broadcast']:
-            self.start_broadcasting()
+            self.live_on()
 
-    def device_cmd(self, cmd) -> bytes:
-        """
-        Commands common to all detectors
-        """
-        cmds = cmd.strip(self.EOL).split()
-        c = cmds.pop(0)
-        if c == b'GET':
-            c = cmds.pop(0)
-            if c == b'EXPOSURE_TIME':
-                return self.fr(self.get_exposure_time())
-            elif c == b'EXPOSURE_MODE':
-                return self.fr(self.get_exposure_mode())
-            elif c == b'EXPOSURE_NUMBER':
-                return self.fr(self.get_exposure_number())
-            elif c == b'BINNING':
-                return self.fr(self.get_binning())
-            elif c == b'LIVE_FPS':
-                return self.fr(self.get_live_fps())
-            elif c == b'FILE_FORMAT':
-                return self.fr(self.get_file_format())
-            elif c == b'FILE_PREFIX':
-                return self.fr(self.get_file_prefix())
-            elif c == b'SAVE_PATH':
-                return self.fr(self.get_save_path())
-            elif c == b'MAGNIFICATION':
-                return self.fr(self.get_magnification())
-            elif c == b'ACQUIRING':
-                return self.fr(self.acquiring)
-            elif c == b'SETTINGS':
-                return self.fr(self.settings_json())
+    #
+    # INTERNAL METHODS
+    #
 
-        elif c == b'SET':
-            c = cmds.pop(0)
-            if c == b'EXPOSURE_TIME':
-                return self.fr(self.set_exposure_time(*cmds))
-            elif c == b'EXPOSURE_MODE':
-                return self.fr(self.set_exposure_mode(*cmds))
-            elif c == b'EXPOSURE_NUMBER':
-                return self.fr(self.set_exposure_number(*cmds))
-            elif c == b'BINNING':
-                return self.fr(self.set_binning(*cmds))
-            elif c == b'LIVE_FPS':
-                return self.fr(self.set_live_fps(*cmds))
-            elif c == b'FILE_FORMAT':
-                return self.fr(self.set_file_format(*cmds))
-            elif c == b'FILE_PREFIX':
-                return self.fr(self.set_file_prefix(*cmds))
-            elif c == b'SAVE_PATH':
-                return self.fr(self.set_save_path(*cmds))
-            elif c == b'MAGNIFICATION':
-                return self.fr(self.set_magnification(*cmds))
-        elif c == b'ACQUIRE':
-            return self.fr(self.acquire(*cmds))
-        elif c == b'GOLIVE':
-            return self.fr(self.go_live(*cmds))
-        elif c == b'STOPLIVE':
-            return self.fr(self.stop_live(*cmds))
-        elif c == b'ISLIVE':
-            return self.fr(self.is_live(*cmds))
-        else:
-            return self.fr(f'Unknown command "{c}"')
-
-    def acquire(self, *args) -> str:
+    def acquire(self, *args):
         """
         Acquisition wrapper, taking care of metadata collection and
         of frame broadcasting.
@@ -129,17 +71,20 @@ class CameraServerBase(DeviceServerBase):
         Note: metadata collection is initiated *just before* acquisition.
         """
         if self.acquiring:
-            return b'Currently acquiring' + self.EOL
-        self.acq_future = self.executor.submit(self._acquire_task)
-        return 'Acquisition started'
+            raise RuntimeError('Currently acquiring')
+        self.acq_future = Future(self._acquire_task)
+        self.logger.debug('Acquisition started')
 
-    def _acquire_task(self) -> str:
+    def _acquire_task(self):
+        """
+        Threaded acquisition task.
+        """
         # Start collecting metadata *before* acquisition
         metadata = aggregate.get_all_meta()
 
         localmeta = {'acquisition_start': now(),
-                     'psize': self.PIXEL_SIZE,
-                     'epsize': self.PIXEL_SIZE * self.config['magnification']}
+                     'psize': self.psize,
+                     'epsize': self.epsize}
 
         frame, meta = self.grab_frame()
 
@@ -153,15 +98,16 @@ class CameraServerBase(DeviceServerBase):
         if self.broadcaster:
             self.broadcaster.pub(frame, metadata)
 
-        return self.store(frame, metadata)
+        self.store(frame, metadata)
 
-    def store(self, frame, metadata) -> str:
+    def store(self, frame, metadata):
         """
         Store (if requested) frame and metadata
         """
         if not self.config['do_store']:
             # Nothing to do. At this point the data is discarded!
-            return 'OK'
+            self.logger.debug('Discarding frame because do_store=False')
+            return
 
         # Build file name and call corresponding saving function
         filename = self.build_filename()
@@ -170,62 +116,7 @@ class CameraServerBase(DeviceServerBase):
             self.save_h5(filename, frame, metadata)
         elif filename.endswith('tif'):
             self.save_tif(filename, frame, metadata)
-        return f'Saved {filename}'
-
-    def save_h5(self, filename, frame, metadata):
-        """
-        Save given frame and metadata to filename in h5 format.
-        """
-        self.store_future = self.executor.submit(self._save_h5_task, filename, frame, metadata)
-
-    @staticmethod
-    def _save_h5_task(filename, frame, metadata):
-        """
-        Threaded call
-        """
-        metadata['save_time'] = now()
-        # At this point we store metadata, which might not have been completely populated
-        # by the threads running concurrently. This will be visible as empty entries for the
-        # corresponding drivers.
-        h5write(filename, data=frame, meta=metadata)
-        return
-
-    def save_tif(self, filename, frame, metadata):
-        """
-        Save given frame and metadata to filename in tiff format.
-        """
-        raise RuntimeError('Not implemented')
-
-    def go_live(self, *args) -> str:
-        """
-        Put camera in "live mode"
-        """
-        return 'Not implemented'
-
-    def stop_live(self, *args) -> str:
-        """
-        Stop "live mode"
-        """
-        return 'Not implemented'
-
-    def is_live(self, *args) -> str:
-        """
-        Check if in "live mode"
-        """
-        return 'Not implemented'
-
-    def settings_json(self) -> str:
-        """
-        Return all current settings jsoned.
-        """
-        settings = {'exposure_time': self.get_exposure_time(),
-                    'exposure_number': self.get_exposure_number(),
-                    'exposure_mode': self.get_exposure_mode(),
-                    'file_format': self.get_file_format(),
-                    'file_prefix': self.get_file_prefix(),
-                    'save_path': self.get_save_path(),
-                    'magnification': self.get_magnification()}
-        return json.dumps(settings)
+        self.logger.info(f'Saved {filename}')
 
     def build_filename(self) -> str:
         """
@@ -251,190 +142,332 @@ class CameraServerBase(DeviceServerBase):
             raise RuntimeError(f'Unknown file format: {file_format}.')
         return filename
 
-    def get_exposure_time(self) -> str:
+    def save_h5(self, filename, frame, metadata):
         """
-        Return exposure time
+        Save given frame and metadata to filename in h5 format.
         """
-        return 'Not implemented'
+        self.store_future = Future(self._save_h5_task, (filename, frame, metadata))
 
-    def get_exposure_number(self) -> str:
+    @staticmethod
+    def _save_h5_task(filename, frame, metadata):
+        """
+        Threaded call
+        """
+        metadata['save_time'] = now()
+        # At this point we store metadata, which might not have been completely populated
+        # by the threads running concurrently. This will be visible as empty entries for the
+        # corresponding drivers.
+        h5write(filename, data=frame, meta=metadata)
+        return
+
+    def save_tif(self, filename, frame, metadata):
+        """
+        Save given frame and metadata to filename in tiff format.
+        """
+        raise RuntimeError('Not implemented')
+
+    #
+    # ACQUISITION
+    #
+
+    @proxycall(admin=True, block=False)
+    def snap(self):
+        """
+        Capture single frame.
+        """
+        ...
+
+    @proxycall(admin=True, block=False)
+    def capture(self):
+        """
+        Image capture within a scan. This will take care of file naming and
+        metadata collection.
+        """
+        if experiment.SCAN is None:
+            raise RuntimeError('capture is meant to be used only in a scan context.')
+
+    @proxycall(admin=True, block=False)
+    def sequence(self):
+        """
+        Capture a sequence within a scan. This will take care of file naming and
+        metadata collection.
+        """
+        pass  # TODO
+
+    def grab_frame(self):
+        """
+        The device-specific acquisition procedure.
+        """
+        raise NotImplementedError
+
+    @proxycall()
+    def settings_json(self) -> str:
+        """
+        Return all current settings jsoned.
+        """
+        settings = {'exposure_time': self.exposure_time,
+                    'exposure_number': self.exposure_number,
+                    'exposure_mode': self.exposure_mode,
+                    'file_format': self.file_format,
+                    'file_prefix': self.file_prefix,
+                    'save_path': self.save_path,
+                    'magnification': self.magnification}
+        return json.dumps(settings)
+
+    #
+    # GETTERS / SETTERS TO IMPLEMENT IN SUBCLASSES
+    #
+
+    def _get_exposure_time(self):
+        """
+        Return exposure time in seconds
+        """
+        raise NotImplementedError
+
+    def _set_exposure_time(self, value):
+        """
+        Set exposure time
+        """
+        raise NotImplementedError
+
+    def _get_exposure_number(self):
         """
         Return exposure number
         """
-        return 'Not implemented'
+        raise NotImplementedError
 
-    def get_exposure_mode(self) -> str:
+    def _set_exposure_number(self, value):
+        """
+        Return exposure number
+        """
+        raise NotImplementedError
+
+    def _get_exposure_mode(self):
         """
         Return exposure mode
         """
-        return 'Not implemented'
+        raise NotImplementedError
 
-    def get_binning(self) -> str:
+    def _set_exposure_mode(self, value):
+        """
+        Set exposure mode
+        """
+        raise NotImplementedError
+
+    def _get_binning(self):
         """
         Return binning
         """
-        return 'Not implemented'
+        raise NotImplementedError
 
-    def get_file_format(self) -> str:
+    def _set_binning(self, value):
         """
-        Return file format
+        Set binning
+        """
+        raise NotImplementedError
+
+    def _get_psize(self):
+        """
+        Return pixel size in mm, taking into account binning.
+        """
+        raise NotImplementedError
+
+    def _get_shape(self) -> tuple:
+        """
+        Return array shape, taking into account ROI, binning etc.
+        """
+        raise NotImplementedError
+
+    #
+    # PROPERTIES
+    #
+
+    @proxycall(admin=True)
+    @property
+    def file_format(self):
+        """
+        File format
         """
         return self.config['file_format']
 
-    def get_file_prefix(self) -> str:
+    @file_format.setter
+    def file_format(self, value):
+        if value.lower() in ['h5', 'hdf', 'hdf5']:
+            self.config['file_format'] = 'hdf5'
+        elif value.lower() in ['tif', 'tiff']:
+            self.config['file_format'] = 'tiff'
+        else:
+            raise RuntimeError(f'Unknown file format: {value}')
+
+    @proxycall(admin=True)
+    @property
+    def file_prefix(self):
         """
-        Return file_prefix
+        File prefix
         """
         return self.config['file_prefix']
 
-    def get_save_path(self) -> str:
+    @file_prefix.setter
+    def file_prefix(self, value):
+        self.config['file_prefix'] = value
+
+    @proxycall(admin=True)
+    @property
+    def save_path(self):
         """
         Return save path
         """
         return self.config['save_path']
 
-    def get_magnification(self) -> float:
-        """
-        Return geometric magnification
-        """
-        return self.config['magnification']
-
-    def set_exposure_time(self, value: str) -> str:
-        """
-        Set exposure time
-        """
-        return 'Not implemented'
-
-    def set_exposure_number(self, value: str) -> str:
-        """
-        Return exposure number
-        """
-        return 'Not implemented'
-
-    def set_exposure_mode(self, value: str) -> str:
-        """
-        Set exposure mode
-        """
-        return 'Not implemented'
-
-    def set_binning(self, value: str) -> str:
-        """
-        Set binning
-        """
-        return 'Not implemented'
-
-    def set_file_format(self, value: str) -> str:
-        """
-        Set file format
-        """
-        if value.lower() in ['h5', 'hdf', 'hdf5']:
-            self.config['file_format'] = 'hdf5'
-            return 'OK'
-        elif value.lower() in ['tif', 'tiff']:
-            self.config['file_format'] = 'tiff'
-            return 'OK'
-        else:
-            return f'ERROR: unknown file format: {value}'
-
-    def set_file_prefix(self, value: str) -> str:
-        """
-        Set file_prefix
-        """
-        self.config['file_prefix'] = value
-        return 'OK'
-
-    def set_save_path(self, value: str) -> str:
+    @save_path.setter
+    def save_path(self, value):
         """
         Set save path
         """
         self.config['save_path'] = value
 
-    def set_distance_to_source(self, value: str) -> str:
+    @proxycall(admin=True)
+    @property
+    def exposure_time(self):
         """
-        Set distance_to_source
+        Exposure time in seconds.
         """
-        try:
-            self.config['distance_to_source'] = float(value)
-        except:
-            return f'Unable to set distance to source with value {value}'
-        return 'OK'
+        return self._get_exposure_time()
 
-    def grab_frame(self):
-        """
-        The device-specific acquisition procedure.
+    @exposure_time.setter
+    def exposure_time(self, value):
+        self._set_exposure_time(value)
 
+    @proxycall(admin=True)
+    @property
+    def exposure_mode(self):
         """
-        raise NotImplementedError
+        Set exposure mode.
+        """
+        return self._get_exposure_mode()
 
-    def parse_escaped(self, cmd) -> bytes:
-        """
-        Parse camera-specific escaped commands.
+    @exposure_mode.setter
+    def exposure_mode(self, value):
+        self._set_exposure_mode(value)
 
+    @proxycall(admin=True)
+    @property
+    def exposure_number(self):
         """
-        self.escape_help += """
-        BROADCAST START start broadcasting
-        BROADCAST STOP: stop broadcasting
-        BROADCAST STATUS: current broadcasting status
+        Number of exposures.
         """
-        cmds = cmd.split()
-        c = cmds.pop(0)
-        if c.startswith(b'BROADCAST'):
-            c = cmds.pop(0)
-            if c.startswith(b'START'):
-                # Start broadcasting frames
-                return self.start_broadcasting().encode()
-            elif c.startswith(b'STOP'):
-                # Stop broadcasting frames
-                return self.stop_broadcasting().encode()
-            elif c.startssith(b'STATUS'):
-                if self.broadcaster:
-                    return b'ON'
-                else:
-                    return b'OFF'
+        return self._get_exposure_number()
 
-        # Continue parsing
-        return super().parse_escaped(cmd)
+    @exposure_number.setter
+    def exposure_number(self, value):
+        self._set_exposure_number(value)
 
-    def fr(self, x):
+    @proxycall(admin=True)
+    @property
+    def binning(self):
         """
-        Format response
+        Exposure time in seconds.
         """
-        if type(x) is bytes:
-            if x.endswith(self.EOL):
-                return x
-            return x + self.EOL
-        return str(x).encode() + self.EOL
+        return self._get_binning()
 
+    @binning.setter
+    def binning(self, value):
+        self._set_binning(value)
+
+    @proxycall()
+    @property
+    def psize(self):
+        """
+        Pixel size in mm (taking into account binning)
+        """
+        return self._get_psize()
+
+    @proxycall()
+    @property
+    def shape(self):
+        """
+        Array shape (taking into account binning)
+        """
+        return self._get_shape()
+
+    @proxycall(admin=True)
+    @property
+    def magnification(self):
+        """
+        Geometric magnification
+        """
+        return self.config['magnification']
+
+    @magnification.setter
+    def magnification(self, value):
+        self.config['magnification'] = float(value)
+
+    @proxycall(admin=True)
+    @property
+    def epsize(self):
+        """
+        *Effective* pixel size (taking into account both binning and geometric magnification)
+        """
+        return self.magnification * self.psize
+
+    @epsize.setter
+    def epsize(self, new_eps):
+        """
+        Set the *effective* pixel size. This effectively changes the magnification
+        """
+        self.magnification = new_eps / self.psize
+
+    @proxycall(admin=True)
+    @property
+    def live_fps(self):
+        """
+        Set FPS for live mode.
+        """
+        return self.config['live_fps']
+
+    @live_fps.setter
+    def live_fps(self, value):
+        self.config['live_fps'] = int(value)
+
+    @proxycall()
     @property
     def acquiring(self) -> bool:
         return not (self.acq_future is None or self.acq_future.done())
 
+    @proxycall()
     @property
     def storing(self) -> bool:
         return not (self.store_future is None or self.store_future.done())
 
-    def start_broadcasting(self) -> str:
+    @proxycall(admin=True)
+    def live_on(self):
         """
         Start broadcaster.
         """
         if self.broadcaster:
-            return 'ERROR already broadcasting'
+            raise RuntimeError(f'ERROR already broadcasting on port {self.broadcast_port}')
         self.broadcaster = FramePublisher(port=self.broadcast_port)
-        return 'OK'
 
-    def stop_broadcasting(self) -> str:
+    @proxycall(admin=True)
+    def live_off(self):
         """
         Start broadcaster.
         """
-        if self.broadcaster:
-            try:
-                self.broadcaster.close()
-            except:
-                pass
-            self.broadcaster = None
-            return 'OK'
-        else:
-            return 'ERROR already not broadcasting'
+        if not self.broadcaster:
+            raise RuntimeError(f'ERROR: not currently broadcasting.')
+        try:
+            self.broadcaster.close()
+        except BaseException:
+            pass
+        self.broadcaster = None
+
+    @proxycall()
+    @property
+    def is_live(self):
+        """
+        Check if camera is live.
+        """
+        return self.broadcaster is not None
 
 
 class CameraDriverBase(DriverBase):

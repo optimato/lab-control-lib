@@ -7,119 +7,95 @@ Dummy controller for testing purposes.
 """
 
 import time
-import atexit
 import socket
-import multiprocessing
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, _recv_all
+from .base import MotorBase, SocketDriverBase, emergency_stop, _recv_all
 from .network_conf import DUMMY as DEFAULT_NETWORK_CONF
 from . import motors
+from .util.proxydevice import proxydevice, proxycall
 from .ui_utils import ask_yes_no
 
-__all__ = ['DummyDaemon', 'Dummy', 'Motor']
+__all__ = ['Dummy', 'Motor']
 
 
-class DummyDaemon(SocketDeviceServerBase):
+@proxydevice(address=DEFAULT_NETWORK_CONF['DAEMON'])
+class Dummy(SocketDriverBase):
     """
     Dummy Daemon
     """
-    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
     DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
+    # temporization for rapid status checks during moves.
+    POLL_INTERVAL = 0.01
 
-    def __init__(self, serving_address=None, device_address=None):
-        if serving_address is None:
-            serving_address = self.DEFAULT_SERVING_ADDRESS
+    def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
-        super().__init__(serving_address=serving_address, device_address=device_address)
+        super().__init__(device_address=device_address)
+        self.metacalls.update({'position': self.get_pos})
 
     def init_device(self):
         """
         Device initialization.
         """
-        # try reading something back
         self.initialized = True
-        hello = self.device_cmd('HELLO\n')
+        # try reading something back
+        hello = self.device_cmd(b'HELLO\n')
         self.logger.debug('Reply was %s.' % hello.strip())
-        return
 
-    def wait_call(self):
-        self.device_cmd('STATUS\n')
-
-
-class Dummy(DriverBase):
-    """
-    Driver for the Aerotech rotation stage.
-    """
-
-    # temporization for rapid status checks during moves.
-    POLL_INTERVAL = 0.01
-
-    def __init__(self, address=None, admin=True, **kwargs):
-        """
-        Connect to daemon.
-        """
-        if address is None:
-            address = DEFAULT_NETWORK_CONF['DAEMON']
-
-        super().__init__(address=address, admin=admin)
-
-        self.metacalls.update({'position': self.get_pos})
-
-        reply = self.do_init()
+        reply = self.device_cmd(b'DO_INIT\n')
         self.logger.info('Do init replied %s' % reply.strip())
 
+        """
         # Create motor
         self.motor = {'dum': Motor('dum', self)}
         motors['dum'] = self.motor['dum']
-
+        """
         self.logger.info("Dummy initialization complete.")
         self.initialized = True
 
-    def do_init(self):
-        """
-        Call with command "DO_INIT"
-        """
+    def wait_call(self):
+        self.device_cmd(b'STATUS\n')
 
-        # ---------------------------------------------------------------------------
-        # query status
-        return self.send_recv('DO_INIT\n')
-
-    @admin_only
+    @proxycall(admin=True)
     def status(self):
         """
         Dummy driver status.
         """
-        return self.send_recv('STATUS\n').strip()
+        return self.device_cmd(b'STATUS\n').strip()
 
+    @proxycall(interrupt=True)
     def abort(self):
         """
         Emergency stop.
         """
         self.logger.info("ABORTING DUMMY!")
-        reply = self.send_recv('ABORT\n')
+        reply = self.device_cmd(b'ABORT\n')
         return
 
+    @proxycall()
     def get_pos(self, to_stdout=False):
         """
         Dummy position
         """
-        pos = self.send_recv('GET_POSITION\n')
+        pos = self.device_cmd(b'GET_POSITION\n')
         return float(pos.strip())
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def set_pos(self, value):
         """
         Dummy set position
         """
-        self.send_recv('SET_POSITION %f\n' % value)
+        self.device_cmd('SET_POSITION %f\n' % value)
         self.check_done()
         return self.get_pos()
 
+    @proxycall()
     def check_done(self):
         """
         Poll until movement is complete.
         """
+        if self.status() == b'IDLE':
+            return
         with emergency_stop(self.abort):
             while True:
                 # query axis status
