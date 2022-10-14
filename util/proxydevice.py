@@ -73,6 +73,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class ProxyClientError(Exception):
+    pass
+
+
 class ServerBase:
     """
     Server for a wrapped class.
@@ -116,6 +120,7 @@ class ServerBase:
         self.ping_future = None
         self.ping_lock = threading.Lock()
         self.awaiting_result = None
+        self._awaiting_result = None   # For lingering result, after cancellation
 
         self.interrupt_method = None
 
@@ -267,16 +272,17 @@ class ServerBase:
         # Manage API command
         self.logger.debug(f'Running command "{cmd}"')
 
-        # If the command requires admin rights, check that the client is allowed to run it.
-        if self.API[cmd]['admin'] and self.admin != ID:
-            return {'status': 'error', 'msg': f'Command "{cmd}" cannot be run by non-admin clients.'}
-
         # Manage property get / set
         if self.API[cmd]['property']:
             self.logger.debug(f'{cmd} is a property.')
 
             # Special case! if args is not empty, interpreted as a setter!
             if args:
+
+                # If the command requires admin rights, check that the client is allowed to run it.
+                if self.API[cmd]['admin'] and self.admin != ID:
+                    return {'status': 'error', 'msg': f'Non-admin clients cannot set property "{cmd}"'}
+
                 # Try call property setter
                 try:
                     setattr(self.instance, cmd, args[0])
@@ -291,6 +297,9 @@ class ServerBase:
                 except BaseException as error:
                     reply = {'status': 'error', 'msg': repr(error)}
         else:
+            if self.API[cmd]['admin'] and self.admin != ID:
+                return {'status': 'error', 'msg': f'Command "{cmd}" cannot be run by non-admin clients.'}
+
             # Normal method call
             if self.API[cmd]['block']:
                 # Blocking: call the method, wait for result before sending reply
@@ -423,16 +432,19 @@ class ServerBase:
         # RESULT
         #
         if cmd.lower() == 'result':
-            if self.awaiting_result is None:
+            # Get awaiting result or possibly the lingering one.
+            awaiting_result = self.awaiting_result if self.awaiting_result is not None else self._awaiting_result
+            if awaiting_result is None:
                 return {'status': 'error', 'msg': 'No awaiting result found.'}
-            elif not self.awaiting_result.done():
+            elif not awaiting_result.done():
                 return {'status': 'waiting', 'msg': 'Task is still running'}
             try:
-                result = self.awaiting_result.result()
+                result = awaiting_result.result()
             except BaseException as error:
                 return {'status': 'error', 'msg': repr(error)}
             finally:
                 self.awaiting_result = None
+                self._awaiting_result = None
             return {'status': 'ok', 'value': result}
 
         #
@@ -458,10 +470,15 @@ class ServerBase:
                     except BaseException as error:
                         return {'status': 'error', 'msg': repr(error)}
                     self.logger.warning('ABORT signal received, and interrupt method called.')
-                    return {'status': 'ok', 'value': result}
+                    reply = {'status': 'ok', 'value': result}
                 else:
                     self.logger.warning('ABORT signal received but no abort method is known.')
-                    return {'status': 'error', 'msg': 'No interrupt method has been defined.'}
+                    reply = {'status': 'error', 'msg': 'No interrupt method has been defined.'}
+
+                # Not sure what to do with awaiting result... store in temporary attribute...?
+                self._awaiting_result = self.awaiting_result
+                self.awaiting_result = None
+                return reply
 
     def ask_admin(self, ID, admin=None, force=False):
         """
@@ -490,11 +507,9 @@ class ServerBase:
 
 
 class ClientProxy:
+
     PING_INTERVAL = 10.
-    POLL_TIMEOUT = 10.
-    CONNECTION_TIMEOUT = 60
-    CLS = None
-    ADDRESS = None
+    REQUEST_TIMEOUT = 10.
     NUM_RECONNECT = 3
 
     def __init__(self, address, API, clean=True):
@@ -504,28 +519,34 @@ class ClientProxy:
         clean: return only values and not full message (default True)
         """
         self.address = address
+        self.full_address = f'tcp://{self.address[0]}:{self.address[1]}'
         self.clean = clean
         self.API = API
         self.name = self.__class__.__name__.lower()
         self.logger = logging.getLogger(self.__class__.__name__)
 
+        # Flag for eventual lost connection
         self.connected = False
+        # Flag to bootstrap the initial connection
+        self.connecting = False
+
+        # ZMQ socket
         self.socket = None
+
+        # Unique ID assigned by server
         self.ID = None
 
+        # This will hold the ping thread
         self.future_ping = None
+        # Flag to kill the ping thread
         self._stopping = False
-
-        self.reconnects = 0
 
         atexit.register(self.shutdown)
 
-        # Base metacalls for all drivers
-        # self.metacalls = {'daemon_stats': self._get_stats}
-
+        # zmq context
         self.context = zmq.Context()
 
-    def connect(self, *args, **kwargs):
+    def connect(self, *args, admin=True, **kwargs):
         """
         Connect (or reconnect) client.
         For a first connection, the constructor parameters are sent to the server.
@@ -535,29 +556,29 @@ class ClientProxy:
         except:
             pass
         self.socket = self.context.socket(zmq.REQ)
-        self.socket.setsockopt(zmq.RCVTIMEO, 500)
-        full_address = f'tcp://{self.address[0]}:{self.address[1]}'
-        self.socket.connect(full_address)
+        self.socket.connect(self.full_address)
 
         # Establish connection with the server with ID=0
+        self.connecting = True
         reply = self.send_recv([0, '', args, kwargs], clean=False)
+        self.connecting = False
+
         if reply['status'] != 'ok':
             raise RuntimeError(f'{reply["status"]} - {reply["msg"]}')
+
+        self.connected = True
 
         # Connection was successful. Prepare the data pipe
         self.ID = reply['value']['ID']
         self.logger.debug(f'Connected to server as ID={self.ID}')
 
         # Request admin rights if needed
-        reply = self.ask_admin(True)
+        reply = self.ask_admin(admin)
         if reply['status'] != 'ok':
-            self.logger.warning(f'Client does not have admin rights: {reply["msg"]}')
+            self.logger.warning(f'{reply["msg"]}')
 
         # Start ping process
         self.future_ping = Future(self._ping)
-
-        self.reconnects = 0
-        self.connected = True
 
     def send_recv(self, cmd_seq, clean=None):
         """
@@ -567,6 +588,9 @@ class ClientProxy:
         """
         _, cmd, _, _ = cmd_seq
 
+        retries_left = self.NUM_RECONNECT
+        if not self.connecting and not self.connected:
+            raise ProxyClientError('Client is not connected.')
         try:
             self.socket.send_json(cmd_seq)
         except AttributeError:
@@ -577,14 +601,41 @@ class ClientProxy:
                 raise
         except Exception as e:
             # Connection problems (e.g. the server shut down) are managed here
-            self.logger.warning('Could not send command to server. Attempting to reconnect')
-            self.reconnects += 1
-            if self.reconnects >= self.NUM_RECONNECT:
-                self.logger.error(f'Server non-accessible after {self.NUM_RECONNECT} attempts. Shutting down.')
-                self.shutdown()
-            self.connect()
+            self.logger.warning('Could not send command to server.')
             return {'status': 'error', 'msg': repr(e)}
-        reply = self.socket.recv_json()
+
+        # Manage possible difficulties connecting
+        poll_timeout = 1000 * self.REQUEST_TIMEOUT
+        if not self.connected:
+            poll_timeout /= 10
+        while True:
+            if (self.socket.poll(poll_timeout) & zmq.POLLIN) != 0:
+                reply = self.socket.recv_json()
+                break
+
+            # If not even connected - give up
+            if not self.connected:
+                self.socket.setsockopt(zmq.LINGER, 0)
+                self.socket.close()
+                self.connecting = False
+                raise ProxyClientError(f'Could not connect to server at {self.full_address}')
+
+            self.logger.warning("No response from server")
+
+            self.socket.setsockopt(zmq.LINGER, 0)
+            self.socket.close()
+            if retries_left == 0:
+                self.logger.error("Server seems to be offline.")
+                raise ProxyClientError(f'Could not connect to server at {self.full_address}')
+
+            self.logger.info("Reconnecting to server")
+            retries_left -= 1
+
+            # Reconnect and send again
+            self.socket = self.context.socket(zmq.REQ)
+            self.socket.connect(self.full_address)
+            self.socket.send_json(cmd_seq)
+
         if ((clean is not None) and clean) or ((clean is None) and self.clean):
             # In clean mode, we reproduce the behaviour of the remote class
             if reply['status'] == 'error':
@@ -603,6 +654,8 @@ class ClientProxy:
                         time.sleep(.1)
                 except KeyboardInterrupt:
                     reply = self.send_recv((self.ID, '^abort', [], {}), clean=False)
+                    if reply['status'] != 'ok':
+                        raise RuntimeError(reply['msg'])
             else:
                 value = reply.get('value')
                 return value
@@ -623,7 +676,10 @@ class ClientProxy:
         """
         Inform the server that we are leaving.
         """
-        self.send_recv([self.ID, '^disconnect', [], {}])
+        try:
+            self.send_recv([self.ID, '^disconnect', [], {}])
+        except ProxyClientError:
+            pass
         self.connected = False
 
     def shutdown(self):
@@ -652,7 +708,7 @@ class ClientBase:
 
     _proxy = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, admin=True, **kwargs):
         """
         Mostly empty class that will be subclassed and filled with the methods and properties identified by the
         proxycall decorators.
@@ -660,7 +716,10 @@ class ClientBase:
         """
         if not self._proxy:
             raise RuntimeError('Something wrong. A ClientProxy instance should be present!')
-        self._proxy.connect(*args, **kwargs)
+        self._proxy.connect(*args, admin=admin, **kwargs)
+        self.ask_admin = self._proxy.ask_admin
+        self.get_result = self._proxy.get_result
+        self.get_stats = self._proxy.get_stats
 
 
 class proxycall:
