@@ -57,6 +57,7 @@ a.get_multiple(5)
 
 import logging
 import zmq
+from zmq.log.handlers import PUBHandler
 import time
 import atexit
 import threading
@@ -149,6 +150,13 @@ class ServerBase:
             pass
         self.server_future = Future(self._run)
         self.ping_future = Future(self._ping_counter)
+
+    def wait(self):
+        """
+        Wait until the server stops.
+        """
+        if self.server_future is not None and not self.server_future.done():
+            self.server_future.join()
 
     def stop(self):
         """
@@ -250,6 +258,9 @@ class ServerBase:
                     # We just tried to send a non-serializable reply
                     reply = {'status': 'error', 'msg': repr(e)}
                     self.socket.send_json(reply)
+
+        # This should delete the running instance, assuming that there are no other references to it.
+        self.instance = None
 
     def _parse_message(self, message):
         """
@@ -416,6 +427,21 @@ class ServerBase:
         #
         if cmd.lower() == 'disconnect':
             return self.disconnect(ID)
+
+        #
+        # KILL
+        #
+        if cmd.lower() == 'kill':
+            if ID != self.admin:
+                return {'status': 'error', 'msg': 'Only admin can kill the server.'}
+
+            def will_stop():
+                time.sleep(.5)
+                self.stop()
+
+            Future(target=will_stop)
+            return {'status': 'ok'}
+
         #
         # ADMIN
         #
@@ -681,6 +707,16 @@ class ClientProxy:
         except ProxyClientError:
             pass
         self.connected = False
+
+    def kill(self):
+        """
+        Ask the server to shut itself down.
+        """
+        self.send_recv([self.ID, '^kill', [], {}])
+        try:
+            self.shutdown()
+        except ProxyClientError:
+            pass
 
     def shutdown(self):
         """

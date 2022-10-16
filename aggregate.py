@@ -46,6 +46,12 @@ def connect(name=None):
     return
 
 
+def meta_fetch_task(fct, dct):
+    result = fct()
+    dct.update(result)
+    return None
+
+
 def get_all_meta(block=False):
     """
     Collect all available metadata.
@@ -58,24 +64,26 @@ def get_all_meta(block=False):
 
     t0 = time.time()
     meta = {'meta': {'collection_start': now()}}
+
+    meta['motors'] = {motor_name: {} for motor_name in motors.keys()}
     meta.update({k: {} for k in DRIVERS.keys()})
     meta.update({motor_name: {} for motor_name in motors.keys()})
 
     # Use threads to optimize I/O
-    workers = {}
+    workers = []
     for k in DRIVERS.keys():
-        f = Future(target=DRIVERS[k].get_meta)
-        workers[k] = f
+        f = Future(target=meta_fetch_task, args=(DRIVERS[k].get_meta, meta[k]))
+        workers.append(f)
 
     for motor_name, motor in motors.items():
-        f = Future(target=motor.get_meta)
-        workers['motor_name'] = f
+        f = Future(target=meta_fetch_task, args=(motor.get_meta, meta['motors'][motor_name]))
+        workers.append(f)
 
     # Thread watcher will add key "collection_end" once done. This is a way
     # to evaluate overall collection time, and whether collection is finished.
     def watch_futures(workers, d):
-        for k, w in workers.items():
-            d[k] = w.result()
+        for w in workers:
+            w.result()
         d['meta']['collection_end'] = now()
         dt = time.time() - t0
         logger.info(f'Metadata collection completed in {dt*1000:f3.2} ms')

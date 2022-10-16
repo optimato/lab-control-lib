@@ -29,8 +29,12 @@ class Future:
     def done(self):
         return self._done
 
-    def result(self):
+    def result(self, timeout=None):
         if not self.done():
-            self._thread.join()
+            self._thread.join(timeout=None)
+        if self._thread.isAlive():
+            raise TimeoutError
         return self._result
 
+    def join(self, timeout=None):
+        self._thread.join(timeout=timeout)

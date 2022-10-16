@@ -14,7 +14,7 @@ from . import ui_utils
 from .manager import instantiate_driver, DRIVER_DATA
 from . import network_conf
 from .ui_utils import ask_yes_no
-from . import drivers, motors
+from . import drivers, motors, cameras
 from . import aerotech
 from . import mclennan
 from . import mecademic
@@ -58,15 +58,21 @@ def init_all(yes=None):
     if ask_yes_no('Initialise short branch coarse stages?'):
         # McLennan 1 (sample coarse x translation)
         driver = instantiate_driver(**DRIVER_DATA['mclennan1'])
-        drivers['ssx'] = driver
+        drivers['mclennan_sample'] = driver
         if driver is not None:
             motors['ssx'] = mclennan.Motor('ssx', driver)
 
         # McLennan 2 (detector coarse x translation)
         driver = instantiate_driver(**DRIVER_DATA['mclennan2'])
-        drivers['dsx'] = driver
+        drivers['mclennan_detector'] = driver
         if driver is not None:
             motors['dsx'] = mclennan.Motor('dsx', driver)
+
+    if ask_yes_no('Initialise Varex detector?'):
+        driver = instantiate_driver(**DRIVER_DATA['varex'])
+        drivers['varex'] = driver
+        if driver is not None:
+            cameras['varex'] = driver.Camera('varex', driver)
 
     if ask_yes_no('Initialise PCO camera?'):
         print('TODO')
@@ -79,7 +85,7 @@ def init_all(yes=None):
 
     if ask_yes_no('Initialise rotation stage?'):
         driver = instantiate_driver(**DRIVER_DATA['aerotech'])
-        drivers['rot'] = driver
+        drivers['aerotech'] = driver
         if driver is not None:
             motors['rot'] = aerotech.Motor('rot', driver)
 

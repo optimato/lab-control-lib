@@ -8,7 +8,7 @@ import time
 import sys
 
 from .ui_utils import ask_yes_no
-from .base import DaemonException
+from .util.proxydevice import ProxyClientError
 from . import network_conf
 from . import mecademic
 from . import smaract
@@ -21,10 +21,10 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                 'smaract': {'driver': smaract.Smaract},
                 'aerotech': {'driver': aerotech.Aerotech},
                 'mclennan1': {'driver': mclennan.McLennan,
-                              'daemon_address': network_conf.MCLENNAN1['DAEMON'],
+                              'init_kwargs': {'device_address': network_conf.MCLENNAN1['DEVICE']},
                               'name': 'mclennan1'},
                 'mclennan2': {'driver': mclennan.McLennan,
-                              'daemon_address': network_conf.MCLENNAN2['DAEMON'],
+                              'init_kwargs': {'device_address': network_conf.MCLENNAN2['DEVICE']},
                               'name': 'mclennan2'},
                 'excillum': {'driver': excillum.Excillum},
                 'dummy': {'driver': dummy.Dummy}
@@ -37,7 +37,7 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
 logger = logging.getLogger("manager")
 
 
-def instantiate_driver(driver, daemon_address=None, name=None, admin=True, spawn=True):
+def instantiate_driver(driver, init_kwargs=None, name=None, admin=True, spawn=True):
     """
     Helper function to instantiate a driver and
     spawning the corresponding daemon if necessary and requested.
@@ -45,25 +45,27 @@ def instantiate_driver(driver, daemon_address=None, name=None, admin=True, spawn
     if name is None:
         name = driver.__name__.lower()
 
-    # Try to instantiate the driver:
+    # Try to instantiate a driver client
     d = None
+    if init_kwargs is None:
+        init_kwargs = {}
     try:
-        d = driver(address=daemon_address, name=name, admin=admin)
-    except DaemonException:
+        d = driver.Client(admin=admin, **init_kwargs)
+    except ProxyClientError:
         if not spawn:
-            logger.warning(f'Daemon for driver {name} unreachable')
+            logger.warning(f'The proxy server for driver {name} is unreachable')
             return None
 
-        # Didn't connect. Let's try to spawn the Daemon.
-        if ask_yes_no('Daemon unreachable. Spawn it?'):
+        # Didn't connect. Let's try to spawn the server.
+        if ask_yes_no(f'Server proxy for {name} unreachable. Spawn it?'):
             p = subprocess.Popen([sys.executable, '-m', 'labcontrol.startup', 'start', f'{name}'],
                                  start_new_session=True,)
                                # stdout=subprocess.DEVNULL,
                                # stderr=subprocess.STDOUT)
-            logger.info(f'Deamon process {name} spawned.')
-            # Make sure the daemon is already listening before connecting
+            logger.info(f'Proxy server process for driver {name} has been spawned.')
+            # Make sure the server is already listening before connecting
             time.sleep(20)
-            d = driver(address=daemon_address)
+            d = driver.Client(admin=admin, **init_kwargs)
         else:
             logger.error(f'Driver {driver.name} is not running.')
     return d
