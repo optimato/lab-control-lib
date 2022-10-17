@@ -177,3 +177,7 @@ class CvViewer(ViewerBase):
         """
         self.cv2.imshow('Live View', frame)
         self.cv2.waitKey(1)
+
+if __name__ == "__main__":
+    v = NapariViewer()
+    v.start()

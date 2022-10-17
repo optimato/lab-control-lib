@@ -208,4 +208,14 @@ class Excillum(DriverBase):
 
     @property
     def jetpump_frequency(self):
+        """
+        Jet pump frequency (Hz)
+        """
         return self.send_cmd('jetpump_frequency?')
+
+    @property
+    def jetpump_pressure(self):
+        """
+        Jet pump pressure (bar).
+        """
+        return self.send_cmd('jetpump_inlet_pressure?')
