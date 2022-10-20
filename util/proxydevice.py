@@ -87,22 +87,28 @@ class ServerBase:
     PING_TIMEOUT = 30
     POLL_TIMEOUT = 10
     ESCAPE_STRING = '^'
+    ADDRESS = None
+    API = None
+    CLS = None
 
-    def __init__(self, cls, API, address):
+    def __init__(self, cls=None, API=None, address=None, instantiate=False, instance_args=None, instance_kwargs=None):
         """
         Base class for server proxy
 
-        cls: The class being wrapped
+        cls: The class being wrapped (defaults to self.CLS)
         API: a dictionary listing all methods to be exposed (collected through the proxycall decorator)
         address: (IP, port) to listen on.
+        instantiate: if True, create immediately the internal instance of self.cls, using the provided args/kwargs.
+        If False, instantiation will proceed with the first client connection.
 
         Note that this is not really an abstract class. The proxydevice decorator produces a subclass
-        of this class, but only to assign a different name for clearer documentation.
+        of this class to assign a different name for clearer documentation, and attaches the defaults
+        ADDRESS, API and CLS as class attributes.
         """
-        # Store input parameters for later
-        self.cls = cls
-        self.API = API
-        self.address = address
+        # This is a mechanism to give a default values to subclasses without having to pass the argument.
+        self.cls = cls or self.CLS
+        self.API = API or self.API
+        self.address = address or self.ADDRESS
 
         self.logger = logging.getLogger(self.__class__.__name__)
         self.name = self.__class__.__name__.lower()
@@ -132,6 +138,9 @@ class ServerBase:
         self.admin = None
         self._stopping = False
         atexit.register(self.stop)
+
+        if instantiate:
+            self.create_instance(args=instance_args, kwargs=instance_kwargs)
 
         self.activate()
 
@@ -348,6 +357,24 @@ class ServerBase:
         except BaseException as error:
             return 'Error: ' + repr(error)
 
+    def create_instance(self, args=None, kwargs=None):
+        """
+        Create the instance of the wrapped class, using args and kwargs as initialization parameters
+        """
+        args = args or ()
+        kwargs = kwargs or {}
+
+        # Instantiate the wrapped object
+        self.instance = self.cls(*args, **kwargs)
+
+        # Look for an interrupt method (will be called with an ^abort command)
+        self.interrupt_method = None
+        for cmd, api_info in self.API.items():
+            if api_info.get('interrupt'):
+                self.interrupt_method = getattr(self.instance, cmd)
+                self.logger.info(f'Method {cmd} is the abort call.')
+        self.logger.info('Created instance of wrapped class.')
+
     def new_connection(self, message):
         """
         Manage new client.
@@ -358,19 +385,10 @@ class ServerBase:
             # First connection! We create the class instance
             # Using the passed parameters.
             try:
-                # Instantiate the wrapped object
-                self.instance = self.cls(*args, **kwargs)
-
-                # Look for an interrupt method (will be called with an ^abort command)
-                self.interrupt_method = None
-                for cmd, api_info in self.API.items():
-                    if api_info.get('interrupt'):
-                        self.interrupt_method = getattr(self.instance, cmd)
-                        self.logger.info(f'Method {cmd} is the abort call.')
+                self.create_instance(args=args, kwargs=kwargs)
             except BaseException as error:
                 reply = {'status': 'error', 'msg': repr(error)}
                 return reply
-            self.logger.info('Created instance of wrapped class.')
 
         # Prepare client-specific info
         ID = self.IDcounter + 0
@@ -572,11 +590,14 @@ class ClientProxy:
         # zmq context
         self.context = zmq.Context()
 
-    def connect(self, *args, admin=True, **kwargs):
+    def connect(self, args, kwargs, address=None, admin=True):
         """
         Connect (or reconnect) client.
-        For a first connection, the constructor parameters are sent to the server.
+        For a first connection, the constructor parameters args and kwargs are sent to the server.
         """
+        self.address = address or self.address
+        self.full_address = f'tcp://{self.address[0]}:{self.address[1]}'
+
         try:
             self.socket.close()
         except:
@@ -795,10 +816,10 @@ class proxydevice:
     """
     Decorator that does the main magic.
     """
-    def __init__(self, address, clean=True):
+    def __init__(self, address=None, clean=True):
         """
         Decorator initialization.
-        address: (IP, port) of the serving address
+        address: (IP, port) of the serving address. If None, will have to be provided as an argument
         clean: whether the client side should receive replies in the same format as for the native class. If false,
         all methods return a dict that contain a 'status', 'value' and possibly 'msg' entry.
         """
@@ -826,8 +847,13 @@ class proxydevice:
                 continue
             API[k] = api_info
 
-        # Define server and client subclasses
+        # Define server subclass and set default values
         Server = type(f'{cls.__name__}ProxyServer', (ServerBase,), {})
+        Server.ADDRESS = self.address
+        Server.API = API
+        Server.CLS = cls
+
+        # Define client subclass
         Client = type(f'{cls.__name__}ProxyClient', (ClientBase,), {})
 
         # Instantiate the client proxy and attach it to the client class
@@ -850,7 +876,7 @@ class proxydevice:
                 continue
 
         # Attach server and client objects to decorated class
-        cls.Server = lambda: Server(cls=cls, API=API, address=self.address)
+        cls.Server = Server
         cls.Client = Client
         return cls
 
