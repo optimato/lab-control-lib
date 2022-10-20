@@ -27,13 +27,13 @@ else:
             raise RuntimeError('Attempting to access "dexela" on a system where it is no present!')
     globals().update({'DexelaPy': FakeDexela()})
 
-__all__ = ['Varex', 'Camera']
+__all__ = ['Varex']
 
 
 @proxydevice(address=DEFAULT_NETWORK_CONF['DAEMON'])
-class VarexDaemon(CameraBase):
+class Varex(CameraBase):
     """
-    Varex Daemon
+    Varex Driver
     """
 
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one

@@ -47,11 +47,19 @@ the "detect" method, while on the other it is called "record_frame" - but with t
 import logging
 import logging.handlers
 import os
+import platform
+import json
+import subprocess
 from . import util
 from .util import logs, FileDict
 from . import network_conf
 from ._version import version
 #from . import experiment
+
+
+#
+# SETUP LOGGING
+#
 
 # Package-wide default log level (this sets up console handler)
 util.logs.set_level(logging.INFO)
@@ -77,11 +85,6 @@ LOG_DIR = os.path.join(conf_path, 'logs/')
 LOG_FILE = os.path.join(LOG_DIR, 'optimato-labcontrol.log')
 
 
-# Errors
-class ControllerRunningError(RuntimeError):
-    pass
-
-
 os.makedirs(LOG_DIR, exist_ok=True)
 file_handler = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=1024*1024*10, backupCount=300, encoding='utf-8')
 
@@ -94,6 +97,33 @@ else:
     file_handler.setFormatter(logs.default_formatter)
 logging.root.addHandler(file_handler)
 
+#
+# IDENTIFY SYSTEM
+#
+
+uname = platform.uname()
+LOCAL_HOSTNAME = uname.node
+if uname.system == "Linux":
+    iface_info = json.loads(subprocess.run(['ip', '-j', '-4',  'addr'], capture_output=True).stdout.decode())
+    LOCAL_IP_LIST = [iface['addr_info'][0]['local'] for iface in iface_info]
+elif uname.system == "Windows":
+    s = subprocess.run(['ipconfig', '/allcompartments'], capture_output=True).stdout.decode()
+    LOCAL_IP_LIST = [x.split(' ')[-1] for x in s.split('\r\n') if x.strip().startswith('IPv4')]
+else:
+    raise RuntimeError(f'Unknown system platform {uname.system}')
+LOCAL_IP_LIST.remove('127.0.0.1')
+
+print(f"""
+This is OptImaTo Lab control
+running on host {LOCAL_HOSTNAME}
+""")
+
+
+# Errors
+class ControllerRunningError(RuntimeError):
+    pass
+
+
 # dictionary for driver instances
 drivers = {}
 
@@ -105,10 +135,11 @@ cameras = {}
 
 # Import all driver submodules
 from . import aerotech
-from . import mclennan
-from . import mecademic
-from . import microscope
-from . import smaract
+from . import dummy
+#from . import mclennan
+#from . import mecademic
+#from . import microscope
+#from . import smaract
 #from . import varex
 #from . import pco
 #from . import xspectrum

@@ -8,6 +8,8 @@ will start the mecademic daemon.
 import logging
 import sys
 import inspect
+import platform
+import subprocess
 import click
 
 from . import ui_utils
@@ -145,39 +147,43 @@ def running():
 @cli.command(help='Start a daemon')
 @click.argument('name')
 def start(name):
+    click.echo(f'Starting server proxy for driver {name}')
     if name == 'mecademic':
-        click.echo(f'Starting daemon {name}')
-        mecademic.MecademicDaemon.run()
+        s = mecademic.Mecademic.Server(instantiate=True)
+        s.wait()
         sys.exit(0)
     if name == 'dummy':
-        click.echo(f'Starting daemon {name}')
-        dummy.DummyDaemon.run()
+        s = dummy.Dummy.Server(instantiate=True)
+        s.wait()
         sys.exit(0)
     if name == 'smaract':
-        click.echo(f'Starting daemon {name}')
-        smaract.SmaractDaemon.run()
+        s = smaract.Smaract.Server(instantiate=True)
+        s.wait()
         sys.exit(0)
     if name == 'mclennan1':
         # Here we have more than one motors
-        click.echo(f'Starting daemon {name}')
-        mclennan.McLennanDaemon.run(serving_address=network_conf.MCLENNAN1['DAEMON'],
-                                    device_address=network_conf.MCLENNAN1['DEVICE'])
+        s = mclennan.McLennan.Server(address=network_conf.MCLENNAN1['DAEMON'],
+                                     instantiate=True,
+                                     instance_kwargs=dict(address=network_conf.MCLENNAN1['DEVICE']))
+        s.wait()
         sys.exit(0)
     if name == 'mclennan2':
         # Here we have more than one motors
-        click.echo(f'Starting daemon {name}')
-        mclennan.McLennanDaemon.run(serving_address=network_conf.MCLENNAN2['DAEMON'],
-                                    device_address=network_conf.MCLENNAN2['DEVICE'])
+        s = mclennan.McLennan.Server(address=network_conf.MCLENNAN1['DAEMON'],
+                                     instantiate=True,
+                                     instance_kwargs=dict(address=network_conf.MCLENNAN2['DEVICE']))
+        s.wait()
         sys.exit(0)
     if name == 'aerotech':
-        click.echo(f'Starting daemon {name}')
-        aerotech.AerotechDeamon.run()
+        s = aerotech.Aerotech.Server()
+        s.wait()
         sys.exit(0)
     if name == 'excillum':
-        #click.echo(f'Excillum driver not implemented yet')
-        excillum.ExcillumDaemon.run()
+        s = excillum.Excillum.Server()
+        s.wait()
         sys.exit(0)
     # pco, varex, xspectrum, xps
+
 
 if __name__ == "__main__":
     cli()
