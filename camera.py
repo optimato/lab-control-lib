@@ -13,14 +13,14 @@ from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
 
 DEFAULT_FILE_FORMAT = 'hdf5'
-
+DEFAULT_BROADCAST_PORT = 5555
 
 class CameraBase(DriverBase):
     """
     Base class for camera daemons.
     """
 
-    DEFAULT_BROADCAST_PORT = 5555  # Default port for frame broadcasting
+    DEFAULT_BROADCAST_PORT = DEFAULT_BROADCAST_PORT  # Default port for frame broadcasting
     BASE_PATH = ""
     PIXEL_SIZE = (0, 0)            # Pixel size in mm
     SHAPE = (0, 0)            # Native array dimensions (before binning)

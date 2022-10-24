@@ -9,7 +9,7 @@ import logging
 import json
 
 from .camera import CameraBase
-from .network_conf import VAREX as DEFAULT_NETWORK_CONF
+from .network_conf import VAREX as NET_INFO
 from .util.proxydevice import proxycall, proxydevice
 from .ui_utils import ask_yes_no
 
@@ -30,7 +30,7 @@ else:
 __all__ = ['Varex']
 
 
-@proxydevice(address=DEFAULT_NETWORK_CONF['DAEMON'])
+@proxydevice(address=NET_INFO['varex'])
 class Varex(CameraBase):
     """
     Varex Driver
@@ -39,7 +39,7 @@ class Varex(CameraBase):
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
     PIXEL_SIZE = 74.8e-6  # Physical pixel pitch in meters
     SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal)
-    DEFAULT_BROADCAST_PORT = DEFAULT_NETWORK_CONF['BROADCAST']
+    DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
 
     def __init__(self, broadcast_port=None):
         """

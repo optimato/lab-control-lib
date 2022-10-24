@@ -8,14 +8,14 @@ Current version Pierre 2022
 import time
 
 from .base import SocketDriverBase, DeviceException
-from .network_conf import HOST_IPS, EXCILLUM as NET_INFO
+from .network_conf import EXCILLUM as NET_INFO
 from .ui_utils import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
 
 EOL = b'\n'
 
 
-@proxydevice(address=HOST_IPS['control'])
+@proxydevice(address=NET_INFO['control'])
 class Excillum(SocketDriverBase):
     """
     Excillum Driver.
