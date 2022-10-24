@@ -8,20 +8,21 @@ Current version Pierre 2022
 import time
 
 from .base import SocketDriverBase, DeviceException
-from .network_conf import EXCILLUM as DEFAULT_NETWORK_CONF
+from .network_conf import HOST_IPS, EXCILLUM as NET_INFO
 from .ui_utils import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
 
 EOL = b'\n'
 
 
-@proxydevice(address=DEFAULT_NETWORK_CONF['DAEMON'])
+@proxydevice(address=HOST_IPS['control'])
 class Excillum(SocketDriverBase):
     """
     Excillum Driver.
     """
 
-    DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
+    DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
+    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
 

@@ -10,7 +10,7 @@ import time
 import socket
 
 from .base import MotorBase, SocketDriverBase, emergency_stop, _recv_all
-from .network_conf import DUMMY as DEFAULT_NETWORK_CONF
+from .network_conf import HOST_IPS, DUMMY as NET_INFO
 from . import motors
 from .util.proxydevice import proxydevice, proxycall
 from .ui_utils import ask_yes_no
@@ -18,12 +18,13 @@ from .ui_utils import ask_yes_no
 __all__ = ['Dummy', 'Motor']
 
 
-@proxydevice(address=DEFAULT_NETWORK_CONF['DAEMON'])
+@proxydevice(address=NET_INFO['control'])
 class Dummy(SocketDriverBase):
     """
     Dummy Daemon
     """
-    DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
+    DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
+    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     # temporization for rapid status checks during moves.
     POLL_INTERVAL = 0.01
 
@@ -139,7 +140,7 @@ def dummy_device(timeout=5., latency=0.):
         socket.AF_INET, socket.SOCK_STREAM)  # TCP socket
     client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     client_sock.settimeout(1)
-    client_sock.bind(DEFAULT_NETWORK_CONF['DEVICE'])
+    client_sock.bind(NET_INFO['device'])
     client_sock.listen(5)
     client = None
     delay = 10.
