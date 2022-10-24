@@ -563,7 +563,10 @@ class ClientProxy:
         clean: return only values and not full message (default True)
         """
         self.address = address
-        self.full_address = f'tcp://{self.address[0]}:{self.address[1]}'
+        if address is not None:
+            self.full_address = f'tcp://{self.address[0]}:{self.address[1]}'
+        else:
+            self.full_address = None
         self.clean = clean
         self.API = API
         self.cls_name = cls_name
@@ -766,15 +769,17 @@ class ClientBase:
 
     _proxy = None
 
-    def __init__(self, *args, admin=True, **kwargs):
+    def __init__(self, address=None, admin=True, args=None, kwargs=None):
         """
         Mostly empty class that will be subclassed and filled with the methods and properties identified by the
         proxycall decorators.
         The initialization parameters are used to instantiate the remote class. They are ignored if an instance already exists.
         """
+        args = args or ()
+        kwargs = kwargs or {}
         if not self._proxy:
             raise RuntimeError('Something wrong. A ClientProxy instance should be present!')
-        self._proxy.connect(args, kwargs, admin=admin)
+        self._proxy.connect(args, kwargs, address=address, admin=admin)
         self.ask_admin = self._proxy.ask_admin
         self.get_result = self._proxy.get_result
         self.get_stats = self._proxy.get_stats
@@ -858,7 +863,7 @@ class proxydevice:
         Client = type(f'{cls.__name__}ProxyClient', (ClientBase,), {})
 
         # Instantiate the client proxy and attach it to the client class
-        proxy = ClientProxy(address=self.address, API=API, clean=self.clean, cls_name = cls.__name__)
+        proxy = ClientProxy(address=self.address, API=API, clean=self.clean, cls_name=cls.__name__)
         Client._proxy = proxy
 
         # Create all fake methods and properties for Client
