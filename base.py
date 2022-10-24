@@ -30,6 +30,8 @@ import socket
 import signal
 from select import select
 
+import zmq.log.handlers
+
 from . import conf_path, FileDict
 from .util.future import Future
 from .util.proxydevice import proxycall
@@ -92,6 +94,11 @@ class emergency_stop:
     stop_method = None
 
     def __init__(self, stop_method):
+        try:
+            # Won't work if not in main thread
+            signal.signal(signal.SIGINT, self.signal_handler)
+        except ValueError:
+            pass
         self.local_stop_method = stop_method
 
     @classmethod
@@ -110,15 +117,13 @@ class emergency_stop:
         self.__class__.stop_method = None
 
 
-signal.signal(signal.SIGINT, emergency_stop.signal_handler)
-
-
 class DriverBase:
     """
     Base for all drivers
     """
 
-    logger = None                    # Place-holder. Gets defined at construction.
+    logger = None                       # Place-holder. Gets defined at construction.
+    DEFAULT_LOGGING_ADDRESS = None      # The default address for logging broadcast
 
     def __init__(self):
         """
@@ -132,6 +137,12 @@ class DriverBase:
         # concurrently
         if not hasattr(self, 'name'):
             self.name = self.__class__.__name__
+
+        if self.DEFAULT_LOGGING_ADDRESS is not None:
+            pub_interface = f'tcp://*:{self.DEFAULT_LOGGING_ADDRESS[1]}'
+            pub_handler = zmq.log.handlers.PUBHandler(pub_interface, root_topic=self.name)
+            self.logger.addHandler(pub_handler)
+            self.logger.info(f'Driver {self.name} publishing logs on {pub_interface}.')
 
         # Load (or create) config dictionary
         self.config_filename = os.path.join(conf_path, 'drivers', self.name + '.json')
@@ -172,12 +183,12 @@ class SocketDriverBase(DriverBase):
     Base class for all drivers working through a socket.
     """
 
-    EOL = b'\n'                        # End of API sequence (default is \n)
-    ESCAPE_STRING = b'^'               # Escape string (or character) for daemon commands
-    DEFAULT_DEVICE_ADDRESS = None  # The default address of the device socket.
-    DEVICE_TIMEOUT = None          # Device socket timeout
-    NUM_CONNECTION_RETRY = 10      # Number of times to try to connect
-    KEEPALIVE_INTERVAL = 10.       # Default Polling (keep-alive) interval
+    EOL = b'\n'                         # End of API sequence (default is \n)
+    ESCAPE_STRING = b'^'                # Escape string (or character) for daemon commands
+    DEFAULT_DEVICE_ADDRESS = None       # The default address of the device socket.
+    DEVICE_TIMEOUT = None               # Device socket timeout
+    NUM_CONNECTION_RETRY = 10           # Number of times to try to connect
+    KEEPALIVE_INTERVAL = 10.            # Default Polling (keep-alive) interval
     logger = None
 
     def __init__(self, device_address):

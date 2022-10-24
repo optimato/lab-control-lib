@@ -32,7 +32,7 @@ class Future:
     def result(self, timeout=None):
         if not self.done():
             self._thread.join(timeout=timeout)
-        if self._thread.isAlive():
+        if self._thread.is_alive():
             raise TimeoutError
         return self._result
 

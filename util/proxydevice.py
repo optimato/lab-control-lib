@@ -556,7 +556,7 @@ class ClientProxy:
     REQUEST_TIMEOUT = 10.
     NUM_RECONNECT = 3
 
-    def __init__(self, address, API, clean=True):
+    def __init__(self, address, API, clean=True, cls_name=None):
         """
         Client whose instance will be hidden in the proxy class.
         address: (IP, port) to connect to
@@ -566,6 +566,7 @@ class ClientProxy:
         self.full_address = f'tcp://{self.address[0]}:{self.address[1]}'
         self.clean = clean
         self.API = API
+        self.cls_name = cls_name
         self.name = self.__class__.__name__.lower()
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -617,7 +618,7 @@ class ClientProxy:
 
         # Connection was successful. Prepare the data pipe
         self.ID = reply['value']['ID']
-        self.logger.debug(f'Connected to server as ID={self.ID}')
+        self.logger.info(f'Connected to {self.cls_name} proxy (client ID={self.ID})')
 
         # Request admin rights if needed
         reply = self.ask_admin(admin)
@@ -773,7 +774,7 @@ class ClientBase:
         """
         if not self._proxy:
             raise RuntimeError('Something wrong. A ClientProxy instance should be present!')
-        self._proxy.connect(*args, admin=admin, **kwargs)
+        self._proxy.connect(args, kwargs, admin=admin)
         self.ask_admin = self._proxy.ask_admin
         self.get_result = self._proxy.get_result
         self.get_stats = self._proxy.get_stats
@@ -857,7 +858,7 @@ class proxydevice:
         Client = type(f'{cls.__name__}ProxyClient', (ClientBase,), {})
 
         # Instantiate the client proxy and attach it to the client class
-        proxy = ClientProxy(address=self.address, API=API, clean=self.clean)
+        proxy = ClientProxy(address=self.address, API=API, clean=self.clean, cls_name = cls.__name__)
         Client._proxy = proxy
 
         # Create all fake methods and properties for Client

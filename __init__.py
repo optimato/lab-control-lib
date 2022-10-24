@@ -50,9 +50,10 @@ import os
 import platform
 import json
 import subprocess
+
+from .network_conf import HOST_IPS
 from . import util
 from .util import logs, FileDict
-from . import network_conf
 from ._version import version
 #from . import experiment
 
@@ -113,10 +114,15 @@ else:
     raise RuntimeError(f'Unknown system platform {uname.system}')
 LOCAL_IP_LIST.remove('127.0.0.1')
 
-print(f"""
-This is OptImaTo Lab control
-running on host {LOCAL_HOSTNAME}
-""")
+
+THIS_HOST = [name for name, ip in HOST_IPS.items() if ip in LOCAL_IP_LIST][0]
+
+
+print('\n'.join(['*{:^64s}*'.format(f"OptImaTo Lab Control"),
+                 '*{:^64s}*'.format(f"Running on host '{LOCAL_HOSTNAME}'"),
+                 '*{:^64s}*'.format(f"a.k.a. '{THIS_HOST}' with IP {LOCAL_IP_LIST}")
+                 ])
+      )
 
 
 # Errors
