@@ -21,10 +21,12 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                 'smaract': {'driver': smaract.Smaract},
                 'aerotech': {'driver': aerotech.Aerotech},
                 'mclennan1': {'driver': mclennan.McLennan,
-                              'init_kwargs': {'device_address': network_conf.MCLENNAN1['DEVICE']},
+                              'client_kwargs': {'kwargs': {'device_address': network_conf.MCLENNAN1['device']},
+                                                'name': 'mclennan1'},
                               'name': 'mclennan1'},
                 'mclennan2': {'driver': mclennan.McLennan,
-                              'init_kwargs': {'device_address': network_conf.MCLENNAN2['DEVICE']},
+                              'client_kwargs': {'kwargs': {'device_address': network_conf.MCLENNAN2['device']},
+                                                'name': 'mclennan2'},
                               'name': 'mclennan2'},
                 'excillum': {'driver': excillum.Excillum},
                 'dummy': {'driver': dummy.Dummy}
@@ -37,20 +39,18 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
 logger = logging.getLogger("manager")
 
 
-def instantiate_driver(driver, init_kwargs=None, name=None, admin=True, spawn=True):
+def instantiate_driver(driver, client_kwargs=None, name=None, admin=True, spawn=True):
     """
     Helper function to instantiate a driver and
     spawning the corresponding daemon if necessary and requested.
     """
-    if name is None:
-        name = driver.__name__.lower()
+    name = name or driver.__name__.lower()
+    client_kwargs = client_kwargs or {}
 
     # Try to instantiate a driver client
     d = None
-    if init_kwargs is None:
-        init_kwargs = {}
     try:
-        d = driver.Client(admin=admin, **init_kwargs)
+        d = driver.Client(admin=admin, **client_kwargs)
     except ProxyClientError:
         if not spawn:
             logger.warning(f'The proxy server for driver {name} is unreachable')
@@ -65,7 +65,7 @@ def instantiate_driver(driver, init_kwargs=None, name=None, admin=True, spawn=Tr
             logger.info(f'Proxy server process for driver {name} has been spawned.')
             # Make sure the server is already listening before connecting
             time.sleep(20)
-            d = driver.Client(admin=admin, **init_kwargs)
+            d = driver.Client(admin=admin, **client_kwargs)
         else:
             logger.error(f'Driver {driver.name} is not running.')
     return d

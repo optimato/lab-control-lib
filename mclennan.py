@@ -93,17 +93,14 @@ and subsequently calling the relative movement function.
 """
 
 import time
-import logging
 import json
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException, ESCAPE_STRING
-from . import motors
+from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .ui_utils import ask_yes_no
-from . import conf_path
-from . import FileDict
+from .util.proxydevice import proxydevice, proxycall
 
 
-__all__ = ['McLennanDaemon', 'McLennan', 'Motor']
+__all__ = ['McLennan', 'Motor']
 
 # This API uses carriage return (\r) as end-of-line.
 EOL = b'\r'
@@ -148,39 +145,69 @@ STATUS_STRINGS = ['Motor Enabled (Motor Disabled if this bit = 0)',  # 0x0001
                   'Initializing (happens at power up)']  # 0x8000
 
 
-class McLennanDaemon(SocketDeviceServerBase):
+@proxydevice()
+class McLennan(SocketDriverBase):
     """
-    McLennan Daemon - to be subclassed for each driver socket.
-    McLennan controllers don't have encoders, so we also need to store
+    McLennan driver
+    McLennan controllers don't have encoders, so we need to store
     and increment a software position based on the passed commands.
     That makes things a bit more complicated.
     """
 
     EOL = EOL
+    ballscrew_length = 2.    # Displacement for one full revolution
+    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
+    EOL = EOL
 
-    def __init__(self, serving_address, device_address, name):
+    def __init__(self, device_address, name):
         """
         Constructor requires 'name' to differentiate multiple instances.
         """
         self.name = name
-        self.persistence_filename = self.name + '.conf'
-        self.persistence_conf = None
-        super().__init__(serving_address=serving_address, device_address=device_address)
+        super().__init__(device_address=device_address)
+
+        self.metacalls.update({'position': self.get_pos,
+                               'current': self.get_current,
+                               'velocity': self.get_vel,
+                               'microstep_resolution': self.get_microstep_resolution
+                               })
 
     def init_device(self):
         """
         Device initialization.
         """
         # ask for firmware version to see if connection works
-        version = self.device_cmd('RV')
-        self.logger.debug('Firmware version is %s' % version.strip())
+        version, _ = self.send_cmd('RV')
+        self.logger.debug(f'Firmware version is {version}')
 
         # turn Ack/Nack on
-        self.device_cmd('PR4')
+        self.send_cmd('PR4')
 
-        # Load persistence file
-        self.persistence_conf = FileDict(self.persistence_filename)
+        if ask_yes_no('Set defaults? (probably needed only the first time)', yes_is_default=False):
+            self.logger.info('Setting defaults...')
+            self.set_microstep_resolution(DEFAULT_MICROSTEPS)
+            self.set_accel(DEFAULT_ACCELERATION)
+            self.set_decel(DEFAULT_DECELERATION)
+            self.set_vel(DEFAULT_VELOCITY)
+            self.set_decel_max(DEFAULT_EMERGENCY_DECELERATION)
+            self.set_current(DEFAULT_CURRENT)
+            self.set_limits(DEFAULT_LIMITS)
+            self.logger.info('Done setting defaults.')
 
+        position = self.get_pos()
+        if position is None:
+            if ask_yes_no('No position recorded! Set to 0.0?'):
+                position = 0.0
+                self.set_pos(position)
+
+        self.logger.info(f'Initial position: {position:0.2f}')
+
+        # TODO: how to name motors?
+        # Create motor
+        # self.motor = {'rot': Motor('rot', self)}
+        # motors['rot'] = self.motor['rot']
+
+        self.logger.info(f"McLennan ({self.name}) initialization complete.")
         self.initialized = True
         return
 
@@ -210,7 +237,7 @@ class McLennanDaemon(SocketDeviceServerBase):
         else:
             return b'Error: unknown command ' + cmd
 
-    def device_cmd(self, cmd):
+    def send_cmd(self, cmd):
         """
         Pass command to the device after slight reformatting.
         """
@@ -218,96 +245,31 @@ class McLennanDaemon(SocketDeviceServerBase):
         if isinstance(cmd, str):
             cmd = cmd.encode()
         out = b'\x00\x07' + cmd + self.EOL
-        return super().device_cmd(out)
-
-    def wait_call(self):
-        """
-        Keep-alive call
-        """
-        r = self.device_cmd('RV')
-        if not r:
-            raise DeviceException
-
-
-class McLennan(DriverBase):
-    """
-    Driver for the coarse bottom stages.
-    """
-
-    EOL = EOL
-    ballscrew_length = 2.    # Displacement for one full revolution
-    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
-
-    def __init__(self, address, name, admin=True):
-        """
-        Initialise McLennan driver (coarse translation motors).
-        """
-        # Create logger now to make sure it doesn't get the class name
-        self.name = name
-        self.logger = logging.getLogger(name)
-
-        super().__init__(address=address, admin=admin)
-
-        self.metacalls.update({'position': self.get_pos,
-                               'current': self.get_current,
-                               'velocity': self.get_vel,
-                               'microstep_resolution': self.get_microstep_resolution,
-                               'daemon_stats': self.get_stats})
-
-        if ask_yes_no('Set defaults? (probably needed only the first time)', yes_is_default=False):
-            self.logger.info('Setting defaults...')
-            self.set_microstep_resolution(DEFAULT_MICROSTEPS)
-            self.set_accel(DEFAULT_ACCELERATION)
-            self.set_decel(DEFAULT_DECELERATION)
-            self.set_vel(DEFAULT_VELOCITY)
-            self.set_decel_max(DEFAULT_EMERGENCY_DECELERATION)
-            self.set_current(DEFAULT_CURRENT)
-            self.set_limits(DEFAULT_LIMITS)
-            self.logger.info('Done setting defaults.')
-
-        position = self.get_pos()
-        if position is None:
-            if ask_yes_no('No position recorded! Set to 0.0?'):
-                position = 0.0
-                self.set_pos(position)
-
-        self.logger.info(f'Initial position: {position:0.2f}')
-
-        # TODO: how to name motors?
-        # Create motor
-        # self.motor = {'rot': Motor('rot', self)}
-        # motors['rot'] = self.motor['rot']
-
-        self.logger.info(f"McLennan ({self.name}) initialization complete.")
-        self.initialized = True
-
-    def send_cmd(self, msg: str):
-        """
-        Send device command and parse input (no escape command!)
-        Return pair of strings (or None as second element)
-        """
-
-        # Convert to bytes
-        msg = msg.encode()
-
-        # send command
-        reply = self.send_recv(msg + self.EOL)
+        reply = self.device_cmd(out)
 
         # strip header and \r
-        r = reply[2:-1]
+        r = reply[2:-1].decode('ascii', errors='ignore')
 
         # Try to split around '='
-        rs = r.split(b'=')
+        rs = r.split('=')
 
         print(f'rs = {rs}')
 
         # If it failed, the controller returned a success/fail symbol
         if len(rs) == 1:
-            return rs[0].decode(), None
+            return rs[0], None
 
-        return rs[0].decode(), rs[1].decode()
+        return rs[0], rs[1]
 
-    @admin_only
+    def wait_call(self):
+        """
+        Keep-alive call
+        """
+        r = self.send_cmd('RV')
+        if not r:
+            raise DeviceException
+
+    @proxycall(admin=True)
     def enable(self):
         """
         Enable motor. Motors are enabled by default when switching the controllers on
@@ -318,7 +280,7 @@ class McLennan(DriverBase):
         if s != '%':
             self.logger.critical('Enabling motor failed!')
 
-    @admin_only
+    @proxycall(admin=True)
     def disable(self):
         """
         Disable motor
@@ -327,7 +289,7 @@ class McLennan(DriverBase):
         if s != '%':
             self.logger.critical('Disabling motor failed!')
 
-    @admin_only
+    @proxycall(admin=True)
     def move_rel(self, dx):
         """
         Move relative, in mm
@@ -376,6 +338,7 @@ class McLennan(DriverBase):
         self.set_pos(pos + dx)
         return self.get_pos()
 
+    @proxycall()
     def get_status(self):
         """
         Get status from driver.
@@ -394,6 +357,7 @@ class McLennan(DriverBase):
         """
         return [STATUS_STRINGS[i] for i in range(16) if codes[i]]
 
+    @proxycall()
     def check_done(self):
         """
         Poll until movement is complete.
@@ -408,6 +372,7 @@ class McLennan(DriverBase):
                 time.sleep(self.POLL_INTERVAL)
         return
 
+    @proxycall()
     def abort(self):
         """
         Emergency stop
@@ -418,7 +383,7 @@ class McLennan(DriverBase):
         self.logger.info("Motion aborted. Position is now undefined.")
         self.set_pos(None)
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def move_abs(self, x):
         """
         Move absolute, in mm.
@@ -433,6 +398,7 @@ class McLennan(DriverBase):
         move = x - self.get_pos()
         return self.move_rel(move)
 
+    @proxycall()
     def get_microstep_resolution(self):
         """
         Get number of microsteps per revolution
@@ -445,7 +411,7 @@ class McLennan(DriverBase):
             raise
         return v
 
-    @admin_only
+    @proxycall(admin=True)
     def set_microstep_resolution(self, microstep_resolution):
         """
         Set number of microsteps per revolution
@@ -459,6 +425,7 @@ class McLennan(DriverBase):
             self.logger.critical('Error setting microsteps')
         return
 
+    @proxycall()
     def get_accel(self):
         """
         Get acceleration (in revolution / s^2)
@@ -471,7 +438,7 @@ class McLennan(DriverBase):
             raise
         return v
 
-    @admin_only
+    @proxycall(admin=True)
     def set_accel(self, accel):
         """
         Set acceleration (in revolution / s^2)
@@ -482,6 +449,7 @@ class McLennan(DriverBase):
             self.logger.critical('Could not set acceleration')
         return
 
+    @proxycall()
     def get_decel(self):
         """
         Get deceleration (in revolution / s^2)
@@ -494,7 +462,7 @@ class McLennan(DriverBase):
             raise
         return v
 
-    @admin_only
+    @proxycall(admin=True)
     def set_decel(self, decel):
         """
         Set acceleration (in revolution / s^2)
@@ -505,6 +473,7 @@ class McLennan(DriverBase):
             self.logger.critical('Could not set deceleration')
         return
 
+    @proxycall()
     def get_vel(self):
         """
         Get acceleration (in revolution / s^2)
@@ -517,7 +486,7 @@ class McLennan(DriverBase):
             raise
         return v
 
-    @admin_only
+    @proxycall(admin=True)
     def set_vel(self, vel):
         """
         Set velocity (in revolution / s)
@@ -528,6 +497,7 @@ class McLennan(DriverBase):
             self.logger.critical('Could not set velocity')
         return
 
+    @proxycall()
     def get_accel_max(self):
         """
         Get maximum acceleration (in revolution / s^2)
@@ -540,7 +510,7 @@ class McLennan(DriverBase):
             raise
         return v
 
-    @admin_only
+    @proxycall(admin=True)
     def set_accel_max(self, accel):
         """
         Set acceleration (in revolution / s^2)
@@ -551,6 +521,7 @@ class McLennan(DriverBase):
             self.logger.critical('Could not set maximum acceleration')
         return
 
+    @proxycall()
     def get_decel_max(self):
         """
         Get maximum deceleration (in revolution / s^2)
@@ -563,7 +534,7 @@ class McLennan(DriverBase):
             raise
         return v
 
-    @admin_only
+    @proxycall(admin=True)
     def set_decel_max(self, decel):
         """
         Set maximum acceleration (in revolution / s^2)
@@ -574,6 +545,7 @@ class McLennan(DriverBase):
             self.logger.critical('Could not set maximum deceleration')
         return
 
+    @proxycall()
     def get_current(self):
         """
         Get current (in amps)
@@ -586,7 +558,7 @@ class McLennan(DriverBase):
             raise
         return v
 
-    @admin_only
+    @proxycall(admin=True)
     def set_current(self, cc):
         """
         Set current (in amps)
@@ -597,46 +569,35 @@ class McLennan(DriverBase):
             self.logger.critical('Could not set current')
         return
 
+    @proxycall()
     def get_pos(self):
         """
         Get (software) position (in mm)
         """
         # Send escape command
-        request = ESCAPE_STRING + b'GETPERSISTposition' + self.EOL
-        v = self.send_recv(request)
-        return json.loads(v)['position']
+        return self.config.get('position')
 
-    @admin_only
+    @proxycall(admin=True)
     def set_pos(self, pos):
         """
         Set (software) position (in mm)
         This doesn't move the motor itself!
         """
-        # Send escape command
-        payload = json.dumps({'position': pos})
-        request = ESCAPE_STRING + f'SETPERSIST{payload}'.encode() + self.EOL
-        v = self.send_recv(request)
-        return
+        self.config['position'] = pos
 
+    @proxycall()
     def get_limits(self):
         """
         Get (software) limits (in mm)
         """
-        # Send escape command
-        request = ESCAPE_STRING + b'GETPERSISTlimits' + self.EOL
-        v = self.send_recv(request)
-        return json.loads(v)['limits']
+        return self.config.get('limits')
 
-    @admin_only
+    @proxycall(admin=True)
     def set_limits(self, limits):
         """
         Set (software) limits (in mm)
         """
-        # Send escape command
-        payload = json.dumps({'limits': limits})
-        request = ESCAPE_STRING + f'SETPERSIST{payload}'.encode() + self.EOL
-        v = self.send_recv(request)
-        return
+        self.config['limits'] = limits
 
 
 class Motor(MotorBase):

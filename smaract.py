@@ -55,11 +55,12 @@ METHODS LIST
 
 import time
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
-from .network_conf import SMARACT as DEFAULT_NETWORK_CONF
+from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
+from .network_conf import SMARACT as NET_INFO
 from .ui_utils import ask_yes_no
+from .util.proxydevice import proxydevice, proxycall
 
-__all__ = ['SmaractDaemon', 'Smaract', 'Motor']
+__all__ = ['Smaract', 'Motor']
 
 DEFAULT_SPEED = 1000000  # nm/s
 DEFAULT_ACCEL = 10000  # um/s^2 (!)
@@ -68,64 +69,35 @@ SENSOR_MODES = {0: 'disabled', 1: 'enabled', 2: 'power save'}
 EOL = b'\n'
 
 
-class SmaractDaemon(SocketDeviceServerBase):
+@proxydevice(address=NET_INFO['control'])
+class Smaract(SocketDriverBase):
     """
-    Smaract Daemon
+    Smaract Driver
     """
 
-    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
-    DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
+    DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
+    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
+    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
     EOL = EOL
 
-    def __init__(self, serving_address=None, device_address=None):
-        if serving_address is None:
-            serving_address = self.DEFAULT_SERVING_ADDRESS
+    def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
-        super().__init__(serving_address=serving_address, device_address=device_address)
+        super().__init__(device_address=device_address)
+
+        self.metacalls.update({'position': lambda: [self.get_pos(0), self.get_pos(1), self.get_pos(2)],
+                               'speed': lambda: [self.get_speed(0), self.get_speed(1), self.get_speed(2)]})
 
     def init_device(self):
         """
         Device initialization.
         """
         # Communication mode to 0-synchronous or 1- asyn.
-        self.device_cmd(b':SCM0\n')
+        self.send_cmd(':SCM0')
         self.logger.info('Connection established')
 
-        self.initialized = True
-        return
-
-    def wait_call(self):
-        """
-        Keep-alive call
-        """
-        r = self.device_cmd(b':GS0\n')
-        if not r:
-            raise DeviceException
-
-
-class Smaract(DriverBase):
-    """
-    Driver for Smaract piezo stage.
-    """
-
-    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
-    EOL = EOL
-
-    def __init__(self, address, admin=True, **kwargs):
-        """
-        Connects to daemon.
-        """
-        if address is None:
-            address = DEFAULT_NETWORK_CONF['DAEMON']
-
-        super().__init__(address=address, admin=admin)
-
-        self.metacalls.update({'position': lambda: [self.get_pos(0), self.get_pos(1), self.get_pos(2)],
-                               'speed': lambda: [self.get_speed(0), self.get_speed(1), self.get_speed(2)]})
-
         # Get number of channels
-        nc = self.send_recv(b':GNC\n')
+        nc = self.send_cmd(':GNC')
         self.no_channels = int(nc[1][0])
         self.logger.info('Number of channels is %d' % self.no_channels)
 
@@ -148,7 +120,7 @@ class Smaract(DriverBase):
 
             # Perform calibration
             for ind_channel in range(self.no_channels):
-                code, v = self.send_recv(b':CS%d\n' % ind_channel)
+                code, v = self.send_cmd(':CS%d' % ind_channel)
                 if code != 'E' or (int(v[0]) != ind_channel or int(v[1]) != 0):
                     raise RuntimeError('Calibration failed on channel %d, aborting...' % ind_channel)
                 else:
@@ -177,16 +149,32 @@ class Smaract(DriverBase):
                 self.logger.info('Moving to 0 position...')
                 self.move_abs(ind_channel, 0)
 
-    def send_recv(self, msg):
+        self.initialized = True
+        return
+
+    def wait_call(self):
+        """
+        Keep-alive call
+        """
+        r = self.send_cmd(':GS0')
+        if not r:
+            raise DeviceException
+
+    def send_cmd(self, cmd):
         """
         Communicate with controller and parse output.
 
         Return tuple (code, values)
         """
-        s = self._send_recv(msg)
+        # Convert to bytes
+        if isinstance(cmd, str):
+            cmd = cmd.encode()
+        cmd += self.EOL
+
+        s = self.device_cmd(cmd)
 
         # Remove ':' prefix and trailing '\n'
-        s = s[1:-1]
+        s = s[1:-1].decode('ascii', errors='ignore')
 
         # Check if there are commas in the strings, then strip the values
         sl = s.split(',')
@@ -196,6 +184,7 @@ class Smaract(DriverBase):
 
         return code, values
 
+    @proxycall()
     def check_channel(self, channel):
         """
         Verify that channel is valid
@@ -205,20 +194,22 @@ class Smaract(DriverBase):
             raise RuntimeError("'%s' is not a valid channel" % str(channel))
         return True
 
+    @proxycall(admin=True)
     def abort(self):
         """
         Emergency stop.
         """
         self.logger.info("ABORTING MOTION!")
-        self.send_recv(b':S\n')
+        self.send_cmd(':S')
 
+    @proxycall()
     def check_done(self, channel):
         """
         Poll until movement is complete.
         """
         with emergency_stop(self.abort):
             while True:
-                code, f = self.send_recv(b':GS%d\n' % channel)
+                code, f = self.send_cmd(':GS%d' % channel)
                 if int(f[1]) in [0, 3, 9]:
                     # motor is not moving:
                     # 0 - stopped --> target reached
@@ -229,6 +220,7 @@ class Smaract(DriverBase):
                 time.sleep(self.POLL_INTERVAL)
         return
 
+    @proxycall()
     def get_speed(self, channel):
         """
         Reads the current closed loop speed for a channel in nm/s
@@ -239,7 +231,7 @@ class Smaract(DriverBase):
         self.check_channel(channel)
 
         # Get speed
-        code, v = self.send_recv(b':GCLS%d\n' % channel)  # "Get Closed Loop Speed"
+        code, v = self.send_cmd(':GCLS%d' % channel)  # "Get Closed Loop Speed"
 
         if int(v[1]) == 0:
             self.logger.info('Closed loop speed control is deactivated')
@@ -248,7 +240,7 @@ class Smaract(DriverBase):
             self.logger.info('Current max. speed is %f um/s for channel %d' % (float(v[1])*1e-3, channel))
             return int(v[1])
 
-    @admin_only
+    @proxycall(admin=True)
     def set_speed(self, channel, v_nm_s):
         """
         Set the max. speed for a given channel in nm/s
@@ -262,7 +254,7 @@ class Smaract(DriverBase):
             raise RuntimeError('Speed needs to be between 0 and 100000000')
 
         # set speed
-        code, v = self.send_recv(b':SCLS%d,%d\n' % (channel, v_nm_s))  # Set Closed Loop Speed
+        code, v = self.send_cmd(':SCLS%d,%d' % (channel, v_nm_s))  # Set Closed Loop Speed
 
         # check that answer is correct
         if (code != 'E' and v[0] != channel) or v[1] != 0:
@@ -271,6 +263,7 @@ class Smaract(DriverBase):
         # Is this necessary?
         self.get_speed(channel)
 
+    @proxycall()
     def get_accel(self, channel):
         """
         Read the current acceleration in um/s^2 (!)
@@ -280,12 +273,12 @@ class Smaract(DriverBase):
         self.check_channel(channel)
 
         # Read accel value
-        code, a = self.send_recv(b':GCLA%d\n' % channel)  # Get Closed Loop Acceleration
+        code, a = self.send_cmd(':GCLA%d' % channel)  # Get Closed Loop Acceleration
         self.logger.info('Current accel. is %f um/s^2 on channel %d' % (float(a[1]), channel))
 
         return float(a[1])
 
-    @admin_only
+    @proxycall(admin=True)
     def set_accel(self, channel, a_um_s2):
         """
         Set the current acceleration in um/s^2 (!)
@@ -298,13 +291,14 @@ class Smaract(DriverBase):
         if a_um_s2 < 0 or a_um_s2 > 10000000:
             raise RuntimeError('Acceleration needs to be between 0 and 1000')
 
-        code, a = self.send_recv(b':SCLA%d,%d\n' % (channel, a_um_s2))
+        code, a = self.send_cmd(':SCLA%d,%d' % (channel, a_um_s2))
         if (code != 'E' or a[0] != channel) or a[1] != 0:
             raise RuntimeError('Setting acceleration failed')
 
         # Is this needed?
         self.get_accel(channel)
 
+    @proxycall()
     def get_sensormode(self):
         """
         Get the current system sensor mode
@@ -314,7 +308,7 @@ class Smaract(DriverBase):
         the move.
         """
         # get the mode
-        code, m = self.send_recv(b':GSE\n')
+        code, m = self.send_cmd(':GSE')
 
         # Quick hack to make this part work again, but maybe self.parse_feedback should be modified.
         m = int(m[0])
@@ -323,7 +317,7 @@ class Smaract(DriverBase):
         self.logger.info('Sensor mode is %s' % SENSOR_MODES[m])
         return m
 
-    @admin_only
+    @proxycall(admin=True)
     def set_sensormode(self, val):
         """
         Set the current system sensor mode
@@ -337,13 +331,14 @@ class Smaract(DriverBase):
             raise RuntimeError('Valid power modes are 0-disabled, 1-enabled, 2-powersave')
 
         # set the mode
-        code, v = self.send_recv(b':SSE%d\n' % val)
+        code, v = self.send_cmd(':SSE%d' % val)
 
         if (code != 'E' or v[0] != -1) or v[1] != 0:
             raise RuntimeError('Setting sensor mode failed.')
 
         self.get_sensormode()
 
+    @proxycall()
     def get_limit(self, channel):
         """
         Read back user defined software limits for a channel, if any were set
@@ -351,7 +346,7 @@ class Smaract(DriverBase):
         self.check_channel(channel)
 
         # get limits
-        code, l0 = self.send_recv(b':GPL%d\n' % channel)
+        code, l0 = self.send_cmd(':GPL%d' % channel)
 
         # if no limits,will return E<chanel>,<148>:
         if code == 'E' and l0[1] == 148:
@@ -361,6 +356,7 @@ class Smaract(DriverBase):
             self.logger.info('Limits are %f to %f' % (l0[1], l0[2]))
             return l0
 
+    @proxycall()
     def get_pos(self, channel):
         """
         Read back the current position of the channel in nm.
@@ -368,11 +364,11 @@ class Smaract(DriverBase):
         self.check_channel(channel)
 
         # get position
-        code, p = self.send_recv(b':GP%d\n' % channel)
+        code, p = self.send_cmd(':GP%d' % channel)
 
         return float(p[1])
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def move_abs(self, channel, pos_abs_nm):
         """
         Move stage to absolute position in nm.
@@ -381,14 +377,14 @@ class Smaract(DriverBase):
         self.check_channel(channel)
 
         # move
-        self.send_recv(b':MPA%d,%d,60000\n' % (channel, pos_abs_nm))
+        self.send_cmd(':MPA%d,%d,60000' % (channel, pos_abs_nm))
 
         self.check_done(channel)
 
         # read motor position after move
         return self.get_pos(channel)
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def move_rel(self, channel, pos_rel_nm):
         """
         Move stage relative, in nm.
@@ -396,7 +392,7 @@ class Smaract(DriverBase):
         """
         return self.move_abs(channel, self.get_pos(channel) + pos_rel_nm)
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def find_referencemark(self, channel):
         """
         Prompt the reference mark search for channel.
@@ -404,7 +400,7 @@ class Smaract(DriverBase):
         """
         self.check_channel(channel)
 
-        code, v = self.send_recv(b':FRM%d,2,60000,1\n' % channel)
+        code, v = self.send_cmd(':FRM%d,2,60000,1' % channel)
         if (code != 'E' or v[0] != channel) or v[1] != 0:
             self.logger.warning('Reference mark not found on channel %d' % channel)
             return -1

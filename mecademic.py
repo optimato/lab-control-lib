@@ -19,7 +19,7 @@ import threading
 import select
 
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException, _recv_all
-from .network_conf import MECADEMIC as DEFAULT_NETWORK_CONF
+from .network_conf import MECADEMIC as NET_INFO, MECADEMIC_MONITOR
 from .ui_utils import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
 
@@ -41,13 +41,13 @@ class RobotException(Exception):
         super().__init__(self.message)
 
 
-class MecademicMonitor():
+class MecademicMonitor:
     """
-    Light weight class that connects to the monitor port.
+    Light-weight class that connects to the monitor port.
     """
 
     EOL = EOL
-    DEFAULT_MONITOR_ADDRESS = DEFAULT_NETWORK_CONF['MONITOR']
+    DEFAULT_MONITOR_ADDRESS = MECADEMIC_MONITOR['device']
     MONITOR_TIMEOUT = 1
     NUM_CONNECTION_RETRY = 10
     MAX_BUFFER_LENGTH = 1000
@@ -176,7 +176,7 @@ class MecademicMonitorLog(MecademicMonitor):
             f.write(f'{g[2230]}, {g[2026]}\n')
 
 
-@proxydevice(address=DEFAULT_NETWORK_CONF['DAEMON'])
+@proxydevice(address=NET_INFO['control'])
 class Mecademic(SocketDriverBase):
     """
     Mecademic robot arm driver
@@ -184,7 +184,7 @@ class Mecademic(SocketDriverBase):
     TODO: a good way to define limits, ranges, etc.
     """
 
-    DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
+    DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
