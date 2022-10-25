@@ -58,13 +58,17 @@ def instantiate_driver(driver, client_kwargs=None, name=None, admin=True, spawn=
 
         # Didn't connect. Let's try to spawn the server.
         if ask_yes_no(f'Server proxy for {name} unreachable. Spawn it?'):
+
+            # TODO: use paramiko.SSHClient for drivers that need to start on another host
+            # On windows, the command will be something like:
+            # "Invoke-WmiMethod -Path 'Win32_Process' -Name Create -ArgumentList 'python -m labcontrol.startup startup varex'"
+
             p = subprocess.Popen([sys.executable, '-m', 'labcontrol.startup', 'start', f'{name}'],
-                                 start_new_session=True,)
-                               # stdout=subprocess.DEVNULL,
-                               # stderr=subprocess.STDOUT)
+                                 start_new_session=True)
             logger.info(f'Proxy server process for driver {name} has been spawned.')
-            # Make sure the server is already listening before connecting
-            time.sleep(20)
+
+            # TODO: wait a little but not too much
+            time.sleep(5)
             d = driver.Client(admin=admin, **client_kwargs)
         else:
             logger.error(f'Driver {driver.name} is not running.')
