@@ -190,14 +190,31 @@ class Excillum(SocketDriverBase):
     @proxycall()
     @property
     def spot_position_x_um(self):
+        """
+        Spot position in x (microns)
+        """
         return self.send_cmd("spot_position_x_um?")
 
     @proxycall()
     @property
     def spot_position_y_um(self):
+        """
+        Spot position in y (microns)
+        """
         return self.send_cmd("spot_position_y_um?")
 
     @proxycall()
     @property
     def jetpump_frequency(self):
+        """
+        Jet pump frequency (in Hz)
+        """
         return self.send_cmd('jetpump_frequency?')
+
+    @proxycall()
+    @property
+    def jet_is_stable(self):
+        """
+        Check if the jet is stable
+        """
+        return self.send_cmd('jet_is_stable?')

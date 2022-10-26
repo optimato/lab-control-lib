@@ -12,12 +12,14 @@ from .util import now, FramePublisher
 from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
 
-DEFAULT_FILE_FORMAT = 'hdf5'
+DEFAULT_FILE_FORMAT = 'h5'
 DEFAULT_BROADCAST_PORT = 5555
 
+
+# No @proxydriver because this class is not meant to be instantiated
 class CameraBase(DriverBase):
     """
-    Base class for camera daemons.
+    Base class for camera drivers, giving a uniform interface between detectors.
     """
 
     DEFAULT_BROADCAST_PORT = DEFAULT_BROADCAST_PORT  # Default port for frame broadcasting
@@ -34,10 +36,10 @@ class CameraBase(DriverBase):
             self.broadcast_port = broadcast_port
 
         # Set defaults if they are not set
-        if 'do_store' not in self.config:
-            self.config['do_store'] = True
+        if 'do_save' not in self.config:
+            self.config['do_save'] = True
         if 'file_format' not in self.config:
-            self.config['file_format'] = 'h5'
+            self.config['file_format'] = DEFAULT_FILE_FORMAT
         if 'do_broadcast' not in self.config:
             self.config['do_broadcast'] = True
         if 'magnification' not in self.config:
@@ -104,9 +106,9 @@ class CameraBase(DriverBase):
         """
         Store (if requested) frame and metadata
         """
-        if not self.config['do_store']:
+        if not self.config['do_save']:
             # Nothing to do. At this point the data is discarded!
-            self.logger.debug('Discarding frame because do_store=False')
+            self.logger.debug('Discarding frame because do_save=False')
             return
 
         # Build file name and call corresponding saving function
@@ -193,6 +195,17 @@ class CameraBase(DriverBase):
         metadata collection.
         """
         pass  # TODO
+
+    @proxycall(admin=True, block=False)
+    def roll(self, switch=None):
+        """
+        Start endless sequence acquisition for live mode.
+
+        If switch is None: toggle rolling state, otherwise turn on (True) or off (False)
+        """
+
+
+
 
     def grab_frame(self):
         """
@@ -469,225 +482,14 @@ class CameraBase(DriverBase):
         """
         return self.broadcaster is not None
 
-
-class CameraDriverBase(DriverBase):
-    """
-    Driver Base for all pixel-array detectors.
-    """
-
-    def __init__(self, address, admin):
-        """
-
-        """
-        super().__init__(address=address, admin=admin)
-
-    def fr(self, x) -> bytes:
-        """
-        Format outgoing string to bytes + EOL
-        """
-        return str(x).encode() + self.EOL
-
-    def ifr(self, x: bytes) -> str:
-        """
-        format byte string to str and remove EOL
-        """
-
-    def send_cmd(self, cmd) -> str:
-        """
-        Send text command and return reply
-        """
-        return self.ifr(self.send_recv(self.fr(cmd)))
-    def settings(self):
-        """
-        Get all relevant settings for acquisition.
-        """
-        self.send_cmd()
-
-    def snap(self):
-        """
-        Capture single frame.
-        """
-        return self.send_recv(b'SNAP' + self.EOL)
-
-    def capture(self):
-        """
-        Image capture within a scan. This will take care of file naming and
-        metadata collection.
-        """
-        if experiment.SCAN is None:
-            raise RuntimeError('capture is meant to be used only in a scan context.')
-
-    def sequence(self):
-        """
-        Capture a sequence within a scan. This will take care of file naming and
-        metadata collection.
-        """
-        pass  # TODO
-
-    def viewer(self):
-        """
-        Show interactive viewer
-        """
-        pass  # TODO
-
-    def settings(self, **kwargs):
-        """
-        Set camera-specific settings
-        """
-        raise NotImplementedError
-
-    def set_file_format(self, file_format):
-        """
-        Set the file format for file saving.
-        For now: one of 'hdf' or 'tif'.
-        """
-        reply = self.send_recv({'cmd': 'set_file_format',
-                                'value': file_format})
-        pass  # TODO
-
-    def live_on(self):
-        """
-        Turn on live mode if possible
-        """
-        reply = self.send_recv(self.ESCAPE_STRING + 'BROADCAST START' + self.EOL)
-        return reply
-
-    def live_off(self):
-        """
-        Turn off live mode
-        """
-        reply = self.send_recv(self.ESCAPE_STRING + 'BROADCAST STOP' + self.EOL)
-        return reply
-
-    def is_live(self):
-        """
-        Check if camera is live.
-        """
-        reply = self.send_recv(self.ESCAPE_STRING + 'BROADCAST STATUS' + self.EOL)
-        return reply == b'ON'
-
-    def live_options(self, fps, ROI, ):
-        """
-        Set options for live broa
-        """
-
-    # Methods that need to be implemented for the properties to work.
-    def _set_exp_time(self, v):
-        """
-        Set exposure time
-        """
-        raise NotImplementedError
-
-    def _get_exp_time(self):
-        """
-        Get exposure time
-        """
-        raise NotImplementedError
-
-    def _get_shape(self):
-        """
-        Get current frame shape
-        """
-        raise NotImplementedError
-
-    def _get_psize(self):
-        """
-        Get current pixel size (taking into account eventual binning)
-        """
-        raise NotImplementedError
-
-    def _get_epsize(self):
-        """
-        Get current *effective* pixel size (taking into account both binning and geometric magnification)
-        """
-        return self.magnification * self.psize
-
-    def _set_epsize(self, new_eps):
-        """
-        Set the *effective* pixel size. This effectively changes the magnification
-        """
-        self.magnification = new_eps / self.psize
-
-    def _get_magnification(self):
-        """
-        Get user-provided magnification - used for the calculation of the effective pixel size.
-        """
-        return self._magnification
-
-    def _set_magnification(self, m):
-        """
-        Set magnification.
-        """
-        self._magnification = m
-
-    def _get_ROI(self):
-        """
-        Get current ROI parameters
-        """
-        raise NotImplementedError
-
-    # Properties that can be set
+    @proxycall(admin=True)
     @property
-    def exp_time(self):
+    def save(self):
         """
-        Exposure time for a single frame.
+        If False, frames are not saved on file.
         """
-        return self._get_exp_time()
+        return self.config['do_save']
 
-    @exp_time.setter
-    def exp_time(self, v):
-        """
-        Set exposure time.
-        """
-        self._set_exp_time(v)
-
-    @property
-    def magnification(self):
-        """
-        Geometric magnification
-        """
-        return self._get_magnification()
-
-    @magnification.setter
-    def magnification(self, m):
-        """
-        Set exposure time.
-        """
-        self._set_magnification(m)
-
-    @property
-    def epsize(self):
-        """
-        Effective pixel size (including binning and geometric magnification
-        """
-        return self._get_epsize()
-
-    @epsize.setter
-    def epsize(self, p):
-        """
-        Set exposure time.
-        """
-        self._set_epsize(p)
-
-    # Properties that can only be accessed
-    @property
-    def shape(self):
-        """
-        [READ ONLY] The dimensions of a frame taken with current parameters.
-        (numpy style, so (vertical, horizontal)
-        """
-        return self._get_shape()
-
-    @property
-    def psize(self):
-        """
-        [READ ONLY] The physical pixel size of a frame taken with current parameters.
-        """
-        return self._get_psize()
-
-    @property
-    def ROI(self):
-        """
-        The current detector region of interest, returned as two slice objects (vertical, horizontal)
-        """
-        return self._get_ROI()
+    @save.setter
+    def save(self, value: bool):
+        self.config['do_save'] = bool(value)
