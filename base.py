@@ -158,6 +158,7 @@ class DriverBase:
         self.initialized = True
         raise NotImplementedError
 
+    @proxycall()
     def get_meta(self, metakeys=None):
         """
         Return the data described by the list

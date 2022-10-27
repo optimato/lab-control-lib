@@ -83,10 +83,10 @@ def get_all_meta(block=False):
     # to evaluate overall collection time, and whether collection is finished.
     def watch_futures(workers, d):
         for w in workers:
-            w.result()
+            w.join()
         d['meta']['collection_end'] = now()
         dt = time.time() - t0
-        logger.info(f'Metadata collection completed in {dt*1000:f3.2} ms')
+        logger.info(f'Metadata collection completed in {dt*1000:3.2f} ms')
 
     watcher = Future(target=watch_futures, args=(workers, meta))
     if block:
