@@ -112,8 +112,14 @@ elif uname.system == "Windows":
     LOCAL_IP_LIST = [x.split(' ')[-1] for x in s.split('\r\n') if x.strip().startswith('IPv4')]
 else:
     raise RuntimeError(f'Unknown system platform {uname.system}')
-LOCAL_IP_LIST.remove('127.0.0.1')
 
+# Remove localhost (not there under windows)
+try:
+    LOCAL_IP_LIST.remove('127.0.0.1')
+except ValueError:
+    pass
+
+# Check which machine this is
 try:
     THIS_HOST = [name for name, ip in HOST_IPS.items() if ip in LOCAL_IP_LIST][0]
 except IndexError:
