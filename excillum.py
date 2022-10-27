@@ -156,36 +156,36 @@ class Excillum(SocketDriverBase):
     @proxycall()
     @property
     def spotsize_x_um(self):
-        return self.send_cmd("spotsize_x_um?")
+        return float(self.send_cmd("spotsize_x_um?"))
 
     @proxycall()
     @property
     def spotsize_y_um(self):
-        return self.send_cmd("spotsize_y_um?")
+        return float(self.send_cmd("spotsize_y_um?"))
 
     @proxycall()
     @property
     def generator_emission_current_a(self):
-        return self.send_cmd("generator_emission_current?")
+        return float(self.send_cmd("generator_emission_current?"))
 
     @proxycall()
     @property
     def generator_emission_power_w(self):
-        return self.send_cmd("generator_emission_power?")
+        return float(self.send_cmd("generator_emission_power?"))
 
     @proxycall()
     @property
     def generator_high_voltage(self):
-        return self.send_cmd("generator_high_voltage?")
+        return float(self.send_cmd("generator_high_voltage?"))
 
     @proxycall()
     @property
     def vacuum_pressure_pa(self):
-        return self.send_cmd("vacuum_pressure_mbar_short_average?")
+        return float(self.send_cmd("vacuum_pressure_mbar_short_average?"))
 
     @property
     def jet_pressure_pa(self):
-        return self.send_cmd("jet_pressure_average?")
+        return float(self.send_cmd("jet_pressure_average?"))
 
     @proxycall()
     @property
@@ -193,7 +193,7 @@ class Excillum(SocketDriverBase):
         """
         Spot position in x (microns)
         """
-        return self.send_cmd("spot_position_x_um?")
+        return float(self.send_cmd("spot_position_x_um?"))
 
     @proxycall()
     @property
@@ -201,7 +201,7 @@ class Excillum(SocketDriverBase):
         """
         Spot position in y (microns)
         """
-        return self.send_cmd("spot_position_y_um?")
+        return float(self.send_cmd("spot_position_y_um?"))
 
     @proxycall()
     @property
@@ -209,7 +209,7 @@ class Excillum(SocketDriverBase):
         """
         Jet pump frequency (in Hz)
         """
-        return self.send_cmd('jetpump_frequency?')
+        return float(self.send_cmd('jetpump_frequency?'))
 
     @proxycall()
     @property

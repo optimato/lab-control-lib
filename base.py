@@ -158,7 +158,7 @@ class DriverBase:
         self.initialized = True
         raise NotImplementedError
 
-    def get_meta(self, metakeys):
+    def get_meta(self, metakeys=None):
         """
         Return the data described by the list
         of keys in metakeys. If metakeys is None: return all
@@ -224,6 +224,7 @@ class SocketDriverBase(DriverBase):
         # Initialize the device
         self.initialized = False
         self.init_device()
+        self.logger.info('Device initialized')
 
         # Start polling
         # number of skipped answers in polling thread (not sure that's useful)
@@ -315,7 +316,7 @@ class SocketDriverBase(DriverBase):
         if not self.connected:
             raise RuntimeError('Device not connected.')
         if not self.initialized:
-            raise RuntimeError('Device not initialized.')
+            self.logger.info('Device not (yet?) initialized.')
 
         with self._lock:
             # Clear the "new data" flag so we can wait on the reply.
