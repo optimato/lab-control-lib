@@ -769,7 +769,7 @@ class ClientBase:
 
     _proxy = None
 
-    def __init__(self, address=None, admin=True, args=None, kwargs=None):
+    def __init__(self, address=None, admin=True, name=None, args=None, kwargs=None):
         """
         Mostly empty class that will be subclassed and filled with the methods and properties identified by the
         proxycall decorators.
@@ -777,12 +777,14 @@ class ClientBase:
         """
         args = args or ()
         kwargs = kwargs or {}
+        self.name = name or self.__class__.__name__
         if not self._proxy:
             raise RuntimeError('Something wrong. A ClientProxy instance should be present!')
         self._proxy.connect(args, kwargs, address=address, admin=admin)
         self.ask_admin = self._proxy.ask_admin
         self.get_result = self._proxy.get_result
         self.get_stats = self._proxy.get_stats
+
 
 
 class proxycall:
