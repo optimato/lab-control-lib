@@ -31,6 +31,14 @@ class Excillum(SocketDriverBase):
             device_address = self.DEFAULT_DEVICE_ADDRESS
         super().__init__(device_address=device_address)
 
+        self.metacalls.update({'state': lambda: self.state,
+                               'jet_is_stable': lambda: self.jet_is_stable,
+                               'generator_high_voltage': lambda: self.generator_high_voltage,
+                               'generator_emission_power_w': lambda: self.generator_emission_power_w,
+                               'spotsize_x_um': lambda: self.spotsize_x_um,
+                               'spotsize_y_um': lambda: self.spotsize_y_um
+                               })
+
     def init_device(self):
         """
         Device initialization.
