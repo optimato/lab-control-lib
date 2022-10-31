@@ -75,7 +75,7 @@ def instantiate_driver(driver, client_kwargs=None, name=None, admin=True, spawn=
             # On windows, the command will be something like:
             # "Invoke-WmiMethod -Path 'Win32_Process' -Name Create -ArgumentList 'python -m labcontrol.startup startup varex'"
 
-            p = subprocess.Popen([sys.executable, '-m', 'labcontrol.startup', 'start', f'{name}'],
+            p = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
                                  start_new_session=True)
             logger.info(f'Proxy server process for driver {name} has been spawned.')
 
