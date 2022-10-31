@@ -25,8 +25,6 @@ from . import smaract
 from . import excillum
 from . import varex
 
-logger = logging.getLogger()
-
 
 def boot():
     """

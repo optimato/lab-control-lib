@@ -7,7 +7,6 @@ import time
 from . import motors
 from .util import now
 from .util.future import Future
-from .manager import instantiate_driver, DRIVER_DATA
 from .base import DaemonException
 logger = logging.getLogger(__name__)
 
@@ -20,6 +19,7 @@ def connect(name=None):
     Instantiate one or multiple drivers.
     If name is None, instatiate all available.
     """
+    from .manager import instantiate_driver, DRIVER_DATA
 
     if name is None:
         for name in DRIVER_DATA.keys():

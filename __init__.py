@@ -163,6 +163,9 @@ from . import dummy
 #from . import pcofun_hans
 #from . import xpsfun_ronan
 
-from . import excillum
-
 #from .ui import *
+
+
+if __name__ == "__main__":
+    from .manager import cli
+    cli()

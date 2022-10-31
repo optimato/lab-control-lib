@@ -29,7 +29,7 @@ else:
 __all__ = ['Varex']
 
 
-@proxydevice(address=NET_INFO['varex'])
+@proxydevice(address=NET_INFO['control'])
 class Varex(CameraBase):
     """
     Varex Driver
