@@ -4,9 +4,8 @@ Driver for Varex flat panel based on our home-grown "dexela" API wrapper.
 
 import time
 import importlib.util
-import sys
 import logging
-import json
+import numpy as np
 
 from .camera import CameraBase
 from .network_conf import VAREX as NET_INFO
@@ -44,6 +43,9 @@ class Varex(CameraBase):
     def __init__(self, broadcast_port=None):
         """
         Initialization.
+
+        TODO: implement gap time.
+        TODO: implement multiple exposure mode (if needed)
         """
         super().__init__(broadcast_port=broadcast_port)
 
@@ -55,7 +57,7 @@ class Varex(CameraBase):
 
         # Get stored settings, use defaults for parameters that can't be found
         settings.update({'full_well_mode': settings.get('full_well_mode', 'High'),
-                         'exposure_mode': settings.get('exposure_mode', 'Expose_and_read'),
+                         'exposure_mode': settings.get('exposure_mode', 'sequence_exposure'),
                          'exposure_time': settings.get('exposure_time', 200),
                          'bins': settings.get('bins', 'x11'),
                          'num_of_exposures': settings.get('num_of_exposures', 1),
@@ -65,6 +67,7 @@ class Varex(CameraBase):
         # Save settings
         self.config['settings'] = settings
         self._apply_settings()
+        self.detector.set_trigger_source('internal_software')
 
     def _apply_settings(self, settings=None):
         """
@@ -82,7 +85,44 @@ class Varex(CameraBase):
         detector.set_bins(settings['bins'])
 
     def grab_frame(self):
-        pass
+        """
+        Grab and return frame(s)
+        """
+        det = self.detector
+        n_exp = self.exposure_number
+
+        det.go_live(0, n_exp - 1, n_exp)
+        startCount = det.get_field_count()
+        count = startCount + 0
+
+        det.software_trigger()
+
+        while True:
+            count = det.get_field_count()
+            if count > (startCount + n_exp):
+                break
+            det.check_for_live_error()
+            time.sleep(.05)
+
+        frames = []
+        meta = []
+        for i in range(n_exp):
+            f, m = det.read_buffer(i)
+            frames.append(f)
+            meta.append(m)
+
+        if det.is_live():
+            det.go_unlive()
+
+        return np.array(frames), meta
+
+    def roll(self, switch=None):
+        """
+        Toggle rolling mode.
+
+        TODO
+        """
+        raise NotImplementedError
 
     def _get_exposure_time(self):
         # Convert from milliseconds to seconds
@@ -91,26 +131,28 @@ class Varex(CameraBase):
     def _set_exposure_time(self, value):
         etime = int(value*1000)
         self.detector.set_exposure_time(etime)
+        self.config['settings']['exposure_time'] = etime
 
     def _get_exposure_number(self):
         return self.detector.get_num_of_exposure()
 
     def _set_exposure_number(self, value):
-        # TODO: IMPLEMENT THIS
-        pass
+        self.detector.set_num_of_exposures(value)
+        self.config['settings']['num_of_exposures'] = value
 
     def _get_exposure_mode(self):
         return self.detector.get_exposure_mode()
 
     def _set_exposure_mode(self, value):
-        # TODO: IMPLEMENT THIS
-        pass
+        self.detector.set_full_well_mode(value)
+        self.config['settings']['full_well_mode'] = value
 
     def _get_binning(self):
         return self.detector.get_bins()
 
     def _set_binning(self, value):
         self.detector.set_bins(value)
+        self.config['settings']['bins'] = value
 
     def _get_psize(self):
         bins = self.binning

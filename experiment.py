@@ -112,8 +112,7 @@ def investigation_path(base_path=None):
     """
     if INVESTIGATION is None:
         RuntimeError('No investigation has been selected or created.')
-    if base_path is None:
-        base_path = data_path
+    base_path = base_path or data_path
     return os.path.join(base_path, INVESTIGATION)
 
 
@@ -173,14 +172,26 @@ class Scan:
         """
         Prepare for scan
         """
-        self.scan_number = next_scan()
-        self.scan_name = f'{self.scan_number:06d}'
+        # Get current experiment path
+        self.path = experiment_path()
+
+        # Get new scan number
+        self.scan_number = next_scan(self.path)
+
+        # Create scan name
+        base_scan_name = f'{self.scan_number:06d}'
         if self.label is not None:
-            self.scan_name += f'_{self.label}'
+            base_scan_name += f'_{self.label}'
+        self._scan_name = base_scan_name + '_{0:06d}'
+
+        # Reset counter
+        self.counter = 0
+
+        # Set SCAN module attribute
         globals()['SCAN'] = self
 
-        self.logger = logging.getLogger(self.scan_name)
-        self.logger.info(f'Starting scan {self.scan_name}')
+        self.logger = logging.getLogger(base_scan_name)
+        self.logger.info(f'Starting scan {base_scan_name}')
 
         # This is a non-blocking call.
         self.meta = get_all_meta()
@@ -194,3 +205,7 @@ class Scan:
         globals()['SCAN'] = None
 
         self.logger.info(f'Scan {self.scan_name} complete.')
+
+    @property
+    def scan_name(self):
+        return self._scan_name.format(self.counter)

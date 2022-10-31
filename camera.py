@@ -1,5 +1,68 @@
 """
-Base behaviour for all detectors.
+Base Camera for all detectors.
+
+Highlights: The CameraBase class wraps detector operations in a uniform API.
+
+** Main methods:
+    *  snap(self, exp_time=None, exp_num=None)
+    *  roll(self, switch)
+    *  live_on(self)
+    *  live_off(self)
+
+** Properties:
+    *  file_format (g/s)
+    *  file_prefix (g/s)
+    *  save_path (g/s)
+    *  exposure_time (g/s)
+    *  exposure_mode (g/s)
+    *  exposure_number (g/s)
+    *  binning (g/s)
+    *  psize (g)
+    *  shape (g)
+    *  magnification (g/s)
+    *  epsize (g/s)
+    *  live_fps (g/s)
+    *  acquiring (g)
+    *  storing (g)
+    *  is_live (g)
+    *  save (g/s)
+
+The following methods have to be implemented
+
+ * grab_frame(self, *args, **kwargs):
+  The actual operation of grabbing one or multiple frames with currently stored parameters.
+
+ * roll(self, switch=None):
+  If available: start/stop endless continuous acquisition, e.g. for live view.
+  ! NOT READY
+
+ * getters and setters
+    *  _get_exposure_time(self):
+    *  _set_exposure_time(self, value)
+    *  _get_exposure_number(self)
+    *  _set_exposure_number(self, value)
+    *  _get_exposure_mode(self)
+    *  _set_exposure_mode(self, value)
+    *  _get_binning(self)
+    *  _set_binning(self, value)
+    *  _get_psize(self)
+    *  _get_shape(self) -> tuple
+
+** File saving
+
+File saving is enabled/disabled with CaneraBase.save = True/False
+File naming uses the following recipe:
+
+ filename = CameraBase.BASE_PATH + CameraBase.save_path + file_prefix + [extension]
+
+ where:
+  file_prefix is either CameraBase.file_prefix or CameraBase.file_prefix.format(self.counter)
+  extension depends on CameraBase.file_format
+
+** Within a SCAN (see experiment.Scan object)
+
+
+
 """
 import os
 import json
@@ -12,7 +75,7 @@ from .util import now, FramePublisher
 from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
 
-DEFAULT_FILE_FORMAT = 'h5'
+DEFAULT_FILE_FORMAT = 'hdf5'
 DEFAULT_BROADCAST_PORT = 5555
 
 
@@ -37,13 +100,13 @@ class CameraBase(DriverBase):
 
         # Set defaults if they are not set
         if 'do_save' not in self.config:
-            self.config['do_save'] = True
+            self.save = True
         if 'file_format' not in self.config:
-            self.config['file_format'] = DEFAULT_FILE_FORMAT
+            self.file_format = DEFAULT_FILE_FORMAT
         if 'do_broadcast' not in self.config:
             self.config['do_broadcast'] = True
         if 'magnification' not in self.config:
-            self.config['magnification'] = 1.
+            self.magnification = 1.
 
         self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
@@ -63,10 +126,13 @@ class CameraBase(DriverBase):
     # INTERNAL METHODS
     #
 
-    def acquire(self, *args):
+    def acquire(self, *args, **kwargs):
         """
         Acquisition wrapper, taking care of metadata collection and
         of frame broadcasting.
+
+        args and kwargs are most likely to remain empty, but can be used to
+        pass additional parameters to self.grab_frame
 
         NOTE: This is always non-blocking!
 
@@ -74,10 +140,10 @@ class CameraBase(DriverBase):
         """
         if self.acquiring:
             raise RuntimeError('Currently acquiring')
-        self.acq_future = Future(self._acquire_task)
+        self.acq_future = Future(self._acquire_task, args=args, kwargs=kwargs)
         self.logger.debug('Acquisition started')
 
-    def _acquire_task(self):
+    def _acquire_task(self, *args, **kwargs):
         """
         Threaded acquisition task.
         """
@@ -88,7 +154,7 @@ class CameraBase(DriverBase):
                      'psize': self.psize,
                      'epsize': self.epsize}
 
-        frame, meta = self.grab_frame()
+        frame, meta = self.grab_frame(*args, **kwargs)
 
         localmeta['acquisition_end'] = now()
         localmeta.update(meta)
@@ -126,22 +192,21 @@ class CameraBase(DriverBase):
         """
 
         # Try to replace counter of prefix is a format string.
-        file_prefix = self.config['file_prefix']
+        file_prefix = self.file_prefix
         try:
             file_prefix = file_prefix.format(self.counter)
         except NameError:
             pass
 
-        full_file_prefix = os.path.join(self.BASE_PATH, self.config['save_path'], file_prefix)
+        full_file_prefix = os.path.join(self.BASE_PATH, self.save_path, file_prefix)
 
         # Add extension based on file format
-        file_format = self.config['file_format'].lower()
-        if file_format in ['hdf', 'hdf5', 'h5']:
+        if self.file_format == 'hdf5':
             filename = full_file_prefix + '.h5'
-        elif file_format in ['tif', 'tiff']:
+        elif self.file_format == 'tiff':
             filename = full_file_prefix + '.tif'
         else:
-            raise RuntimeError(f'Unknown file format: {file_format}.')
+            raise RuntimeError(f'Unknown file format: {self.file_format}.')
         return filename
 
     def save_h5(self, filename, frame, metadata):
@@ -173,28 +238,40 @@ class CameraBase(DriverBase):
     #
 
     @proxycall(admin=True, block=False)
-    def snap(self):
+    def snap(self, exp_time=None, exp_num=None):
         """
-        Capture single frame.
-        """
-        ...
+        Capture one or multiple images
 
-    @proxycall(admin=True, block=False)
-    def capture(self):
+        exp_time and exp_num are optional values
+        that change self.exposure_time and self.exposure_number
+        before proceeding with the acquisition. NOTE: the previous
+        values of these parameters are not reset aftwerwards.
         """
-        Image capture within a scan. This will take care of file naming and
-        metadata collection.
-        """
-        if experiment.SCAN is None:
-            raise RuntimeError('capture is meant to be used only in a scan context.')
+        if exp_time is not None:
+            if exp_time != self.exposure_time:
+                self.logger.info(f'Exposure time: {self.exposure_time} -> {exp_time}')
+                self.exposure_time = exp_time
+        if exp_num is not None:
+            if exp_num != self.exposure_number:
+                self.logger.info(f'Exposure number: {self.exposure_number} -> {exp_num}')
+                self.exposure_number = exp_num
 
-    @proxycall(admin=True, block=False)
-    def sequence(self):
-        """
-        Capture a sequence within a scan. This will take care of file naming and
-        metadata collection.
-        """
-        pass  # TODO
+        # Check if this is part of a scan
+        if experiment.SCAN:
+            old_file_prefix = self.file_prefix
+            old_save_path = self.save_path
+            try:
+                self.save_path = experiment.SCAN.path
+                self.file_prefix = experiment.SCAN.scan_name
+                self.acquire()
+                experiment.SCAN.counter += 1
+            finally:
+                self.file_prefix = old_file_prefix
+                self.save_path = old_save_path
+        else:
+            self.acquire()
+            self.counter += 1
+
 
     @proxycall(admin=True, block=False)
     def roll(self, switch=None):
@@ -203,11 +280,9 @@ class CameraBase(DriverBase):
 
         If switch is None: toggle rolling state, otherwise turn on (True) or off (False)
         """
+        raise NotImplementedError
 
-
-
-
-    def grab_frame(self):
+    def grab_frame(self, *args, **kwargs):
         """
         The device-specific acquisition procedure.
         """
@@ -460,6 +535,7 @@ class CameraBase(DriverBase):
         if self.broadcaster:
             raise RuntimeError(f'ERROR already broadcasting on port {self.broadcast_port}')
         self.broadcaster = FramePublisher(port=self.broadcast_port)
+        self.config['do_broadcast'] = True
 
     @proxycall(admin=True)
     def live_off(self):
@@ -473,6 +549,8 @@ class CameraBase(DriverBase):
         except BaseException:
             pass
         self.broadcaster = None
+        # Remember as default
+        self.config['do_broadcast'] = False
 
     @proxycall()
     @property
