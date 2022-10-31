@@ -58,7 +58,7 @@ class Varex(CameraBase):
         # Get stored settings, use defaults for parameters that can't be found
         settings.update({'full_well_mode': settings.get('full_well_mode', 'High'),
                          'exposure_mode': settings.get('exposure_mode', 'sequence_exposure'),
-                         'exposure_time': settings.get('exposure_time', 200),
+                         'exposure_time': settings.get('exposure_time', .2),
                          'bins': settings.get('bins', 'x11'),
                          'num_of_exposures': settings.get('num_of_exposures', 1),
                          'readout_mode': settings.get('readout_mode', 'ContinuousReadout'),
@@ -82,7 +82,7 @@ class Varex(CameraBase):
         detector.set_exposure_time(settings['exposure_time'])
         detector.set_num_of_exposures(settings['num_of_exposures'])
         detector.set_gap_time(settings['gap_time'])
-        detector.set_bins(settings['bins'])
+        detector.set_binning_mode(settings['bins'])
 
     def grab_frame(self):
         """
@@ -105,11 +105,12 @@ class Varex(CameraBase):
             time.sleep(.05)
 
         frames = []
-        meta = []
+        meta = {}
+        # TODO: find better way of dealing with multiframe metadata
         for i in range(n_exp):
             f, m = det.read_buffer(i)
             frames.append(f)
-            meta.append(m)
+            meta = m
 
         if det.is_live():
             det.go_unlive()
@@ -126,7 +127,7 @@ class Varex(CameraBase):
 
     def _get_exposure_time(self):
         # Convert from milliseconds to seconds
-        return self.detector.get_exposure_time() * 1000
+        return self.detector.get_exposure_time() / 1000
 
     def _set_exposure_time(self, value):
         etime = int(value*1000)
@@ -134,7 +135,7 @@ class Varex(CameraBase):
         self.config['settings']['exposure_time'] = etime
 
     def _get_exposure_number(self):
-        return self.detector.get_num_of_exposure()
+        return self.detector.get_num_of_exposures()
 
     def _set_exposure_number(self, value):
         self.detector.set_num_of_exposures(value)
@@ -148,10 +149,10 @@ class Varex(CameraBase):
         self.config['settings']['full_well_mode'] = value
 
     def _get_binning(self):
-        return self.detector.get_bins()
+        return self.detector.get_binning_mode()
 
     def _set_binning(self, value):
-        self.detector.set_bins(value)
+        self.detector.set_binning_mode(value)
         self.config['settings']['bins'] = value
 
     def _get_psize(self):
