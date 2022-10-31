@@ -16,6 +16,7 @@ from . import mclennan
 from . import aerotech
 from . import excillum
 from . import dummy
+from . import varex
 
 DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                 'smaract': {'driver': smaract.Smaract},
@@ -31,10 +32,10 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                                                 'address': network_conf.MCLENNAN2['control']},
                               'name': 'mclennan2'},
                 'excillum': {'driver': excillum.Excillum},
-                'dummy': {'driver': dummy.Dummy}
+                'dummy': {'driver': dummy.Dummy},
+                'varex': {'driver': varex.Varex},
               # 'xps': {},
               # 'pco': {},
-              # 'varex': {},
               # 'xspectrum': {},
                 }
 

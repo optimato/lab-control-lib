@@ -8,13 +8,12 @@ will start the mecademic daemon.
 import logging
 import sys
 import inspect
-import platform
-import subprocess
 import click
 
 from . import ui_utils
+from . import THIS_HOST, LOCAL_HOSTNAME
 from .manager import instantiate_driver, DRIVER_DATA
-from . import network_conf
+from .network_conf import NETWORK_CONF, HOST_IPS
 from .ui_utils import ask_yes_no
 from . import drivers, motors, cameras
 from . import aerotech
@@ -24,8 +23,23 @@ from . import dummy
 from . import microscope
 from . import smaract
 from . import excillum
+from . import varex
 
 logger = logging.getLogger()
+
+
+def boot():
+    """
+    Initial, machine-dependent startup.
+    """
+    # Instantiate all servers
+    for driver_name, net_info in NETWORK_CONF.items():
+        if (HOST_IPS['control'] in net_info[THIS_HOST][0]):
+            # Instantiate device control is on this computer. Instantiate.
+            kwargs = {}
+            kwargs.update(DRIVER_DATA[driver_name])
+            kwargs['admin'] = False
+            d = instantiate_driver(**kwargs)
 
 
 def init_all(yes=None):
@@ -160,18 +174,11 @@ def start(name):
         s = smaract.Smaract.Server(instantiate=True)
         s.wait()
         sys.exit(0)
-    if name == 'mclennan1':
+    if name == 'mclennan1' or name == 'mclennan2':
         # Here we have more than one motors
-        s = mclennan.McLennan.Server(address=network_conf.MCLENNAN1['DAEMON'],
+        s = mclennan.McLennan.Server(address=NETWORK_CONF[name]['DAEMON'],
                                      instantiate=True,
-                                     instance_kwargs=dict(address=network_conf.MCLENNAN1['DEVICE']))
-        s.wait()
-        sys.exit(0)
-    if name == 'mclennan2':
-        # Here we have more than one motors
-        s = mclennan.McLennan.Server(address=network_conf.MCLENNAN1['DAEMON'],
-                                     instantiate=True,
-                                     instance_kwargs=dict(address=network_conf.MCLENNAN2['DEVICE']))
+                                     instance_kwargs=dict(address=NETWORK_CONF[name]['DEVICE']))
         s.wait()
         sys.exit(0)
     if name == 'aerotech':
