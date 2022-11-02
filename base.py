@@ -1,23 +1,5 @@
 """
 Base classes.
-
-User and dial positions are different and controlled by self.offset and self.scalar
-Dial = (User*scalar)-offset
-
-
-Escaped commands API processed by the daemon, implemented in DeviceServerBase:
-ADMIN: Request admin rights
-NOADMIN: Rescind admin rights
-DISCONNECT: Shutdown connection
-STATUS: Return current status of the daemon
-
-Additional commands implemented in SocketDeviceServerBase:
-STOP: Disconnect from device (admin only)
- return OK or error message
-START: Connect to device and run initialization (admin only)
- return OK or error message
-RESTART: Disconnect, then reconnect and initialize the device (admin only)
- return OK or error message
 """
 import threading
 import json
@@ -35,8 +17,6 @@ import zmq.log.handlers
 from . import conf_path, FileDict
 from .util.future import Future
 from .util.proxydevice import proxycall
-
-ESCAPE_STRING = b'^'
 
 
 class MotorLimitsException(Exception):
@@ -185,10 +165,9 @@ class SocketDriverBase(DriverBase):
     """
 
     EOL = b'\n'                         # End of API sequence (default is \n)
-    ESCAPE_STRING = b'^'                # Escape string (or character) for daemon commands
     DEFAULT_DEVICE_ADDRESS = None       # The default address of the device socket.
     DEVICE_TIMEOUT = None               # Device socket timeout
-    NUM_CONNECTION_RETRY = 10           # Number of times to try to connect
+    NUM_CONNECTION_RETRY = 2            # Number of times to try to connect
     KEEPALIVE_INTERVAL = 10.            # Default Polling (keep-alive) interval
     logger = None
 
@@ -397,6 +376,9 @@ class SocketDriverBase(DriverBase):
 class MotorBase:
     """
     Representation of a motor (any object that has one translation / rotation axis).
+
+    User and dial positions are different and controlled by self.offset and self.scalar
+    Dial = (User*scalar)-offset
     """
     def __init__(self, name, driver):
         # Store motor name and driver instance

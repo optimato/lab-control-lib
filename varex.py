@@ -21,10 +21,10 @@ if importlib.util.find_spec('dexela') is not None:
     import dexela
 else:
     logger.info("Module dexela unavailable")
-    class FakeDexela:
+    class fake_dexela:
         def __getattr__(self, item):
             raise RuntimeError('Attempting to access "dexela" on a system where it is no present!')
-    globals().update({'DexelaPy': FakeDexela()})
+    globals().update({'dexela': fake_dexela()})
 
 __all__ = ['Varex']
 

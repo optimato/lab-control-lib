@@ -24,24 +24,20 @@ TCP sockets, Device Servers can run on different computers, as long as they are 
 is conferred only to one client at a time to ensure that no two processes attempt at controlling a device
 simultaneously (all "read-only" methods are however allowed by non-admin clients).
 
-In practice, this means that to each device requires two classes, the server (DeviceServer) and the client (Driver). The
-idea is to keep the Device Server as thin as possible, with the "knowledge" related to the Device API implemented
-mostly in the Driver class. This is easily done for all Socket Driver Servers, because then the Device Server simply
-acts as a middleman, or a message broker. Things are more complicated for Driver Servers that interact with the device
-through custom libraries, because the library calls have to be forwarded from the client to the server.
-
+In practice, each driver is implemented as if it is meant to be the single instance connected to the device. The base class
+`DriverBase` takes care of few things (logging, metadata collection), while `SocketDriverBase` has all what is needed to
+connect to devices that have socket connections.
+The module `proxydevice` provides server/client classes as well as decorators that transform all drivers into a
+server/client pair. Any method of the driver can be "exposed" as remotely accessible with the method decorator
+`@proxycall`. See the module doc for more info.
 
 Additional classes
 ------------------
-The DeviceServer subclasses are meant to be instantiated each on their own process, possibly on their own computer,
-should be running constantly. Users should never need to touch these.
-The Driver subclasses can be instantiated in any python program within the network. To the user, this should be the
-low-level access for specific configuration, experimentation, and debugging.
 Currently, apart from the X-ray source, devices fall in just two main categories: motion devices, and detectors. There
-are therefore two higher level classes (Motor and Camera) that is meant to provide access to the underlying device
-through a common interface. For instance, it might be that capturing a frame on one detector is done through a call of
-the "detect" method, while on the other it is called "record_frame" - but with the Camera wrapper both are called
-"snap". The hope is to make "Motors" and "Camera" instances sufficient for everyday use.
+is therefore a high-level class `Motor` meant to provide access to the underlying device through a common interface
+(with methods inspired from the `spec` language). For detectors, the common interface is `CameraBase`, which is a
+subclass of DriverBase. The hope is to make instances of `Motor` and `CameraBase` subclasses sufficient for everyday
+use.
 
 """
 import logging
@@ -55,8 +51,6 @@ from .network_conf import HOST_IPS
 from . import util
 from .util import logs, FileDict
 from ._version import version
-#from . import experiment
-
 
 #
 # SETUP LOGGING
