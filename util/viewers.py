@@ -16,6 +16,15 @@ class ViewerBase:
     DEFAULT_ADDRESS = ('localhost', 5555)
 
     def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15):
+        """
+        Base class for frame viewers. This class contains a FrameSubscriber that connects to a FramePublisher.
+        The method yeild_new_frame is a generator that can be iterated over.
+
+        address: tuple (ip, port) of the FramePublisher
+        compress: whether to use JPG compressed images (not a good idea for now)
+        max_fps: maximum FPS: Skip frames if they are incoming at a higher rate.
+        yield_timeout: time in seconds after which the generator will stop yielding and return.
+        """
         self.compress = compress
         self.max_fps = max_fps
         self.yield_timeout = yield_timeout
@@ -38,9 +47,9 @@ class ViewerBase:
         """
         pass
 
-    def update_viewer(self, frame):
+    def update_viewer(self, frame_and_meta):
         """
-        Show the frame.
+        Show the frame. metadata is any metadata sent along with the frame.
         """
         pass
 
@@ -58,7 +67,7 @@ class ViewerBase:
         t0 = time.time()
         while True:
             try:
-                frame, msg = self.frame_subscriber.receive(1)
+                frame, metadata = self.frame_subscriber.receive(1)
             except TimeoutError:
                 self.logger.info('no data')
                 if time.time() > t0 + self.yield_timeout:
@@ -69,7 +78,7 @@ class ViewerBase:
                 return
             if self.compress:
                 frame = self.uncompress(frame)
-            yield frame
+            yield frame, metadata
             time.sleep(twait)
             t0 = time.time()
 
@@ -96,8 +105,8 @@ class ViewerBase:
             self.update_viewer(next(self.yield_new_frame()))
         else:
             with FrameSubscriber(address=self.address, frames=not self.compress) as f:
-                frame, msg = f.receive(timeout=timeout)
-            self.update_viewer(frame)
+                frame, metadata = f.receive(timeout=timeout)
+            self.update_viewer((frame, metadata))
 
     @staticmethod
     def uncompress(buffer):
@@ -110,6 +119,7 @@ class NapariViewer(ViewerBase):
     def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15):
         self.v = None
         self.worker = None
+        self.epsize = None
         super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
 
     def prepare_viewer(self):
@@ -137,14 +147,32 @@ class NapariViewer(ViewerBase):
     def stop_viewer(self):
         self.worker.quit()
 
-    def update_viewer(self, frame):
+    def update_viewer(self, frame_and_meta):
         """
         Show the frame.
         """
+        frame, metadata = frame_and_meta
+        epsize = metadata.get('epsize')
         try:
             self.v.layers['Live View'].data = frame
+            if epsize != self.epsize:
+                self.epsize = epsize
+                self.update_scalebar()
         except KeyError:
+            # First time.
             self.v.add_image(frame, name='Live View')
+            if epsize:
+                self.epsize = epsize
+                self.update_scalebar()
+
+    def update_scalebar(self):
+        """
+        Update or add scalebar.
+        """
+        self.v.layers['Live View'].scale = [self.epsize, self.epsize]
+        self.v.scale_bar.visible = True
+        self.v.scale_bar.unit = 'um'
+        self.v.reset_view()
 
 
 class CvViewer(ViewerBase):
@@ -166,14 +194,15 @@ class CvViewer(ViewerBase):
         self._stop = True
 
     def _imshow(self):
-        for frame in self.yield_new_frame():
-            self.update_viewer(frame)
+        for frame_and_meta in self.yield_new_frame():
+            self.update_viewer(frame_and_meta)
             if self._stop:
                 break
 
-    def update_viewer(self, frame):
+    def update_viewer(self, frame_and_meta):
         """
         Show the frame.
         """
+        frame, metadata = frame_and_meta
         self.cv2.imshow('Live View', frame)
         self.cv2.waitKey(1)

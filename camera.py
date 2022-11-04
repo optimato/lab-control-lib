@@ -87,7 +87,7 @@ class CameraBase(DriverBase):
 
     DEFAULT_BROADCAST_PORT = DEFAULT_BROADCAST_PORT  # Default port for frame broadcasting
     BASE_PATH = ""
-    PIXEL_SIZE = (0, 0)            # Pixel size in mm
+    PIXEL_SIZE = (0, 0)            # Pixel size in um
     SHAPE = (0, 0)            # Native array dimensions (before binning)
     DATATYPE = 'uint16'            # Expected datatype
 
@@ -479,7 +479,7 @@ class CameraBase(DriverBase):
     @property
     def psize(self):
         """
-        Pixel size in mm (taking into account binning)
+        Pixel size in um (taking into account binning)
         """
         return self._get_psize()
 

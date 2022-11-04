@@ -36,7 +36,7 @@ class Varex(CameraBase):
     """
 
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
-    PIXEL_SIZE = 74.8e-6  # Physical pixel pitch in meters
+    PIXEL_SIZE = 74.8  # Physical pixel pitch in micrometers
     SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal)
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
 
