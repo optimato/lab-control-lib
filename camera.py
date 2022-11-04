@@ -150,9 +150,14 @@ class CameraBase(DriverBase):
         # Start collecting metadata *before* acquisition
         metadata = aggregate.get_all_meta()
 
-        localmeta = {'acquisition_start': now(),
+        scan_name = experiment.SCAN.scan_name if experiment.SCAN else None
+        localmeta = {'detector': self.name,
+                     'scan_name': scan_name,
+                     'acquisition_start': now(),
                      'psize': self.psize,
-                     'epsize': self.epsize}
+                     'epsize': self.epsize,
+                     'exposure_time': self.exposure_time,
+                     'operation_mode': self.operation_mode}
 
         frame, meta = self.grab_frame(*args, **kwargs)
 

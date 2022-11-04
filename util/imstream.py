@@ -142,6 +142,8 @@ class FrameSubscriber:
         Start receiving on a separate thread to avoid data backlogs
         """
         while not self._stop:
+            if (self.zmq_socket.poll(500.) & zmq.POLLIN) == 0:
+                continue
             self._data = self._recv()
             self.num_frames += 1
             if self._data_ready.isSet():

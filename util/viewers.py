@@ -24,6 +24,7 @@ class ViewerBase:
         compress: whether to use JPG compressed images (not a good idea for now)
         max_fps: maximum FPS: Skip frames if they are incoming at a higher rate.
         yield_timeout: time in seconds after which the generator will stop yielding and return.
+                       If None: never times out.
         """
         self.compress = compress
         self.max_fps = max_fps
@@ -39,6 +40,7 @@ class ViewerBase:
         else:
             self.address = address
 
+        self._stop_yielding = False
         self.prepare_viewer()
 
     def prepare_viewer(self):
@@ -69,9 +71,12 @@ class ViewerBase:
             try:
                 frame, metadata = self.frame_subscriber.receive(1)
             except TimeoutError:
-                self.logger.info('no data')
-                if time.time() > t0 + self.yield_timeout:
-                    return 'No frame sent within given timeout'
+                if self.yield_timeout and self.yield_timeout < time.time() - t0:
+                    self.logger.info('Timed out.')
+                    return
+                elif self._stop_yielding:
+                    self.logger.info('Exiting frame yielding loop.')
+                    return
                 else:
                     continue
             except AttributeError:
@@ -87,12 +92,14 @@ class ViewerBase:
         Initialize a subscriber to the frame source and start the viewer.
         """
         self.frame_subscriber = FrameSubscriber(address=self.address, frames=not self.compress)
+        self._stop_yielding = False
         self.start_viewer()
 
     def stop(self):
         """
         Stop the subscriber and stop the viewer
         """
+        self._stop_yielding = True
         self.stop_viewer()
         self.frame_subscriber.close()
         self.frame_subscriber = None
@@ -116,7 +123,7 @@ class ViewerBase:
 
 class NapariViewer(ViewerBase):
 
-    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15):
+    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=None):
         self.v = None
         self.worker = None
         self.epsize = None
@@ -177,7 +184,7 @@ class NapariViewer(ViewerBase):
 
 class CvViewer(ViewerBase):
 
-    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15):
+    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=None):
         import cv2
         self.cv2 = cv2
         self.thread = None
@@ -185,7 +192,7 @@ class CvViewer(ViewerBase):
         super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
 
     def prepare_viewer(self):
-        self.thread = threading.Thread(target=self._imshow)
+        self.thread = threading.Thread(target=self._imshow, daemon=True)
 
     def start_viewer(self):
         self.thread.start()
@@ -204,5 +211,8 @@ class CvViewer(ViewerBase):
         Show the frame.
         """
         frame, metadata = frame_and_meta
-        self.cv2.imshow('Live View', frame)
+        title = 'Live View'
+        if detector_name := metadata.get('detector'):
+            title = ' - '.join([title, detector_name])
+        self.cv2.imshow(title, frame)
         self.cv2.waitKey(1)
