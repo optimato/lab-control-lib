@@ -283,3 +283,10 @@ class XSpectrum(CameraBase):
     def thresholds(self, value):
         self.det.thresholds = value
 
+    @proxycall()
+    @property
+    def temperature(self):
+        """
+        Sensor temperature (in degree C)
+        """
+        return self.det.temperature(1)
