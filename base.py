@@ -130,6 +130,7 @@ class DriverBase:
 
         # Dictionary of metadata calls
         self.metacalls = {}
+        self.initialized = False
 
     def init_device(self):
         """

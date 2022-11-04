@@ -14,7 +14,7 @@ Highlights: The CameraBase class wraps detector operations in a uniform API.
     *  file_prefix (g/s)
     *  save_path (g/s)
     *  exposure_time (g/s)
-    *  exposure_mode (g/s)
+    *  operation_mode (g/s)
     *  exposure_number (g/s)
     *  binning (g/s)
     *  psize (g)
@@ -41,8 +41,8 @@ The following methods have to be implemented
     *  _set_exposure_time(self, value)
     *  _get_exposure_number(self)
     *  _set_exposure_number(self, value)
-    *  _get_exposure_mode(self)
-    *  _set_exposure_mode(self, value)
+    *  _get_operation_mode(self)
+    *  _set_operation_mode(self, value)
     *  _get_binning(self)
     *  _set_binning(self, value)
     *  _get_psize(self)
@@ -166,9 +166,9 @@ class CameraBase(DriverBase):
         if self.broadcaster:
             self.broadcaster.pub(frame, metadata)
 
-        self.store(frame, metadata)
+        self._store(frame, metadata)
 
-    def store(self, frame, metadata):
+    def _store(self, frame, metadata):
         """
         Store (if requested) frame and metadata
         """
@@ -178,15 +178,15 @@ class CameraBase(DriverBase):
             return
 
         # Build file name and call corresponding saving function
-        filename = self.build_filename()
+        filename = self._build_filename()
 
         if filename.endswith('h5'):
-            self.save_h5(filename, frame, metadata)
+            self._save_h5(filename, frame, metadata)
         elif filename.endswith('tif'):
-            self.save_tif(filename, frame, metadata)
+            self._save_tif(filename, frame, metadata)
         self.logger.info(f'Saved {filename}')
 
-    def build_filename(self) -> str:
+    def _build_filename(self) -> str:
         """
         Build the full file name to save to.
         """
@@ -209,7 +209,7 @@ class CameraBase(DriverBase):
             raise RuntimeError(f'Unknown file format: {self.file_format}.')
         return filename
 
-    def save_h5(self, filename, frame, metadata):
+    def _save_h5(self, filename, frame, metadata):
         """
         Save given frame and metadata to filename in h5 format.
         """
@@ -227,7 +227,7 @@ class CameraBase(DriverBase):
         h5write(filename, data=frame, meta=metadata)
         return
 
-    def save_tif(self, filename, frame, metadata):
+    def _save_tif(self, filename, frame, metadata):
         """
         Save given frame and metadata to filename in tiff format.
         """
@@ -295,7 +295,7 @@ class CameraBase(DriverBase):
         """
         settings = {'exposure_time': self.exposure_time,
                     'exposure_number': self.exposure_number,
-                    'exposure_mode': self.exposure_mode,
+                    'operation_mode': self.operation_mode,
                     'file_format': self.file_format,
                     'file_prefix': self.file_prefix,
                     'save_path': self.save_path,
@@ -330,17 +330,27 @@ class CameraBase(DriverBase):
         """
         raise NotImplementedError
 
-    def _get_exposure_mode(self):
+    def _get_operation_mode(self):
         """
-        Return exposure mode
+        Return operation mode
         """
         raise NotImplementedError
 
-    def _set_exposure_mode(self, value):
+    # Operation mode is a special case: 'value' is a dictionary
+    # So it's convenient to have a real setter
+
+    def set_operation_mode(self, **kwargs):
         """
-        Set exposure mode
+        Set operation mode based on key pair arguments.
         """
         raise NotImplementedError
+
+    def _set_operation_mode(self, value):
+        """
+        Set operation mode
+        """
+        value = value or {}
+        self.set_operation_mode(**value)
 
     def _get_binning(self):
         """
@@ -425,18 +435,19 @@ class CameraBase(DriverBase):
     @exposure_time.setter
     def exposure_time(self, value):
         self._set_exposure_time(value)
+        self.config['settings']['exposure_time'] = value
 
     @proxycall(admin=True)
     @property
-    def exposure_mode(self):
+    def operation_mode(self):
         """
         Set exposure mode.
         """
-        return self._get_exposure_mode()
+        return self._get_operation_mode()
 
-    @exposure_mode.setter
-    def exposure_mode(self, value):
-        self._set_exposure_mode(value)
+    @operation_mode.setter
+    def operation_mode(self, value):
+        self._set_operation_mode(value)
 
     @proxycall(admin=True)
     @property
@@ -449,6 +460,7 @@ class CameraBase(DriverBase):
     @exposure_number.setter
     def exposure_number(self, value):
         self._set_exposure_number(value)
+        self.config['settings']['exposure_number'] = value
 
     @proxycall(admin=True)
     @property
@@ -461,6 +473,7 @@ class CameraBase(DriverBase):
     @binning.setter
     def binning(self, value):
         self._set_binning(value)
+        self.config['settings']['binning'] = value
 
     @proxycall()
     @property
@@ -571,3 +584,4 @@ class CameraBase(DriverBase):
     @save.setter
     def save(self, value: bool):
         self.config['do_save'] = bool(value)
+

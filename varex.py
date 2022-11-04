@@ -49,40 +49,26 @@ class Varex(CameraBase):
         """
         super().__init__(broadcast_port=broadcast_port)
 
+        self.detector = None
+        self.init_device()
+
+    def init_device(self):
+        """
+        Initialize camera
+        """
+
         self.detector = dexela.DexelaDetector()
 
         self.logger.info('GigE detector is online')
 
-        settings = self.config.get('settings', {})
+        self.operation_mode = self.config.get('operation_mode', None)
+        self.exposure_time = self.config.get('exposure_time', .2)
+        self.binning = self.config.get('binning', 'x11')
+        self.exposure_number = self.config.get('exposure_number', 1)
 
-        # Get stored settings, use defaults for parameters that can't be found
-        settings.update({'full_well_mode': settings.get('full_well_mode', 'High'),
-                         'exposure_mode': settings.get('exposure_mode', 'sequence_exposure'),
-                         'exposure_time': settings.get('exposure_time', .2),
-                         'bins': settings.get('bins', 'x11'),
-                         'num_of_exposures': settings.get('num_of_exposures', 1),
-                         'readout_mode': settings.get('readout_mode', 'ContinuousReadout'),
-                         'gap_time': settings.get('gap_time', 0)})
-
-        # Save settings
-        self.config['settings'] = settings
-        self._apply_settings()
+        self.detector.set_gaptime(0)
         self.detector.set_trigger_source('internal_software')
-
-    def _apply_settings(self, settings=None):
-        """
-        Apply the settings in the settings dictionary.
-        If settings is None, use self.settings
-        """
-        if settings is None:
-            settings = self.config['settings']
-        detector = self.detector
-        detector.set_full_well_mode(settings['full_well_mode'])
-        detector.set_exposure_mode(settings['exposure_mode'])
-        detector.set_exposure_time(settings['exposure_time'])
-        detector.set_num_of_exposures(settings['num_of_exposures'])
-        detector.set_gap_time(settings['gap_time'])
-        detector.set_binning_mode(settings['bins'])
+        self.initialized = True
 
     def grab_frame(self):
         """
@@ -106,10 +92,10 @@ class Varex(CameraBase):
 
         frames = []
         meta = {}
-        # TODO: find better way of dealing with multiframe metadata
         for i in range(n_exp):
             f, m = det.read_buffer(i)
             frames.append(f)
+            # Overwrite meta - it's all the same.
             meta = m
 
         if det.is_live():
@@ -130,9 +116,9 @@ class Varex(CameraBase):
         return self.detector.get_exposure_time() / 1000
 
     def _set_exposure_time(self, value):
+        # From seconds to milliseconds
         etime = int(value*1000)
         self.detector.set_exposure_time(etime)
-        self.config['settings']['exposure_time'] = etime
 
     def _get_exposure_number(self):
         return self.detector.get_num_of_exposures()
@@ -141,19 +127,42 @@ class Varex(CameraBase):
         self.detector.set_num_of_exposures(value)
         self.config['settings']['num_of_exposures'] = value
 
-    def _get_exposure_mode(self):
-        return self.detector.get_exposure_mode()
+    def _get_operation_mode(self):
+        opmode = {'full_well_mode': self.detector.get_full_well_mode(),
+                  'exposure_mode': self.detector.get_exposure_mode(),
+                  'readout_mode': self.detector.get_readout_mode()}
+        return opmode
 
-    def _set_exposure_mode(self, value):
-        self.detector.set_full_well_mode(value)
-        self.config['settings']['full_well_mode'] = value
+    def set_operation_mode(self, full_well_mode=None, exposure_mode=None, readout_mode=None):
+        """
+        Set varex operation mode:
+
+        * full_well_mode: ('high' or 'low')
+        * exposure_mode: 'Expose_and_read', 'Sequence_Exposure', 'Frame_Rate_exposure', 'Preprogrammed_exposure'
+            NOTE: only 'Sequence_Exposure' is supported for now
+        * readout_mode: 'ContinuousReadout', 'IdleMode'
+            NOTE: only 'ContinuousReadout is supported
+        """
+        if (exposure_mode is not None) and exposure_mode.lower() != 'sequence_exposure':
+            raise RuntimeError('exposure_mode cannot be changed in the current implementation.')
+        if (readout_mode is not None) and readout_mode.lower() != 'continuousreadout':
+            raise RuntimeError('readout_mode cannot be changed in the current implementation.')
+
+        full_well_mode = full_well_mode or 'high'
+        readout_mode = 'continuousreadout'
+        exposure_mode = 'sequence_exposure'
+        self.detector.set_full_well_mode(full_well_mode)
+        self.detector.set_exposure_mode(exposure_mode)
+        self.detectpr.set_readout_mode(readout_mode)
+        self.config['settings']['operation_mode'] = {'full_well_mode': full_well_mode,
+                                                     'exposure_mode': exposure_mode,
+                                                     'readout_mode': readout_mode}
 
     def _get_binning(self):
         return self.detector.get_binning_mode()
 
     def _set_binning(self, value):
         self.detector.set_binning_mode(value)
-        self.config['settings']['bins'] = value
 
     def _get_psize(self):
         bins = self.binning
