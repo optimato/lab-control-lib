@@ -73,6 +73,9 @@ class Varex(CameraBase):
     def grab_frame(self):
         """
         Grab and return frame(s)
+
+        Independent of the number of exposures, the returned array
+        "frame" is a 3D array, with the frame index as the first dimension
         """
         det = self.detector
         n_exp = self.exposure_number

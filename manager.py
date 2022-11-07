@@ -26,6 +26,7 @@ from . import dummy
 from . import smaract
 from . import excillum
 from . import varex
+from . import xspectrum
 
 DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                 'smaract': {'driver': smaract.Smaract},
@@ -45,7 +46,7 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                 'varex': {'driver': varex.Varex},
               # 'xps': {},
               # 'pco': {},
-              # 'xspectrum': {},
+              'xspectrum': {'driver': xspectrum.XSpectrum},
                 }
 
 logger = logging.getLogger("manager")
@@ -53,8 +54,14 @@ logger = logging.getLogger("manager")
 
 def instantiate_driver(driver, client_kwargs=None, name=None, admin=True, spawn=True):
     """
-    Helper function to instantiate a driver and
-    spawning the corresponding daemon if necessary and requested.
+    Helper function to instantiate a driver and spawn the corresponding daemon
+    if necessary and requested.
+
+    client_kwargs: arguments passed to the proxydevice.Client wrapping the
+    driver.
+    name: driver name. Useful only if more than one instance of the same driver are needed.
+    admin: If True, request admin rights
+    spawn: If True, start the remote server if it is not found.
     """
     name = name or driver.__name__.lower()
     client_kwargs = client_kwargs or {}
@@ -73,8 +80,7 @@ def instantiate_driver(driver, client_kwargs=None, name=None, admin=True, spawn=
 
             # TODO: use paramiko.SSHClient for drivers that need to start on another host
             # On windows, the command will be something like:
-            # "Invoke-WmiMethod -Path 'Win32_Process' -Name Create -ArgumentList 'python -m labcontrol.startup startup varex'"
-
+            # Invoke-CimMethod -ClassName 'Win32_Process' -MethodName Create -Arguments @{ CommandLine = 'python -m labcontrol start varex'}
             p = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
                                  start_new_session=True)
             logger.info(f'Proxy server process for driver {name} has been spawned.')
