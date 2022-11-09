@@ -36,7 +36,7 @@ def connect(name=None):
 
     # Instantiate the driver
     try:
-        driver = instantiate_driver(DRIVER_DATA[name]['driver'], name=name, admin=False, spawn=False)
+        driver = instantiate_driver(name=name, admin=False, spawn=False)
     except DaemonException:
         logger.error(f'Driver {name} could not start.')
         driver = None
