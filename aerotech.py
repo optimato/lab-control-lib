@@ -63,8 +63,7 @@ class Aerotech(SocketDriverBase):
     EOL = b'\n'
 
     def __init__(self, device_address=None):
-        if device_address is None:
-            device_address = self.DEFAULT_DEVICE_ADDRESS
+        device_address = device_address or self.DEFAULT_DEVICE_ADDRESS
         super().__init__(device_address=device_address)
         self.metacalls.update({'rotation_angle': self.get_pos})
 

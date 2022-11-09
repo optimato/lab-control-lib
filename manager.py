@@ -37,9 +37,9 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                               'address': NETWORK_CONF['mclennan1']['control'],
                               'name': 'mclennan1'},
                 'mclennan2': {'driver': mclennan.McLennan,
-                              'instance_kwargs': {'kwargs': {'device_address': NETWORK_CONF['mclennan2']['device']},
-                                                'name': 'mclennan2',
-                                                'address': NETWORK_CONF['mclennan2']['control']},
+                              'instance_kwargs': {'device_address': NETWORK_CONF['mclennan2']['device'],
+                                                  'name': 'mclennan2'},
+                              'address': NETWORK_CONF['mclennan2']['control'],
                               'name': 'mclennan2'},
                 'excillum': {'driver': excillum.Excillum},
                 'dummy': {'driver': dummy.Dummy},
@@ -49,32 +49,44 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
               #'xspectrum': {'driver': xspectrum.XSpectrum},
                 }
 
+DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_CONF['mecademic']},
+                'smaract': {'driver': smaract.Smaract, 'net_info': NETWORK_CONF['smaract']},
+                'aerotech': {'driver': aerotech.Aerotech, 'net_info': NETWORK_CONF['aerotech']},
+                'mclennan1': {'driver': mclennan.McLennan1, 'net_info': NETWORK_CONF['mclennan1']},
+                'mclennan2': {'driver': mclennan.McLennan2, 'net_info': NETWORK_CONF['mclennan2']},
+                'mclennan3': {'driver': mclennan.McLennan3, 'net_info': NETWORK_CONF['mclennan3']},
+                'excillum': {'driver': excillum.Excillum, 'net_info': NETWORK_CONF['excillum']},
+                'dummy': {'driver': dummy.Dummy, 'net_info': NETWORK_CONF['dummy']},
+                'varex': {'driver': varex.Varex, 'net_info': NETWORK_CONF['varex']},
+              # 'xps': {},
+              # 'pco': {},
+              #'xspectrum': {'driver': xspectrum.XSpectrum},
+                }
+
+
 logger = logging.getLogger("manager")
 
 
-def instantiate_driver(driver, name=None, admin=True, spawn=True):
+def instantiate_driver(name, admin=True, spawn=True):
     """
-    Helper function to instantiate a driver and spawn the corresponding daemon
+    Helper function to instantiate a driver (client) and spawn the corresponding server proxy
     if necessary and requested.
 
-    instance_kwargs: arguments passed to the proxydevice.Client wrapping the
-    driver.
-    name: driver name. Useful only if more than one instance of the same driver are needed.
+    name: driver name - a key of DRIVER_DATA.
     admin: If True, request admin rights
     spawn: If True, start the remote server if it is not found.
     """
-    name = name or driver.__name__.lower()
     driver_data = DRIVER_DATA[name]
+    driver = driver_data['driver']
+    net_info = driver_data['net_info']
 
     # Try to instantiate a driver client
     d = None
     while True:
         try:
-            d = driver.Client(address=driver_data.get('address'),
+            d = driver.Client(address=net_info['control'],
                               admin=admin,
-                              name=name,
-                              args=driver_data.get('instance_args', ()),
-                              kwargs=driver_data.get('instance_kwargs', {}))
+                              name=name)
             return d
         except ProxyClientError:
             if not spawn:

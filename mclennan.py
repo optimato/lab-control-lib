@@ -98,9 +98,9 @@ import json
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .ui_utils import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
+from .network_conf import NETWORK_CONF
 
-
-__all__ = ['McLennan', 'Motor']
+__all__ = ['McLennan1', 'McLennan2', 'McLennan3', 'Motor']
 
 # This API uses carriage return (\r) as end-of-line.
 EOL = b'\r'
@@ -600,6 +600,45 @@ class McLennan(SocketDriverBase):
         self.config['limits'] = limits
 
 
+@proxydevice(address=NETWORK_CONF['mclennan1']['control'])
+class McLennan1(McLennan):
+    """
+    Driver for motor 1
+    """
+    def __init__(self, device_address=None):
+        """
+        Constructor requires 'name' to differentiate multiple instances.
+        """
+        self.name = 'mclennan1'
+        super().__init__(device_address=NETWORK_CONF[self.name]['device'], name=self.name)
+
+
+@proxydevice(address=NETWORK_CONF['mclennan2']['control'])
+class McLennan2(McLennan):
+    """
+    Driver for motor 2
+    """
+    def __init__(self, device_address=None):
+        """
+        Constructor requires 'name' to differentiate multiple instances.
+        """
+        self.name = 'mclennan2'
+        super().__init__(device_address=NETWORK_CONF[self.name]['device'], name=self.name)
+
+
+@proxydevice(address=NETWORK_CONF['mclennan3']['control'])
+class McLennan3(McLennan):
+    """
+    Driver for motor 3
+    """
+    def __init__(self, device_address=None):
+        """
+        Constructor requires 'name' to differentiate multiple instances.
+        """
+        self.name = 'mclennan3'
+        super().__init__(device_address=NETWORK_CONF[self.name]['device'], name=self.name)
+
+
 class Motor(MotorBase):
     def __init__(self, name, driver):
         super(Motor, self).__init__(name, driver)
@@ -619,3 +658,4 @@ class Motor(MotorBase):
         Set absolute position
         """
         return self.driver.move_rel(x)
+
