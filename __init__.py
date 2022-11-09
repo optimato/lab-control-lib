@@ -158,8 +158,3 @@ from . import dummy
 #from . import xpsfun_ronan
 
 #from .ui import *
-
-
-if __name__ == "__main__":
-    from .manager import cli
-    cli()
