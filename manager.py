@@ -32,12 +32,12 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                 'smaract': {'driver': smaract.Smaract},
                 'aerotech': {'driver': aerotech.Aerotech},
                 'mclennan1': {'driver': mclennan.McLennan,
-                              'client_kwargs': {'kwargs': {'device_address': NETWORK_CONF['mclennan1']['device']},
-                                                'name': 'mclennan1',
-                                                'address': NETWORK_CONF['mclennan1']['control']},
+                              'instance_kwargs': {'device_address': NETWORK_CONF['mclennan1']['device'],
+                                                  'name': 'mclennan1'},
+                              'address': NETWORK_CONF['mclennan1']['control'],
                               'name': 'mclennan1'},
                 'mclennan2': {'driver': mclennan.McLennan,
-                              'client_kwargs': {'kwargs': {'device_address': NETWORK_CONF['mclennan2']['device']},
+                              'instance_kwargs': {'kwargs': {'device_address': NETWORK_CONF['mclennan2']['device']},
                                                 'name': 'mclennan2',
                                                 'address': NETWORK_CONF['mclennan2']['control']},
                               'name': 'mclennan2'},
@@ -46,50 +46,58 @@ DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
                 'varex': {'driver': varex.Varex},
               # 'xps': {},
               # 'pco': {},
-              'xspectrum': {'driver': xspectrum.XSpectrum},
+              #'xspectrum': {'driver': xspectrum.XSpectrum},
                 }
 
 logger = logging.getLogger("manager")
 
 
-def instantiate_driver(driver, client_kwargs=None, name=None, admin=True, spawn=True):
+def instantiate_driver(driver, name=None, admin=True, spawn=True):
     """
     Helper function to instantiate a driver and spawn the corresponding daemon
     if necessary and requested.
 
-    client_kwargs: arguments passed to the proxydevice.Client wrapping the
+    instance_kwargs: arguments passed to the proxydevice.Client wrapping the
     driver.
     name: driver name. Useful only if more than one instance of the same driver are needed.
     admin: If True, request admin rights
     spawn: If True, start the remote server if it is not found.
     """
     name = name or driver.__name__.lower()
-    client_kwargs = client_kwargs or {}
+    driver_data = DRIVER_DATA[name]
 
     # Try to instantiate a driver client
     d = None
-    try:
-        d = driver.Client(admin=admin, **client_kwargs)
-    except ProxyClientError:
-        if not spawn:
-            logger.warning(f'The proxy server for driver {name} is unreachable')
-            return None
+    while True:
+        try:
+            d = driver.Client(address=driver_data.get('address'),
+                              admin=admin,
+                              name=name,
+                              args=driver_data.get('instance_args', ()),
+                              kwargs=driver_data.get('instance_kwargs', {}))
+            return d
+        except ProxyClientError:
+            if not spawn:
+                logger.warning(f'The proxy server for driver {name} is unreachable')
+                return None
 
-        # Didn't connect. Let's try to spawn the server.
-        if ask_yes_no(f'Server proxy for {name} unreachable. Spawn it?'):
+            # Didn't connect. Let's try to spawn the server.
+            if ask_yes_no(f'Server proxy for {name} unreachable. Spawn it?'):
 
-            # TODO: use paramiko.SSHClient for drivers that need to start on another host
-            # On windows, the command will be something like:
-            # Invoke-CimMethod -ClassName 'Win32_Process' -MethodName Create -Arguments @{ CommandLine = 'python -m labcontrol start varex'}
-            p = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
-                                 start_new_session=True)
-            logger.info(f'Proxy server process for driver {name} has been spawned.')
+                # TODO: use paramiko.SSHClient for drivers that need to start on another host
+                # On windows, the command will be something like:
+                # Invoke-CimMethod -ClassName 'Win32_Process' -MethodName Create -Arguments @{ CommandLine = 'python -m labcontrol start varex'}
+                p = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
+                                     start_new_session=True)
+                logger.info(f'Proxy server process for driver {name} has been spawned.')
 
-            # TODO: wait a little but not too much
-            time.sleep(5)
-            d = driver.Client(admin=admin, **client_kwargs)
-        else:
-            logger.error(f'Driver {driver.name} is not running.')
+                # TODO: wait a little but not too much
+                time.sleep(5)
+                spawn = False
+                continue
+            else:
+                logger.error(f'Driver {driver.name} is not running.')
+                return None
     return d
 
 
@@ -226,36 +234,44 @@ def running():
     click.echo('Here I will list all running daemons')
 
 
-@cli.command(help='Start a daemon')
-@click.argument('name')
+@cli.command(help='Start a server proxy for a given name')
+@click.argument('name', nargs=-1)
 def start(name):
-    click.echo(f'Starting server proxy for driver {name}')
-    if name == 'mecademic':
-        s = mecademic.Mecademic.Server(instantiate=True)
-        s.wait()
-        sys.exit(0)
-    if name == 'dummy':
-        s = dummy.Dummy.Server(instantiate=True)
-        s.wait()
-        sys.exit(0)
-    if name == 'smaract':
-        s = smaract.Smaract.Server(instantiate=True)
-        s.wait()
-        sys.exit(0)
-    if name == 'mclennan1' or name == 'mclennan2':
-        # Here we have more than one motors
-        s = mclennan.McLennan.Server(address=NETWORK_CONF[name]['DAEMON'],
-                                     instantiate=True,
-                                     instance_kwargs=dict(address=NETWORK_CONF[name]['DEVICE']))
-        s.wait()
-        sys.exit(0)
-    if name == 'aerotech':
-        s = aerotech.Aerotech.Server()
-        s.wait()
-        sys.exit(0)
-    if name == 'excillum':
-        s = excillum.Excillum.Server()
-        s.wait()
-        sys.exit(0)
-    # pco, varex, xspectrum, xps
+    available_drivers = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
 
+    # Without driver name: list available drivers on current host
+    if not name:
+        click.echo('Available drivers on this host:\n * ' + '\n * '.join(available_drivers))
+        return
+
+    if len(name) > 1:
+        click.echo('Warning, only supporting one driver at a time for the moment.')
+
+    name = name[0]
+
+    if name not in available_drivers:
+        raise click.BadParameter(f'Driver {name} cannot be launched from host {THIS_HOST} ({LOCAL_HOSTNAME}).')
+
+    # Get driver info
+    try:
+        driver_data = DRIVER_DATA[name]
+        net_info = NETWORK_CONF[name]
+    except KeyError:
+        raise click.BadParameter(f'No driver named {name}')
+
+    click.echo(f'Starting server proxy for driver {name}')
+
+    # Get driver class and instantiation arguments
+    driver_cls = driver_data['driver']
+    instance_args = driver_data.get('instance_args', ())
+    instance_kwargs = driver_data.get('instance_kwargs', {})
+
+    # Start the server
+    s = driver_cls.Server(address=net_info['control'],
+                          instantiate=True,
+                          instance_args=instance_args,
+                          instance_kwargs=instance_kwargs)
+
+    # Wait for completion, then exit.
+    s.wait()
+    sys.exit(0)

@@ -17,7 +17,7 @@ DRIVERS = {}
 def connect(name=None):
     """
     Instantiate one or multiple drivers.
-    If name is None, instatiate all available.
+    If name is None, instantiate all available.
     """
     from .manager import instantiate_driver, DRIVER_DATA
 
@@ -36,7 +36,7 @@ def connect(name=None):
 
     # Instantiate the driver
     try:
-        driver = instantiate_driver(**DRIVER_DATA[name], admin=False, spawn=False)
+        driver = instantiate_driver(DRIVER_DATA[name]['driver'], name=name, admin=False, spawn=False)
     except DaemonException:
         logger.error(f'Driver {name} could not start.')
         driver = None
