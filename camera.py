@@ -514,14 +514,14 @@ class CameraBase(DriverBase):
         """
         *Effective* pixel size (taking into account both binning and geometric magnification)
         """
-        return self.magnification * self.psize
+        return self.psize / self.magnification
 
     @epsize.setter
     def epsize(self, new_eps):
         """
         Set the *effective* pixel size. This effectively changes the magnification
         """
-        self.magnification = new_eps / self.psize
+        self.magnification = self.psize / new_eps
 
     @proxycall(admin=True)
     @property

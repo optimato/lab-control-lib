@@ -44,11 +44,16 @@ class A:
     def x_value(self, v):
         self.x = v
 
+# Create a normal instance:
+a = A()
+
+# OR
+
 # On one computer:
-server = A.server()
+server = A.Server()
 
 # On another computer:
-a = A.client()
+a = A.Client()
 # now a has all methods that have been exposed by the proxycall decorator
 a.get_multiple(5)
  -> 5

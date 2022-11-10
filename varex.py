@@ -66,7 +66,7 @@ class Varex(CameraBase):
         self.binning = self.config.get('binning', 'x11')
         self.exposure_number = self.config.get('exposure_number', 1)
 
-        self.detector.set_gaptime(0)
+        self.detector.set_gap_time(0)
         self.detector.set_trigger_source('internal_software')
         self.initialized = True
 
@@ -156,7 +156,7 @@ class Varex(CameraBase):
         exposure_mode = 'sequence_exposure'
         self.detector.set_full_well_mode(full_well_mode)
         self.detector.set_exposure_mode(exposure_mode)
-        self.detectpr.set_readout_mode(readout_mode)
+        self.detector.set_readout_mode(readout_mode)
         self.config['settings']['operation_mode'] = {'full_well_mode': full_well_mode,
                                                      'exposure_mode': exposure_mode,
                                                      'readout_mode': readout_mode}

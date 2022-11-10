@@ -15,6 +15,16 @@ from .util.proxydevice import proxydevice, proxycall
 EOL = b'\n'
 
 
+def try_float(value):
+    """
+    Convert to float if possible
+    """
+    try:
+        return float(value)
+    except ValueError:
+        return value
+
+
 @proxydevice(address=NET_INFO['control'])
 class Excillum(SocketDriverBase):
     """
@@ -164,36 +174,36 @@ class Excillum(SocketDriverBase):
     @proxycall()
     @property
     def spotsize_x_um(self):
-        return float(self.send_cmd("spotsize_x_um?"))
+        return try_float(self.send_cmd("spotsize_x_um?"))
 
     @proxycall()
     @property
     def spotsize_y_um(self):
-        return float(self.send_cmd("spotsize_y_um?"))
+        return try_float(self.send_cmd("spotsize_y_um?"))
 
     @proxycall()
     @property
     def generator_emission_current_a(self):
-        return float(self.send_cmd("generator_emission_current?"))
+        return try_float(self.send_cmd("generator_emission_current?"))
 
     @proxycall()
     @property
     def generator_emission_power_w(self):
-        return float(self.send_cmd("generator_emission_power?"))
+        return try_float(self.send_cmd("generator_emission_power?"))
 
     @proxycall()
     @property
     def generator_high_voltage(self):
-        return float(self.send_cmd("generator_high_voltage?"))
+        return try_float(self.send_cmd("generator_high_voltage?"))
 
     @proxycall()
     @property
     def vacuum_pressure_pa(self):
-        return float(self.send_cmd("vacuum_pressure_mbar_short_average?"))
+        return try_float(self.send_cmd("vacuum_pressure_mbar_short_average?"))
 
     @property
     def jet_pressure_pa(self):
-        return float(self.send_cmd("jet_pressure_average?"))
+        return try_float(self.send_cmd("jet_pressure_average?"))
 
     @proxycall()
     @property
@@ -201,7 +211,7 @@ class Excillum(SocketDriverBase):
         """
         Spot position in x (microns)
         """
-        return float(self.send_cmd("spot_position_x_um?"))
+        return try_float(self.send_cmd("spot_position_x_um?"))
 
     @proxycall()
     @property
@@ -209,7 +219,7 @@ class Excillum(SocketDriverBase):
         """
         Spot position in y (microns)
         """
-        return float(self.send_cmd("spot_position_y_um?"))
+        return try_float(self.send_cmd("spot_position_y_um?"))
 
     @proxycall()
     @property
@@ -217,7 +227,7 @@ class Excillum(SocketDriverBase):
         """
         Jet pump frequency (in Hz)
         """
-        return float(self.send_cmd('jetpump_frequency?'))
+        return try_float(self.send_cmd('jetpump_frequency?'))
 
     @proxycall()
     @property
