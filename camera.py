@@ -107,12 +107,13 @@ class CameraBase(DriverBase):
             self.config['do_broadcast'] = True
         if 'magnification' not in self.config:
             self.magnification = 1.
+        if 'counter' not in self.config:
+            self.counter = 0
 
         self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
 
         # Used for file naming when acquiring sequences
-        self.counter = 0
 
         # Prepare metadata collection
         aggregate.connect()
@@ -266,10 +267,9 @@ class CameraBase(DriverBase):
             old_file_prefix = self.file_prefix
             old_save_path = self.save_path
             try:
-                self.save_path = experiment.SCAN.path
-                self.file_prefix = experiment.SCAN.scan_name
+                self.save_path = experiment.SCAN.scan_path
+                self.file_prefix = experiment.SCAN.next_prefix()
                 self.acquire()
-                experiment.SCAN.counter += 1
             finally:
                 self.file_prefix = old_file_prefix
                 self.save_path = old_save_path
@@ -286,6 +286,13 @@ class CameraBase(DriverBase):
         If switch is None: toggle rolling state, otherwise turn on (True) or off (False)
         """
         raise NotImplementedError
+
+    @proxycall(admin=True)
+    def reset_counter(self, value=0):
+        """
+        Reset internal counter to 0 (or to specified value)
+        """
+        self.counter = value
 
     def grab_frame(self, *args, **kwargs):
         """
@@ -590,3 +597,13 @@ class CameraBase(DriverBase):
     def save(self, value: bool):
         self.config['do_save'] = bool(value)
 
+    @property
+    def counter(self):
+        """
+        Internal counter for file naming outside of scans
+        """
+        return self.config['counter']
+
+    @counter.setter
+    def counter(self, value: int):
+        self.config['counter'] = value
