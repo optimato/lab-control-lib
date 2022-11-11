@@ -141,9 +141,10 @@ motors = {}
 # dictionary of camera instances
 cameras = {}
 
+from .manager import init
 # Import all driver submodules
-from . import aerotech
-from . import dummy
+#from . import aerotech
+#from . import dummy
 #from . import mclennan
 #from . import mecademic
 #from . import microscope

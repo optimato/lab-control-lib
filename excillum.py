@@ -43,10 +43,15 @@ class Excillum(SocketDriverBase):
 
         self.metacalls.update({'state': lambda: self.state,
                                'jet_is_stable': lambda: self.jet_is_stable,
+                               'jet_pump_frequency': lambda: self.jetpump_frequency,
                                'generator_high_voltage': lambda: self.generator_high_voltage,
                                'generator_emission_power_w': lambda: self.generator_emission_power_w,
+                               'generator_emission_current_a': lambda: self.generator_emission_current_a,
                                'spotsize_x_um': lambda: self.spotsize_x_um,
-                               'spotsize_y_um': lambda: self.spotsize_y_um
+                               'spotsize_y_um': lambda: self.spotsize_y_um,
+                               'spot_position_x_um': lambda: self.spot_position_x_um,
+                               'spot_position_y_um': lambda: self.spot_position_y_um,
+                               'vacuum_pressure_pa': lambda: self.vacuum_pressure_pa,
                                })
 
     def init_device(self):

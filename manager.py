@@ -28,27 +28,6 @@ from . import excillum
 from . import varex
 from . import xspectrum
 
-DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic},
-                'smaract': {'driver': smaract.Smaract},
-                'aerotech': {'driver': aerotech.Aerotech},
-                'mclennan1': {'driver': mclennan.McLennan,
-                              'instance_kwargs': {'device_address': NETWORK_CONF['mclennan1']['device'],
-                                                  'name': 'mclennan1'},
-                              'address': NETWORK_CONF['mclennan1']['control'],
-                              'name': 'mclennan1'},
-                'mclennan2': {'driver': mclennan.McLennan,
-                              'instance_kwargs': {'device_address': NETWORK_CONF['mclennan2']['device'],
-                                                  'name': 'mclennan2'},
-                              'address': NETWORK_CONF['mclennan2']['control'],
-                              'name': 'mclennan2'},
-                'excillum': {'driver': excillum.Excillum},
-                'dummy': {'driver': dummy.Dummy},
-                'varex': {'driver': varex.Varex},
-              # 'xps': {},
-              # 'pco': {},
-              #'xspectrum': {'driver': xspectrum.XSpectrum},
-                }
-
 DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_CONF['mecademic']},
                 'smaract': {'driver': smaract.Smaract, 'net_info': NETWORK_CONF['smaract']},
                 'aerotech': {'driver': aerotech.Aerotech, 'net_info': NETWORK_CONF['aerotech']},
@@ -100,15 +79,30 @@ def instantiate_driver(name, admin=True, spawn=True):
                 # On windows, the command will be something like:
                 # Invoke-CimMethod -ClassName 'Win32_Process' -MethodName Create -Arguments @{ CommandLine = 'python -m labcontrol start varex'}
                 p = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
-                                     start_new_session=True)
-                logger.info(f'Proxy server process for driver {name} has been spawned.')
+                                     start_new_session=True,
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.PIPE)
+                logger.info(f'Trying to spawn proxy server process for driver {name}.')
 
-                # TODO: wait a little but not too much
-                time.sleep(5)
+                time.sleep(.5)
+                t0 = time.time()
+                failed = False
+                while time.time() < t0 + 10:
+                    err = p.stderr.read()
+                    if (b'Error' in err) or (p.poll() is not None):
+                        # Process exited
+                        logger.warning('Driver proxy spawning failed')
+                        failed = True
+                        break
+                    time.sleep(.1)
+
+                if failed:
+                    break
+
                 spawn = False
                 continue
             else:
-                logger.error(f'Driver {driver.name} is not running.')
+                logger.error(f'Driver {driver.__name__} is not running.')
                 return None
     return d
 
@@ -126,15 +120,11 @@ def boot():
             kwargs['admin'] = False
             d = instantiate_driver(**kwargs)
 
-
-def init_all(yes=None):
+def init(yes=None, spawn=False):
     """
     Initialize components of the setup.
     Syntax:
-        init_all()
-    is interactive
-
-    TODO: Take care of starting deamons remotely if needed.
+        init()
     """
     if yes:
         # Fake non-interactive to answer all questions automatically
@@ -142,13 +132,13 @@ def init_all(yes=None):
 
     # Excillum
     if ask_yes_no("Connect to Excillum?"):
-        driver = instantiate_driver(**DRIVER_DATA['excillum'])
+        driver = instantiate_driver(name='excillum', spawn=spawn)
         drivers['excillum'] = driver
 
     # Smaract
     if ask_yes_no('Initialise smaracts?',
                   help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
-        driver = instantiate_driver(**DRIVER_DATA['smaract'])
+        driver = instantiate_driver(name='smaract', spawn=spawn)
         drivers['smaract'] = driver
         if driver is not None:
             motors['sx'] = smaract.Motor('sx', driver, axis=0)
@@ -158,19 +148,19 @@ def init_all(yes=None):
     # Coarse stages
     if ask_yes_no('Initialise short branch coarse stages?'):
         # McLennan 1 (sample coarse x translation)
-        driver = instantiate_driver(**DRIVER_DATA['mclennan1'])
+        driver = instantiate_driver(name='mclennan1', spawn=spawn)
         drivers['mclennan_sample'] = driver
         if driver is not None:
             motors['ssx'] = mclennan.Motor('ssx', driver)
 
         # McLennan 2 (detector coarse x translation)
-        driver = instantiate_driver(**DRIVER_DATA['mclennan2'])
+        driver = instantiate_driver(name='mclennan2', spawn=spawn)
         drivers['mclennan_detector'] = driver
         if driver is not None:
             motors['dsx'] = mclennan.Motor('dsx', driver)
 
     if ask_yes_no('Initialise Varex detector?'):
-        driver = instantiate_driver(**DRIVER_DATA['varex'])
+        driver = instantiate_driver(name='varex', spawn=spawn)
         drivers['varex'] = driver
         if driver is not None:
             cameras['varex'] = driver.Camera('varex', driver)
@@ -185,7 +175,7 @@ def init_all(yes=None):
         print('TODO')
 
     if ask_yes_no('Initialise rotation stage?'):
-        driver = instantiate_driver(**DRIVER_DATA['aerotech'])
+        driver = instantiate_driver(name='aerotech', spawn=spawn)
         drivers['aerotech'] = driver
         if driver is not None:
             motors['rot'] = aerotech.Motor('rot', driver)
@@ -194,7 +184,7 @@ def init_all(yes=None):
         print('TODO')
 
     if ask_yes_no('Initialize mecademic robot?'):
-        driver = instantiate_driver(**DRIVER_DATA['mecademic'])
+        driver = instantiate_driver(name='mecademic', spawn=spawn)
         drivers['mecademic'] = driver
         if driver is not None:
             motors.update(driver.create_motors())
@@ -225,7 +215,7 @@ def init_dummy(yes=None):
         ui_utils.user_interactive = False
 
     if ask_yes_no("Start dummy driver?"):
-        driver = instantiate_driver(**DRIVER_DATA['dummy'])
+        driver = instantiate_driver(name='dummy')
         drivers['dummy'] = driver
 
 

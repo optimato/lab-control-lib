@@ -22,7 +22,7 @@ BASE_PATH = os.path.abspath(os.path.expanduser("~/data/"))
 if importlib.util.find_spec('pyxsp') is not None:
     import pyxsp
 else:
-    logger.info("Module pyxsp unavailable")
+    logger.debug("Module pyxsp unavailable on this host")
     class fake_pyxsp:
         def __getattr__(self, item):
             raise RuntimeError('Attempting to access "pyxsp" on a system where it is not present!')

@@ -20,7 +20,7 @@ BASE_PATH = "C:\\DATA\\"
 if importlib.util.find_spec('dexela') is not None:
     import dexela
 else:
-    logger.info("Module dexela unavailable")
+    logger.debug("Module dexela unavailable on this host")
     class fake_dexela:
         def __getattr__(self, item):
             raise RuntimeError('Attempting to access "dexela" on a system where it is no present!')
