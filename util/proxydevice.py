@@ -297,6 +297,9 @@ class ServerBase:
         # Manage API command
         self.logger.debug(f'Running command "{cmd}"')
 
+        if self.instance is None:
+            return {'status': 'error', 'msg': 'Instance not yet initialized'}
+
         # Manage property get / set
         if self.API[cmd]['property']:
             self.logger.debug(f'{cmd} is a property.')
@@ -370,7 +373,11 @@ class ServerBase:
         kwargs = kwargs or {}
 
         # Instantiate the wrapped object
-        self.instance = self.cls(*args, **kwargs)
+        try:
+            self.instance = self.cls(*args, **kwargs)
+        except BaseException as error:
+            self.instance = None
+            return
 
         # Look for an interrupt method (will be called with an ^abort command)
         self.interrupt_method = None
@@ -385,15 +392,6 @@ class ServerBase:
         Manage new client.
         """
         _, _, args, kwargs = message
-
-        if self.instance is None:
-            # First connection! We create the class instance
-            # Using the passed parameters.
-            try:
-                self.create_instance(args=args, kwargs=kwargs)
-            except BaseException as error:
-                reply = {'status': 'error', 'msg': repr(error)}
-                return reply
 
         # Prepare client-specific info
         ID = self.IDcounter + 0
@@ -412,7 +410,12 @@ class ServerBase:
                             'max_reply_time': 0.,
                             'last_reply_time': 0.}
 
-        reply = {'status': 'ok', 'value': {'ID':ID}}
+        if self.instance is None:
+            # First connection! We create the class instance
+            # Using the passed parameters.
+            Future(target=self.create_instance, args=args, kwargs=kwargs)
+
+        reply = {'status': 'ok', 'value': {'ID': ID}}
         self.logger.info(f'Client #{ID} connected.')
         return reply
 
@@ -697,8 +700,9 @@ class ClientProxy:
             if reply['status'] == 'error':
                 # Raise error if there was one
                 raise RuntimeError(f'Server error: {reply["msg"]}')
-            elif cmd in self.API and (not self.API[cmd]['block']):
-                # Wait for non-blocking calls
+            elif (cmd in self.API) and (not self.API[cmd]['block']):
+                # Wait for non-blocking calls (cmd == '' corresponds to the case where object instantiation
+                # might take a lot of time)
                 try:
                     while True:
                         reply = self.send_recv((self.ID, '^result', [], {}), clean=False)
