@@ -162,8 +162,6 @@ def init(yes=None, spawn=False):
     if ask_yes_no('Initialise Varex detector?'):
         driver = instantiate_driver(name='varex', spawn=spawn)
         drivers['varex'] = driver
-        if driver is not None:
-            cameras['varex'] = driver.Camera('varex', driver)
 
     if ask_yes_no('Initialise PCO camera?'):
         print('TODO')

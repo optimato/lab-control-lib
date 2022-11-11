@@ -39,7 +39,7 @@ class Varex(CameraBase):
     PIXEL_SIZE = 74.8  # Physical pixel pitch in micrometers
     SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal)
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
-
+    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     def __init__(self, broadcast_port=None):
         """
         Initialization.
