@@ -49,7 +49,7 @@ class ViewerBase:
         """
         pass
 
-    def update_viewer(self, frame_and_meta):
+    def manage_new_frame(self, frame_and_meta):
         """
         Show the frame. metadata is any metadata sent along with the frame.
         """
@@ -109,11 +109,11 @@ class ViewerBase:
         Grab a single frame, waiting for maximum time timeout.
         """
         if self.frame_subscriber is not None:
-            self.update_viewer(next(self.yield_new_frame()))
+            self.manage_new_frame(next(self.yield_new_frame()))
         else:
             with FrameSubscriber(address=self.address, frames=not self.compress) as f:
                 frame, metadata = f.receive(timeout=timeout)
-            self.update_viewer((frame, metadata))
+            self.manage_new_frame((frame, metadata))
 
     @staticmethod
     def uncompress(buffer):
@@ -140,42 +140,74 @@ class NapariViewer(ViewerBase):
         self.worker = create_worker(self.yield_new_frame)
 
         # This will update the GUI each time the function yields
-        self.worker.yielded.connect(self.update_viewer)
+        self.worker.yielded.connect(self.manage_new_frame)
 
         # Create toggle start/pause button TODO: change all this.
+        """
         button = QPushButton("Pause")
         button.clicked.connect(self.worker.toggle_pause)
         self.worker.finished.connect(button.clicked.disconnect)
 
+        
         # Add to napari viewer
-        self.v.window.add_dock_widget(button, area='top')
+        self.v.window.add_dock_widget(button, area='right')
+        """
+        from magicgui import magicgui
+
+        @magicgui(call_button="Pause")
+        def pause():
+            self.worker.toggle_pause()
+
+        """
+        @magicgui(
+            call_button="Calculate",
+            slider_float={"widget_type": "FloatSlider", 'max': 10},
+            dropdown={"choices": ['first', 'second', 'third']},
+        )
+        def widget_demo(
+                maybe: bool,
+                some_int: int,
+                spin_float=3.14159,
+                slider_float=4.5,
+                string="Text goes here",
+                dropdown='first',
+        ):
+            pass
+        """
+        self.v.window.add_dock_widget(pause, area='right')
+
         self.worker.start()
 
     def stop_viewer(self):
         self.worker.quit()
 
-    def update_viewer(self, frame_and_meta):
+    def manage_new_frame(self, frame_and_meta):
         """
-        Show the frame.
+        Update the viewer and scalebar. This could be overriden for detector-specific
+        viewers.
         """
         frame, metadata = frame_and_meta
         epsize = metadata.get('epsize')
+        self.update_layer(frame, metadata)
+        self.update_scalebar(epsize)
+
+    def update_layer(self, frame, metadata):
+        """
+        Update the data in the live view layer.
+        """
         try:
             self.v.layers['Live View'].data = frame
-            if epsize != self.epsize:
-                self.epsize = epsize
-                self.update_scalebar()
         except KeyError:
             # First time.
             self.v.add_image(frame, name='Live View')
-            if epsize:
-                self.epsize = epsize
-                self.update_scalebar()
 
-    def update_scalebar(self):
+    def update_scalebar(self, epsize):
         """
-        Update or add scalebar.
+        Update or add scalebar if needed.
         """
+        if epsize == self.epsize:
+            return
+        self.epsize = epsize
         self.v.layers['Live View'].scale = [self.epsize, self.epsize]
         self.v.scale_bar.visible = True
         self.v.scale_bar.unit = 'um'
@@ -202,11 +234,11 @@ class CvViewer(ViewerBase):
 
     def _imshow(self):
         for frame_and_meta in self.yield_new_frame():
-            self.update_viewer(frame_and_meta)
+            self.manage_new_frame(frame_and_meta)
             if self._stop:
                 break
 
-    def update_viewer(self, frame_and_meta):
+    def manage_new_frame(self, frame_and_meta):
         """
         Show the frame.
         """
