@@ -35,7 +35,16 @@ from . import motors, drivers
 from IPython.core.magic import register_line_magic
 
 
+magic_list = {}
+
+
+def collect_magic_info(f):
+    magic_list[f.__name__] = f.__doc__
+    return f
+
+
 @register_line_magic
+@collect_magic_info
 def mva(line):
     """
     Move command (absolute). use mvr for move relative
@@ -64,6 +73,7 @@ def mva(line):
 
 
 @register_line_magic
+@collect_magic_info
 def mvr(line):
     """
     Move command (relative). Use mva for absolute move
@@ -92,6 +102,7 @@ def mvr(line):
 
 
 @register_line_magic
+@collect_magic_info
 def wm(line):
     """
     Where motors: print the current positions of selected (or all) motors.
@@ -118,6 +129,7 @@ def wm(line):
 
 
 @register_line_magic
+@collect_magic_info
 def pset(line):
     """
     Set motor position
@@ -160,6 +172,7 @@ def pset(line):
 
 
 @register_line_magic
+@collect_magic_info
 def lm(line):
     """
     Show soft motor limits.
@@ -186,6 +199,7 @@ def lm(line):
 
 
 @register_line_magic
+@collect_magic_info
 def set_lm(line):
     """
     Set soft motor limits.
@@ -211,6 +225,7 @@ def set_lm(line):
 
 
 @register_line_magic
+@collect_magic_info
 def init(line):
     """
     Initlize components
@@ -256,6 +271,15 @@ def init(line):
     return
 
 
+@register_line_magic
+@collect_magic_info
+def magiclist(line):
+    """
+    List all labcontrol magics
+    """
+    for name, doc in magic_list.items():
+        print(f' * {name}:')
+        print(f'{doc}')
 
 
 # @register_line_magic

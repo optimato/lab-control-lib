@@ -8,6 +8,7 @@ Suggested structure similar to Elettra's
 """
 import logging
 import os
+from datetime import datetime
 
 from . import data_path
 from .ui_utils import ask, user_prompt
@@ -112,8 +113,7 @@ def investigation_path(base_path=None):
     """
     if INVESTIGATION is None:
         RuntimeError('No investigation has been selected or created.')
-    if base_path is None:
-        base_path = data_path
+    base_path = base_path or data_path
     return os.path.join(base_path, INVESTIGATION)
 
 
@@ -173,14 +173,35 @@ class Scan:
         """
         Prepare for scan
         """
-        self.scan_number = next_scan()
-        self.scan_name = f'{self.scan_number:06d}'
+        # Get current experiment path
+        self.path = experiment_path()
+
+        # Get new scan number
+        self.scan_number = next_scan(self.path)
+
+        # Create scan name
+        today = datetime.now().strftime('%y-%m-%d')
+
+        scan_name = f'{self.scan_number:06d}_{today}'
         if self.label is not None:
-            self.scan_name += f'_{self.label}'
+            scan_name += f'_{self.label}'
+
+        self.scan_name = scan_name
+
+        # Create scan directory
+        self.scan_path = os.path.join(self.path, scan_name)
+        os.makedirs(self.scan_path)
+
+        # Reset counter
+        self._base_file_name = '{0:06d}'
+        self.counter = 0
+
+        # Set SCAN module attribute
         globals()['SCAN'] = self
 
-        self.logger = logging.getLogger(self.scan_name)
-        self.logger.info(f'Starting scan {self.scan_name}')
+        self.logger = logging.getLogger(scan_name)
+        self.logger.info(f'Starting scan {scan_name}')
+        self.logger.info(f'Files will be saved in {self.scan_path}')
 
         # This is a non-blocking call.
         self.meta = get_all_meta()
@@ -194,3 +215,8 @@ class Scan:
         globals()['SCAN'] = None
 
         self.logger.info(f'Scan {self.scan_name} complete.')
+
+    def next_prefix(self):
+        prefix = self._base_file_name.format(self.counter)
+        self.counter += 1
+        return prefix

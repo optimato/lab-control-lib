@@ -18,12 +18,12 @@ import os
 import threading
 import select
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException, _recv_all
-from .network_conf import MECADEMIC as DEFAULT_NETWORK_CONF
+from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException, _recv_all
+from .network_conf import MECADEMIC as NET_INFO, MECADEMIC_MONITOR
 from .ui_utils import ask_yes_no
-from . import conf_path
+from .util.proxydevice import proxydevice, proxycall
 
-__all__ = ['MecademicDaemon', 'Mecademic']#, 'Motor']
+__all__ = ['Mecademic']#, 'Motor']
 
 # This API uses null character (\0) as end-of-line.
 EOL = b'\0'
@@ -41,13 +41,13 @@ class RobotException(Exception):
         super().__init__(self.message)
 
 
-class MecademicMonitor():
+class MecademicMonitor:
     """
-    Light weight class that connects to the monitor port.
+    Light-weight class that connects to the monitor port.
     """
 
     EOL = EOL
-    DEFAULT_MONITOR_ADDRESS = DEFAULT_NETWORK_CONF['MONITOR']
+    DEFAULT_MONITOR_ADDRESS = MECADEMIC_MONITOR['device']
     MONITOR_TIMEOUT = 1
     NUM_CONNECTION_RETRY = 10
     MAX_BUFFER_LENGTH = 1000
@@ -176,22 +176,48 @@ class MecademicMonitorLog(MecademicMonitor):
             f.write(f'{g[2230]}, {g[2026]}\n')
 
 
-class MecademicDaemon(SocketDeviceServerBase):
+@proxydevice(address=NET_INFO['control'])
+class Mecademic(SocketDriverBase):
     """
-    Mecademic Daemon, keeping connection with Robot arm.
+    Mecademic robot arm driver
+
+    TODO: a good way to define limits, ranges, etc.
     """
 
-    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
-    DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
+    DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
+    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
+    DEFAULT_JOINT_POSITION = (0.0,
+                              -20.37038014,
+                              16.28988378,
+                              0.0,
+                              -(90 + -20.37038014 + 16.28988378),
+                              0.0)
+    # theta 1 range can be quite dangerous.
+    # Undocumented feature: all limit ranges have to be at least 30 degree wide.
+    DEFAULT_JOINT_LIMITS = ((-15., 15.),
+                            (-21., 17.),
+                            (-45, 15),
+                            (-15., 15.),
+                            (-112., -24),
+                            (-360., 360.))
 
-    def __init__(self, serving_address=None, device_address=None):
-        if serving_address is None:
-            serving_address = self.DEFAULT_SERVING_ADDRESS
+    def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
-        super().__init__(serving_address=serving_address, device_address=device_address)
+        super().__init__(device_address=device_address)
+
+        self.metacalls.update({'pose': self.get_pose,
+                               'joints': self.get_joints,
+                               'status': self.get_status})
+
+        self.last_error = None
+        self.motion_paused = False
+
+        self.monitor = None
+
+        self.initialize()
 
     def init_device(self):
         """
@@ -213,54 +239,6 @@ class MecademicDaemon(SocketDeviceServerBase):
         if not r:
             raise DeviceException
 
-
-class Mecademic(DriverBase):
-    """
-    Driver for the Meca500 robot arm
-
-    TODO: a good way to define limits, ranges, etc.
-    """
-
-    EOL = EOL
-    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
-
-    DEFAULT_JOINT_POSITION = (0.0,
-                              -20.37038014,
-                              16.28988378,
-                              0.0,
-                              -(90 + -20.37038014 + 16.28988378),
-                              0.0)
-
-    # theta 1 range can be quite dangerous.
-    # Undocumented feature: all limit ranges have to be at least 30 degree wide.
-    DEFAULT_JOINT_LIMITS = ((-15., 15.),
-                            (-21., 17.),
-                            (-45, 15),
-                            (-15., 15.),
-                            (-112., -24),
-                            (-360., 360.))
-
-    def __init__(self, address=None, admin=True, **kwargs):
-        """
-        Initialise Mecademic driver (robot arm).
-        """
-        if address is None:
-            address = DEFAULT_NETWORK_CONF['DAEMON']
-
-        super().__init__(address=address, admin=admin)
-
-        self.metacalls.update({'pose': self.get_pose,
-                               'joints': self.get_joints,
-                               'status': self.get_status})
-
-        self.last_error = None
-        self.motion_paused = False
-
-        self.monitor = None
-
-        self.initialize()
-
-    @admin_only
     def initialize(self):
         """
         First commands after connections.
@@ -277,20 +255,20 @@ class Mecademic(DriverBase):
         # 1. Check current state and prompt for activation/homing
         #########################################################
         status = self.get_status()
-        if status[3]:
+        if status['error']:
             # Error mode
             if ask_yes_no('Robot in error mode. Clear?'):
                 self.clear_errors()
             else:
                 self.logger.warning('Robot still in error mode after driver initialization.')
                 return
-        if not status[0]:
+        if not status['activated']:
             if ask_yes_no('Robot deactivated. Activate?'):
                 self.activate()
             else:
                 self.logger.warning('Robot not activated after driver initialization')
                 return
-        if not status[1]:
+        if not status['homed']:
             # Not homed
             if ask_yes_no('Robot not homed. Home?'):
                 self.home()
@@ -336,7 +314,7 @@ class Mecademic(DriverBase):
                     arg = (arg, )
                 cmd += f'{arg}'.encode()
             cmd += self.EOL
-        reply = self.send_recv(cmd)
+        reply = self.device_cmd(cmd)
         return self.process_reply(reply)
 
     def process_reply(self, reply):
@@ -344,8 +322,10 @@ class Mecademic(DriverBase):
         Take care of stripping and splitting raw reply from device
         Raise error if needed.
         """
+
         # First split along EOL in case there are more than one reply
         raw_replies = reply.split(self.EOL)
+
         # Convert each
         formatted_replies = []
         for r in raw_replies:
@@ -370,7 +350,7 @@ class Mecademic(DriverBase):
             else:
                 rep = (code, message)
                 if reply2000 is not None:
-                    # This should not happen
+                    # More than one 2000 reply in one call - this should not happen
                     self.logger.warning(f'More code 2000:{reply2000[0]} - {reply2000[1]}')
                 reply2000 = rep
 
@@ -379,7 +359,7 @@ class Mecademic(DriverBase):
             reply2000 = None, None
         return reply2000
 
-    @admin_only
+    @proxycall(admin=True)
     def set_TRF_at_wrist(self):
         """
         Sets the Tool reference frame at the wrist of the robot (70 mm below the
@@ -405,22 +385,30 @@ class Mecademic(DriverBase):
         eom: end of movement status (1 if robot is idle, 0 if robot is moving).
         """
         code, reply = self.send_cmd('GetStatusRobot')
+        keys = ['activated',
+                'homed',
+                'simulation',
+                'error',
+                'paused',
+                'eob',
+                'eom']
         try:
-            status = []
-            for x in reply.split(','):
+            status = {}
+            for name, x in zip(keys, reply.split(',')):
                 if x.strip() == '1':
-                    status.append(True)
+                    status[name] = True
                 elif x.strip() == '0':
-                    status.append(False)
+                    status[name] = False
                 else:
                     raise RuntimeError()
         except:
             self.logger.error(f'get_status returned {reply}')
             # try again
             status = self.get_status()
+
         return status
 
-    @admin_only
+    @proxycall(admin=True)
     def set_RTC(self, t=None):
         """
         Set time. Not clear if there's a reason to set something else
@@ -433,7 +421,7 @@ class Mecademic(DriverBase):
         code, message = self.send_cmd('SetRTC', t)
         return
 
-    @admin_only
+    @proxycall(admin=True)
     def home(self):
         """
         Home the robot
@@ -446,7 +434,7 @@ class Mecademic(DriverBase):
             self.logger.info(reply)
         return
 
-    @admin_only
+    @proxycall(admin=True)
     def activate(self):
         """
         Activate the robot
@@ -459,21 +447,21 @@ class Mecademic(DriverBase):
             self.logger.info(reply)
         return
 
-    @admin_only
+    @proxycall(admin=True)
     def activate_sim(self):
         """
         Activate simulation mode
         """
         code, reply = self.send_cmd('ActivateSim')
 
-    @admin_only
+    @proxycall(admin=True)
     def deactivate_sim(self):
         """
         Activate simulation mode
         """
         code, reply = self.send_cmd('DeactivateSim')
 
-    @admin_only
+    @proxycall(admin=True)
     def deactivate(self):
         """
         Deactivate the robot
@@ -482,7 +470,7 @@ class Mecademic(DriverBase):
         self.logger.info(reply)
         return
 
-    @admin_only
+    @proxycall(admin=True)
     def clear_errors(self):
         """
         Clear error status.
@@ -495,7 +483,7 @@ class Mecademic(DriverBase):
             self.logger.info(reply)
         return
 
-    @admin_only
+    @proxycall(admin=True)
     def set_joint_velocity(self, p):
         """
         Set joint velocity as a percentage of the maximum speed.
@@ -513,7 +501,7 @@ class Mecademic(DriverBase):
         code, reply = self.send_cmd('GetJointVel')
         return float(reply)
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def move_joints(self, joints, block=True):
         """
         Move joints
@@ -521,7 +509,7 @@ class Mecademic(DriverBase):
         # Send two commands because 'MoveJoints' doesn't immediately
         # return something
         status = self.get_status()
-        if status[2]:
+        if status['simulation']:
             self.logger.warning('simulation mode')
         code, reply = self.send_cmd(['MoveJoints', 'GetStatusRobot'], [joints, None])
         if block:
@@ -530,28 +518,17 @@ class Mecademic(DriverBase):
             self.logger.info('Non-blocking motion started.')
         return self.get_joints()
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def move_single_joint(self, angle, joint_number, block=True):
         """
         Move a single joint to given angle.
         """
-        # Send two commands because 'MoveJoints' doesn't immediately
-        # return something
-        status = self.get_status()
-        if status[2]:
-            self.logger.warning('simulation mode')
         # Get current joints and change only one value
         joints = self.get_joints()
         joints[joint_number - 1] = angle
+        return self.move_joints(joints, block=block)
 
-        # Ask to move
-        code, reply = self.send_cmd(['MoveJoints', 'GetStatusRobot'], [joints, None])
-        if block:
-            self.check_done()
-        else:
-            self.logger.info('Non-blocking motion started.')
-        return self.get_joints()
-
+    @proxycall(admin=True, block=False)
     def rotate_continuous(self, end_angle, duration, start_angle=None, joint_number=6, block=False):
         """
         Rotate one joint (by default 6th) from start_angle (by default current)
@@ -598,6 +575,7 @@ class Mecademic(DriverBase):
         t.start()
         return
 
+    @proxycall()
     def get_joints(self):
         """
         Get current joint angles.
@@ -612,7 +590,7 @@ class Mecademic(DriverBase):
         # Drop the first element (timestamp)
         return joints[1:]
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def move_pose(self, pose):
         """
         Move to pose given by coordinates (x,y,z,alpha,beta,gamma)
@@ -620,12 +598,13 @@ class Mecademic(DriverBase):
         # Send two commands because 'MovePose' doesn't immediately
         # return something
         status = self.get_status()
-        if status[2]:
+        if status['simulation']:
             self.logger.warning('simulation mode')
         code, reply = self.send_cmd(['MovePose', 'GetStatusRobot'], [pose, None])
         self.check_done()
         return self.get_pose()
 
+    @proxycall()
     def get_pose(self):
         """
         Get current pose (x,y,z, alpha, beta, gamma)
@@ -635,6 +614,7 @@ class Mecademic(DriverBase):
         # Drop the first element (timestamp)
         return pose[1:]
 
+    @proxycall()
     def check_done(self):
         """
         Poll until movement is complete.
@@ -645,15 +625,14 @@ class Mecademic(DriverBase):
             while True:
                 # query axis status
                 status = self.get_status()
-                if status is None:
-                    continue
-                if status[6]:
+                if status['eob']:
                     break
-                # Temporise
-                time.sleep(self.POLL_INTERVAL)
+                else:
+                    # Temporise
+                    time.sleep(self.POLL_INTERVAL)
         self.logger.info("Finished moving robot.")
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def move_to_default_position(self):
         """
         Move to the predefined default position.
@@ -662,6 +641,7 @@ class Mecademic(DriverBase):
         """
         self.move_joints(self.DEFAULT_JOINT_POSITION)
 
+    @proxycall()
     def get_joint_limits(self):
         """
         Get current joint limits.
@@ -674,7 +654,7 @@ class Mecademic(DriverBase):
             limits.append((float(s[1]), float(s[2])))
         return limits
 
-    @admin_only
+    @proxycall(admin=True)
     def set_joint_limits(self, limits):
         """
         Set joint limits. This must be done while robot is not active,
@@ -730,6 +710,7 @@ class Mecademic(DriverBase):
         motors['brot'] = Motor('brot', self, 'rot')
         return motors
 
+    @proxycall()
     def abort(self):
         """
         Abort current motion.
@@ -743,13 +724,15 @@ class Mecademic(DriverBase):
         # Ready for next move
         code, message = self.send_cmd('ResumeMotion')
 
+    @proxycall()
     @property
     def isactive(self):
-        return self.get_status()[0] == 1
+        return self.get_status()['activated'] == 1
 
+    @proxycall()
     @property
     def ishomed(self):
-        return self.get_status()[1] == 1
+        return self.get_status()['homed'] == 1
 
 
 class Motor(MotorBase):

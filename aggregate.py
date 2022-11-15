@@ -2,12 +2,11 @@
 Aggregator for metadata.
 """
 import logging
-import threading
 import time
 
 from . import motors
 from .util import now
-from .manager import instantiate_driver, DRIVER_DATA
+from .util.future import Future
 from .base import DaemonException
 logger = logging.getLogger(__name__)
 
@@ -18,8 +17,9 @@ DRIVERS = {}
 def connect(name=None):
     """
     Instantiate one or multiple drivers.
-    If name is None, instatiate all available.
+    If name is None, instantiate all available.
     """
+    from .manager import instantiate_driver, DRIVER_DATA
 
     if name is None:
         for name in DRIVER_DATA.keys():
@@ -36,7 +36,7 @@ def connect(name=None):
 
     # Instantiate the driver
     try:
-        driver = instantiate_driver(**DRIVER_DATA[name], admin=False, spawn=False)
+        driver = instantiate_driver(name=name, admin=False, spawn=False)
     except DaemonException:
         logger.error(f'Driver {name} could not start.')
         driver = None
@@ -44,6 +44,12 @@ def connect(name=None):
         DRIVERS[name] = driver
 
     return
+
+
+def meta_fetch_task(fct, dct):
+    result = fct()
+    dct.update(result)
+    return None
 
 
 def get_all_meta(block=False):
@@ -56,36 +62,34 @@ def get_all_meta(block=False):
         logger.warning('No metadata can be collected: No running driver.')
         return {}
 
-    meta = {k: {} for k in DRIVERS.keys()}
-    meta.update({motor_name: {} for motor_name in motors.keys()})
-
     t0 = time.time()
-    meta['meta'] = {'collection_start': now()}
+    meta = {'meta': {'collection_start': now()}}
+
+    meta['motors'] = {motor_name: {} for motor_name in motors.keys()}
+    meta.update({k: {} for k in DRIVERS.keys()})
+    meta.update({motor_name: {} for motor_name in motors.keys()})
 
     # Use threads to optimize I/O
     workers = []
     for k in DRIVERS.keys():
-        t = threading.Thread(target=DRIVERS[k].get_meta, args=(None, meta[k]))
-        t.start()
-        workers.append(t)
+        f = Future(target=meta_fetch_task, args=(DRIVERS[k].get_meta, meta[k]))
+        workers.append(f)
 
     for motor_name, motor in motors.items():
-        t = threading.Thread(target=motor.get_meta, args=(meta[motor_name],))
-        t.start()
-        workers.append(t)
+        f = Future(target=meta_fetch_task, args=(motor.get_meta, meta['motors'][motor_name]))
+        workers.append(f)
 
     # Thread watcher will add key "collection_end" once done. This is a way
     # to evaluate overall collection time, and whether collection is finished.
-    def watch_threads(wlist, d):
-        for w in wlist:
+    def watch_futures(workers, d):
+        for w in workers:
             w.join()
         d['meta']['collection_end'] = now()
         dt = time.time() - t0
-        logger.info(f'Metadata collection completed in {dt*1000:f3.2} ms')
+        logger.info(f'Metadata collection completed in {dt*1000:3.2f} ms')
 
-    watcher = threading.Thread(target=watch_threads, args=(workers, meta))
-    watcher.start()
+    watcher = Future(target=watch_futures, args=(workers, meta))
     if block:
-        watcher.join()
+        watcher.result()
 
     return meta

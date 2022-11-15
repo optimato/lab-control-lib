@@ -1,4 +1,5 @@
 import json
+import os
 
 __all__ = ['FileDict']
 
@@ -9,6 +10,8 @@ class FileDict(dict):
     """
     def __init__(self, filename, *args, **kwargs):
         self.filename = filename
+        if not os.path.exists(filename):
+            os.makedirs(os.path.split(filename)[0], exist_ok=True)
         dict.__init__(self, *args, **kwargs)
         try:
             self._load()

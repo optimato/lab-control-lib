@@ -1,191 +1,190 @@
 """
-Driver for Varex flat panel
-
-The DexelaPy library wrapper (available only under windows) is not
-documented at all, but everything seems to be the same as the C++
-API.
-
-TODO: Many question marks, so many checks needed.
-
-1. Does OpenBoard / CloseBoard need to be called often? Is there a
-downside do calling OpenBoard on startup and keep it like this for weeks?
-
-
-
+Driver for Varex flat panel based on our home-grown "dexela" API wrapper.
 """
 
 import time
 import importlib.util
-import sys
 import logging
-import json
+import numpy as np
 
-from .base import DriverBase, DeviceServerBase, admin_only, emergency_stop, DeviceException
-from .network_conf import VAREX as DEFAULT_NETWORK_CONF
-from .ui_utils import ask_yes_no
 from .camera import CameraBase
-from . import _varex_constants as vc
-from . import FileDict
+from .network_conf import VAREX as NET_INFO
+from .util.proxydevice import proxycall, proxydevice
+from .ui_utils import ask_yes_no
 
 logger = logging.getLogger(__name__)
 
+BASE_PATH = "C:\\DATA\\"
 
-PIXEL_SIZE = 74.8e-6   # Physical pixel pitch in meters
-SHAPE = (1536, 1944)   # Native array shape
-
-# Try to import DexelaPy
-if importlib.util.find_spec('DexelaPy') is not None:
-    import DexelaPy
-    from _varex_mappings import API_map
+# Try to import dexela
+if importlib.util.find_spec('dexela') is not None:
+    import dexela
 else:
-    logger.info("Module DexelaPy unavailable")
-
-    class FakeDexelaPy:
+    logger.debug("Module dexela unavailable on this host")
+    class fake_dexela:
         def __getattr__(self, item):
-            raise RuntimeError('Attempting to access DexelaPy on a system where it is no present!')
+            raise RuntimeError('Attempting to access "dexela" on a system where it is no present!')
+    globals().update({'dexela': fake_dexela()})
 
-    globals().update({'DexelaPy': FakeDexelaPy()})
-
-__all__ = ['VarexDaemon', 'Varex', 'Camera']
+__all__ = ['Varex']
 
 
-class VarexDaemon(DeviceServerBase):
+@proxydevice(address=NET_INFO['control'])
+class Varex(CameraBase):
     """
-    Varex Daemon
+    Varex Driver
     """
 
-    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
-
-    def __init__(self, serving_address=None):
+    BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
+    PIXEL_SIZE = 74.8  # Physical pixel pitch in micrometers
+    SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal)
+    DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
+    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
+    def __init__(self, broadcast_port=None):
         """
         Initialization.
+
+        TODO: implement gap time.
+        TODO: implement multiple exposure mode (if needed)
         """
-        if serving_address is None:
-            serving_address = self.DEFAULT_SERVING_ADDRESS
-        super().__init__(serving_address=serving_address)
+        super().__init__(broadcast_port=broadcast_port)
 
         self.detector = None
-        self.detector_info = None
-
-        # Used to store and restore current settings.
-        self.config_filename = self.name + '.conf'
-
-        self.config = FileDict(self.config_filename)
-
-        settings = self.config.get('settings', {})
-
-        settings.update({'well_mode': settings.get('well_mode', vc.FullWellModes.High),
-                     'exp_mode': settings.get('exp_mode', vc.ExposureModes.Expose_and_read),
-                     'exp_time': settings.get('exp_time', 200),
-                     'trigger': settings.get('trigger', vc.ExposureTriggerSource.Internal_Software),
-                     'binning': settings.get('binning', vc.Bins.x11),
-                     'num_exp': settings.get('num_exp', 1),
-                     'gap_time': settings.get('gap_time', 0)})
-        # Save settings
-        self.config['settings'] = settings
-
+        self.init_device()
 
     def init_device(self):
         """
-        Access detector using provided library
+        Initialize camera
         """
-        scanner = DexelaPy.BusScannerPy()
-        count = scanner.EnumerateGEDevices()
-        if count == 0:
-            self.logger.critical("DexelaPy library did not find a connected device!")
-            raise RuntimeError
 
-        self.detector_info = scanner.GetDeviceGE(0)
-        self.detector = DexelaPy.DexelaDetectorGE_Py(self.detector_info)
+        self.detector = dexela.DexelaDetector()
+
         self.logger.info('GigE detector is online')
-        self.detector.OpenBoard()
-        self._apply_settings()
 
+        self.operation_mode = self.config.get('operation_mode', None)
+        self.exposure_time = self.config.get('exposure_time', .2)
+        self.binning = self.config.get('binning', 'x11')
+        self.exposure_number = self.config.get('exposure_number', 1)
 
-    def device_cmd(self, cmd):
+        self.detector.set_gap_time(0)
+        self.detector.set_trigger_source('internal_software')
+        self.initialized = True
+
+    def grab_frame(self):
         """
-        Implementation of the basic API:
-         `DO:[some python code]`
-           Take the python code and exec it. Return a jsoned version of the content of the 'out' dictionary
+        Grab and return frame(s)
 
-         `SNAP`
-           Take a frame and save it with all current settings.
-
-         `CAPTURE:SCAN_NUMBER`
-           Take a frame with current settings, for scan number `SCAN_NUMBER`.
-
-         `CONTINUOUS_START`
-           Start continuous scan with current settings.
-
-         `CONTINUOUS_STOP`
-           Stop continuous scan with current settings.
-
+        Independent of the number of exposures, the returned array
+        "frame" is a 3D array, with the frame index as the first dimension
         """
-        if cmd.startswith(b'DO:'):
-            ret = {'DexelaPy': DexelaPy, 'D':self, 'out':{}}
-            exec(cmd.decode('utf-8'), {}, ret)
-            return json.dumps(ret['out']).encode() + self.EOL
+        det = self.detector
+        n_exp = self.exposure_number
 
-    def snap(self):
+        det.go_live(0, n_exp - 1, n_exp)
+        startCount = det.get_field_count()
+        count = startCount + 0
 
+        det.software_trigger()
 
-    def _apply_settings(self, settings=None):
+        while True:
+            count = det.get_field_count()
+            if count > (startCount + n_exp):
+                break
+            det.check_for_live_error()
+            time.sleep(.05)
+
+        frames = []
+        meta = {}
+        for i in range(n_exp):
+            f, m = det.read_buffer(i)
+            frames.append(f)
+            # Overwrite meta - it's all the same.
+            meta = m
+
+        if det.is_live():
+            det.go_unlive()
+
+        return np.array(frames), meta
+
+    def roll(self, switch=None):
         """
-        Apply the settings in the settings dictionary.
-        If settings is None, use self.settings
+        Toggle rolling mode.
+
+        TODO
         """
-        if settings is None:
-            settings = self.config['settings']
-        detector = self.detector
-        detector.SetFullWellMode(API_map[settings['well_mode']])
-        detector.SetExposureTime(API_map[settings['exp_time']])
-        detector.SetBinningMode(API_map[settings['binning']])
-        detector.SetNumOfExposures(API_map[settings['num_exp']])
-        detector.SetTriggerSource(API_map[settings['trigger']])
-        detector.SetGapTime(API_map[settings['gap_time']])
-        detector.SetExposureMode(API_map[settings['exp_mode']])
+        raise NotImplementedError
 
-    def _save_frame(self, frame):
+    def _get_exposure_time(self):
+        # Convert from milliseconds to seconds
+        return self.detector.get_exposure_time() / 1000
+
+    def _set_exposure_time(self, value):
+        # From seconds to milliseconds
+        etime = int(value*1000)
+        self.detector.set_exposure_time(etime)
+
+    def _get_exposure_number(self):
+        return self.detector.get_num_of_exposures()
+
+    def _set_exposure_number(self, value):
+        self.detector.set_num_of_exposures(value)
+        self.config['settings']['num_of_exposures'] = value
+
+    def _get_operation_mode(self):
+        opmode = {'full_well_mode': self.detector.get_full_well_mode(),
+                  'exposure_mode': self.detector.get_exposure_mode(),
+                  'readout_mode': self.detector.get_readout_mode()}
+        return opmode
+
+    def set_operation_mode(self, full_well_mode=None, exposure_mode=None, readout_mode=None):
         """
-        Store buffered image to disk
+        Set varex operation mode:
+
+        * full_well_mode: ('high' or 'low')
+        * exposure_mode: 'Expose_and_read', 'Sequence_Exposure', 'Frame_Rate_exposure', 'Preprogrammed_exposure'
+            NOTE: only 'Sequence_Exposure' is supported for now
+        * readout_mode: 'ContinuousReadout', 'IdleMode'
+            NOTE: only 'ContinuousReadout is supported
         """
+        if (exposure_mode is not None) and exposure_mode.lower() != 'sequence_exposure':
+            raise RuntimeError('exposure_mode cannot be changed in the current implementation.')
+        if (readout_mode is not None) and readout_mode.lower() != 'continuousreadout':
+            raise RuntimeError('readout_mode cannot be changed in the current implementation.')
 
-    def _finish(self):
-        """
-        Disconnect socket.
-        """
-        self.logger.info("Exiting.")
-        self.detector.CloseBoard()
+        full_well_mode = full_well_mode or 'high'
+        readout_mode = 'continuousreadout'
+        exposure_mode = 'sequence_exposure'
+        self.detector.set_full_well_mode(full_well_mode)
+        self.detector.set_exposure_mode(exposure_mode)
+        self.detector.set_readout_mode(readout_mode)
+        self.config['settings']['operation_mode'] = {'full_well_mode': full_well_mode,
+                                                     'exposure_mode': exposure_mode,
+                                                     'readout_mode': readout_mode}
 
+    def _get_binning(self):
+        return self.detector.get_binning_mode()
 
-class Varex(DriverBase):
-    """
-    Varex driver
-    """
+    def _set_binning(self, value):
+        self.detector.set_binning_mode(value)
 
-    def __init__(self, address, admin=True, **kwargs):
-        """
-        Connects to daemon.
-        """
-        if address is None:
-            address = DEFAULT_NETWORK_CONF['DAEMON']
+    def _get_psize(self):
+        bins = self.binning
+        if bins == 'x11':
+            return self.PIXEL_SIZE
+        elif bins == 'x22':
+            return 2*self.PIXEL_SIZE
+        elif bins == 'x44':
+            return 4*self.PIXEL_SIZE
+        else:
+            raise RuntimeError("Unknown (or not implemented) binning for pixel size calculation.")
 
-        super().__init__(address=address, admin=admin)
-
-        self.metacalls.update({}) # TODO
-
-    def set_FullWellMode(self, mode):
-        """
-        Low = 0    # The low noise reduced dynamic range mode
-        High = 1   # The normal full well mode
-        """
-        if mode not in [0, 1]:
-            raise RuntimeError('Full Well Mode can only be 0 or 1')
-
-        self.
-
-
-class Camera(CameraBase):
-    """
-    Camera class for Varex driver
-    """
+    def _get_shape(self) -> tuple:
+        bins = self.binning
+        if bins == 'x11':
+            return self.SHAPE
+        elif bins == 'x22':
+            return self.SHAPE[0]//2, self.SHAPE[1]//2
+        elif bins == 'x44':
+            return self.SHAPE[0]//4, self.SHAPE[1]//4
+        else:
+            raise RuntimeError("Unknown (or not implemented) binning for shape calculation.")

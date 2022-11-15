@@ -24,34 +24,37 @@ TCP sockets, Device Servers can run on different computers, as long as they are 
 is conferred only to one client at a time to ensure that no two processes attempt at controlling a device
 simultaneously (all "read-only" methods are however allowed by non-admin clients).
 
-In practice, this means that to each device requires two classes, the server (DeviceServer) and the client (Driver). The
-idea is to keep the Device Server as thin as possible, with the "knowledge" related to the Device API implemented
-mostly in the Driver class. This is easily done for all Socket Driver Servers, because then the Device Server simply
-acts as a middleman, or a message broker. Things are more complicated for Driver Servers that interact with the device
-through custom libraries, because the library calls have to be forwarded from the client to the server.
-
+In practice, each driver is implemented as if it is meant to be the single instance connected to the device. The base class
+`DriverBase` takes care of few things (logging, metadata collection), while `SocketDriverBase` has all what is needed to
+connect to devices that have socket connections.
+The module `proxydevice` provides server/client classes as well as decorators that transform all drivers into a
+server/client pair. Any method of the driver can be "exposed" as remotely accessible with the method decorator
+`@proxycall`. See the module doc for more info.
 
 Additional classes
 ------------------
-The DeviceServer subclasses are meant to be instantiated each on their own process, possibly on their own computer,
-should be running constantly. Users should never need to touch these.
-The Driver subclasses can be instantiated in any python program within the network. To the user, this should be the
-low-level access for specific configuration, experimentation, and debugging.
 Currently, apart from the X-ray source, devices fall in just two main categories: motion devices, and detectors. There
-are therefore two higher level classes (Motor and Camera) that is meant to provide access to the underlying device
-through a common interface. For instance, it might be that capturing a frame on one detector is done through a call of
-the "detect" method, while on the other it is called "record_frame" - but with the Camera wrapper both are called
-"snap". The hope is to make "Motors" and "Camera" instances sufficient for everyday use.
+is therefore a high-level class `Motor` meant to provide access to the underlying device through a common interface
+(with methods inspired from the `spec` language). For detectors, the common interface is `CameraBase`, which is a
+subclass of DriverBase. The hope is to make instances of `Motor` and `CameraBase` subclasses sufficient for everyday
+use.
 
 """
 import logging
 import logging.handlers
 import os
+import platform
+import json
+import subprocess
+
+from .network_conf import HOST_IPS
 from . import util
 from .util import logs, FileDict
-from . import network_conf
 from ._version import version
-#from . import experiment
+
+#
+# SETUP LOGGING
+#
 
 # Package-wide default log level (this sets up console handler)
 util.logs.set_level(logging.INFO)
@@ -77,11 +80,6 @@ LOG_DIR = os.path.join(conf_path, 'logs/')
 LOG_FILE = os.path.join(LOG_DIR, 'optimato-labcontrol.log')
 
 
-# Errors
-class ControllerRunningError(RuntimeError):
-    pass
-
-
 os.makedirs(LOG_DIR, exist_ok=True)
 file_handler = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=1024*1024*10, backupCount=300, encoding='utf-8')
 
@@ -94,6 +92,46 @@ else:
     file_handler.setFormatter(logs.default_formatter)
 logging.root.addHandler(file_handler)
 
+#
+# IDENTIFY SYSTEM
+#
+
+uname = platform.uname()
+LOCAL_HOSTNAME = uname.node
+if uname.system == "Linux":
+    iface_info = json.loads(subprocess.run(['ip', '-j', '-4',  'addr'], capture_output=True).stdout.decode())
+    LOCAL_IP_LIST = [iface['addr_info'][0]['local'] for iface in iface_info]
+elif uname.system == "Windows":
+    s = subprocess.run(['ipconfig', '/allcompartments'], capture_output=True).stdout.decode()
+    LOCAL_IP_LIST = [x.split(' ')[-1] for x in s.split('\r\n') if x.strip().startswith('IPv4')]
+else:
+    raise RuntimeError(f'Unknown system platform {uname.system}')
+
+# Remove localhost (not there under windows)
+try:
+    LOCAL_IP_LIST.remove('127.0.0.1')
+except ValueError:
+    pass
+
+# Check which machine this is
+try:
+    THIS_HOST = [name for name, ip in HOST_IPS.items() if ip in LOCAL_IP_LIST][0]
+except IndexError:
+    print('Host IP not part of the control network.')
+    THIS_HOST = 'unknown'
+
+print('\n'.join(['*{:^64s}*'.format(f"OptImaTo Lab Control"),
+                 '*{:^64s}*'.format(f"Running on host '{LOCAL_HOSTNAME}'"),
+                 '*{:^64s}*'.format(f"a.k.a. '{THIS_HOST}' with IP {LOCAL_IP_LIST}")
+                 ])
+      )
+
+
+# Errors
+class ControllerRunningError(RuntimeError):
+    pass
+
+
 # dictionary for driver instances
 drivers = {}
 
@@ -103,12 +141,14 @@ motors = {}
 # dictionary of camera instances
 cameras = {}
 
+from .manager import init
 # Import all driver submodules
-from . import aerotech
-from . import mclennan
-from . import mecademic
-from . import microscope
-from . import smaract
+#from . import aerotech
+#from . import dummy
+#from . import mclennan
+#from . import mecademic
+#from . import microscope
+#from . import smaract
 #from . import varex
 #from . import pco
 #from . import xspectrum
@@ -117,7 +157,5 @@ from . import smaract
 #from . import mtffun_hans
 #from . import pcofun_hans
 #from . import xpsfun_ronan
-
-from . import excillum
 
 #from .ui import *

@@ -6,40 +6,65 @@ First version: Leo 2018
 Current version Pierre 2022
 """
 import time
-import sys
 
-from .base import MotorBase, DriverBase, SocketDeviceServerBase, admin_only, emergency_stop, DeviceException
-from .network_conf import EXCILLUM as DEFAULT_NETWORK_CONF
+from .base import SocketDriverBase, DeviceException
+from .network_conf import EXCILLUM as NET_INFO
 from .ui_utils import ask_yes_no
+from .util.proxydevice import proxydevice, proxycall
 
 EOL = b'\n'
 
 
-class ExcillumDaemon(SocketDeviceServerBase):
+def try_float(value):
     """
-    Excillyum Daemon, keeping connection with the source.
+    Convert to float if possible
+    """
+    try:
+        return float(value)
+    except ValueError:
+        return value
+
+
+@proxydevice(address=NET_INFO['control'])
+class Excillum(SocketDriverBase):
+    """
+    Excillum Driver.
     """
 
-    DEFAULT_SERVING_ADDRESS = DEFAULT_NETWORK_CONF['DAEMON']
-    DEFAULT_DEVICE_ADDRESS = DEFAULT_NETWORK_CONF['DEVICE']
+    DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
+    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
 
-    def __init__(self, serving_address=None, device_address=None):
-        if serving_address is None:
-            serving_address = self.DEFAULT_SERVING_ADDRESS
+    def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
-        super().__init__(serving_address=serving_address, device_address=device_address)
+        super().__init__(device_address=device_address)
+
+        self.metacalls.update({'state': lambda: self.state,
+                               'jet_is_stable': lambda: self.jet_is_stable,
+                               'jet_pump_frequency': lambda: self.jetpump_frequency,
+                               'generator_high_voltage': lambda: self.generator_high_voltage,
+                               'generator_emission_power_w': lambda: self.generator_emission_power_w,
+                               'generator_emission_current_a': lambda: self.generator_emission_current_a,
+                               'spotsize_x_um': lambda: self.spotsize_x_um,
+                               'spotsize_y_um': lambda: self.spotsize_y_um,
+                               'spot_position_x_um': lambda: self.spot_position_x_um,
+                               'spot_position_y_um': lambda: self.spot_position_y_um,
+                               'vacuum_pressure_pa': lambda: self.vacuum_pressure_pa,
+                               })
 
     def init_device(self):
         """
         Device initialization.
         """
         # ask for firmware version to see if connection works
-        version = self.device_cmd(b'#version' + self.EOL)
-        version = version.strip(self.EOL).decode('utf-8')
+        version = self.send_cmd(b'#version')
         self.logger.info(f'Firmware version is {version}')
+
+        # Announce current state
+        state = self.get_state()
+        self.logger.info(f'Source state: {state}')
 
         self.initialized = True
         return
@@ -48,30 +73,9 @@ class ExcillumDaemon(SocketDeviceServerBase):
         """
         Keep-alive call
         """
-        r = self.device_cmd(b'state?' + self.EOL)
+        r = self.send_cmd(b'state?')
         if not r:
             raise DeviceException
-
-
-class Excillum(DriverBase):
-    """
-    Driver for the Excillum liquid-metal-jet source.
-    """
-
-    EOL = EOL
-
-    def __init__(self, address=None, admin=True, **kwargs):
-        """
-        Initialization.
-        """
-        if address is None:
-            address = DEFAULT_NETWORK_CONF['DAEMON']
-
-        super().__init__(address=address, admin=admin)
-
-        state = self.get_state()
-        self.logger.info(f'Source state: {state}')
-
 
     def send_cmd(self, cmd, replycmd=None):
         """
@@ -95,10 +99,10 @@ class Excillum(DriverBase):
         cmd += self.EOL
         if replycmd is not None:
             cmd += replycmd + self.EOL
-        reply = self.send_recv(cmd)
+        reply = self.device_cmd(cmd)
         return reply.strip(self.EOL).decode('utf-8', errors='ignore')
 
-    @admin_only
+    @proxycall(admin=True)
     def source_admin(self):
         """
         Request the admin status for source control.
@@ -107,13 +111,14 @@ class Excillum(DriverBase):
         """
         return self.send_cmd('#admin', '#whoami')
 
+    @proxycall()
     def get_state(self):
         """
         Get source state.
         """
         return self.send_cmd('state?').strip("'")
 
-    @admin_only
+    @proxycall(admin=True, block=False)
     def set_state(self, target_state, blocking=True):
         """
         Set the source state.
@@ -162,6 +167,7 @@ class Excillum(DriverBase):
 
         self.logger.info(f'Source state: "{reply}"')
 
+    @proxycall(admin=True)
     @property
     def state(self):
         return self.get_state()
@@ -170,52 +176,68 @@ class Excillum(DriverBase):
     def state(self, target_state):
         self.set_state(target_state)
 
+    @proxycall()
     @property
     def spotsize_x_um(self):
-        return self.send_cmd("spotsize_x_um?")
+        return try_float(self.send_cmd("spotsize_x_um?"))
 
+    @proxycall()
     @property
     def spotsize_y_um(self):
-        return self.send_cmd("spotsize_y_um?")
+        return try_float(self.send_cmd("spotsize_y_um?"))
 
+    @proxycall()
     @property
     def generator_emission_current_a(self):
-        return self.send_cmd("generator_emission_current?")
+        return try_float(self.send_cmd("generator_emission_current?"))
 
+    @proxycall()
     @property
     def generator_emission_power_w(self):
-        return self.send_cmd("generator_emission_power?")
+        return try_float(self.send_cmd("generator_emission_power?"))
 
+    @proxycall()
     @property
     def generator_high_voltage(self):
-        return self.send_cmd("generator_high_voltage?")
+        return try_float(self.send_cmd("generator_high_voltage?"))
 
+    @proxycall()
     @property
     def vacuum_pressure_pa(self):
-        return self.send_cmd("vacuum_pressure_mbar_short_average?")
+        return try_float(self.send_cmd("vacuum_pressure_mbar_short_average?"))
 
     @property
     def jet_pressure_pa(self):
-        return self.send_cmd("jet_pressure_average?")
+        return try_float(self.send_cmd("jet_pressure_average?"))
 
+    @proxycall()
     @property
     def spot_position_x_um(self):
-        return self.send_cmd("spot_position_x_um?")
+        """
+        Spot position in x (microns)
+        """
+        return try_float(self.send_cmd("spot_position_x_um?"))
 
+    @proxycall()
     @property
     def spot_position_y_um(self):
-        return self.send_cmd("spot_position_y_um?")
+        """
+        Spot position in y (microns)
+        """
+        return try_float(self.send_cmd("spot_position_y_um?"))
 
+    @proxycall()
     @property
     def jetpump_frequency(self):
         """
-        Jet pump frequency (Hz)
+        Jet pump frequency (in Hz)
         """
-        return self.send_cmd('jetpump_frequency?')
+        return try_float(self.send_cmd('jetpump_frequency?'))
 
+    @proxycall()
     @property
-    def jetpump_pressure(self):
+    def jet_is_stable(self):
         """
-        Jet pump pressure (bar).
+        Check if the jet is stable
         """
-        return self.send_cmd('jetpump_inlet_pressure?')
+        return self.send_cmd('jet_is_stable?')
