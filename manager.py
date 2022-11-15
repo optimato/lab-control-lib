@@ -28,20 +28,21 @@ from . import excillum
 from . import varex
 from . import xspectrum
 
-DRIVER_DATA  = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_CONF['mecademic']},
-                'smaract': {'driver': smaract.Smaract, 'net_info': NETWORK_CONF['smaract']},
-                'aerotech': {'driver': aerotech.Aerotech, 'net_info': NETWORK_CONF['aerotech']},
-                'mclennan1': {'driver': mclennan.McLennan1, 'net_info': NETWORK_CONF['mclennan1']},
-                'mclennan2': {'driver': mclennan.McLennan2, 'net_info': NETWORK_CONF['mclennan2']},
-                'mclennan3': {'driver': mclennan.McLennan3, 'net_info': NETWORK_CONF['mclennan3']},
-                'excillum': {'driver': excillum.Excillum, 'net_info': NETWORK_CONF['excillum']},
-                'dummy': {'driver': dummy.Dummy, 'net_info': NETWORK_CONF['dummy']},
-                'varex': {'driver': varex.Varex, 'net_info': NETWORK_CONF['varex']},
+DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_CONF['mecademic']},
+               'smaract': {'driver': smaract.Smaract, 'net_info': NETWORK_CONF['smaract']},
+               'aerotech': {'driver': aerotech.Aerotech, 'net_info': NETWORK_CONF['aerotech']},
+               'mclennan1': {'driver': mclennan.McLennan1, 'net_info': NETWORK_CONF['mclennan1']},
+               'mclennan2': {'driver': mclennan.McLennan2, 'net_info': NETWORK_CONF['mclennan2']},
+               'mclennan3': {'driver': mclennan.McLennan3, 'net_info': NETWORK_CONF['mclennan3']},
+               'excillum': {'driver': excillum.Excillum, 'net_info': NETWORK_CONF['excillum']},
+               'dummy': {'driver': dummy.Dummy, 'net_info': NETWORK_CONF['dummy']},
+               'varex': {'driver': varex.Varex, 'net_info': NETWORK_CONF['varex']},
               # 'xps': {},
               # 'pco': {},
               #'xspectrum': {'driver': xspectrum.XSpectrum},
-                }
+               }
 
+AVAILABLE = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
 
 logger = logging.getLogger("manager")
 
@@ -107,18 +108,39 @@ def instantiate_driver(name, admin=True, spawn=True):
     return d
 
 
-def boot():
+def boot(monitor_time=10):
     """
-    Initial, machine-dependent startup.
+    Initialize all proxy servers that should run on this host.
+    Wait for monitor_time to check and report errors.
     """
-    # Instantiate all servers
-    for driver_name, net_info in NETWORK_CONF.items():
-        if (HOST_IPS['control'] in net_info[THIS_HOST][0]):
-            # Instantiate device control is on this computer. Instantiate.
-            kwargs = {}
-            kwargs.update(DRIVER_DATA[driver_name])
-            kwargs['admin'] = False
-            d = instantiate_driver(**kwargs)
+    # Start a new process for all proxy servers
+    processes = {}
+    for name in AVAILABLE:
+        processes[name] = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
+                             start_new_session=True,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE)
+        logger.info(f'Spawning proxy server process for driver {name}...')
+
+    # Monitor for failure
+    time.sleep(.5)
+    t0 = time.time()
+    failed = []
+    while time.time() < t0 + monitor_time:
+        for name, p in processes.items():
+            err = p.stderr.read().decode()
+            if ('Traceback ' in err) or (p.poll() is not None):
+                # Process exited
+                logger.warning(f'Driver proxy spawning for {name} failed!')
+                print(err)
+                failed.append(name)
+        for f in failed:
+            processes.pop(f, None)
+        if not processes:
+            break
+        time.sleep(.1)
+    return len(failed)
+
 
 def init(yes=None, spawn=False):
     """
@@ -234,7 +256,7 @@ def running():
     click.echo('Here I will list all running daemons')
 
 
-@cli.command(help='Start a server proxy for a given name')
+@cli.command(help='Start the server proxy of driver [name]. Does not return.')
 @click.argument('name', nargs=-1)
 def start(name):
     available_drivers = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
@@ -274,4 +296,14 @@ def start(name):
 
     # Wait for completion, then exit.
     s.wait()
+    sys.exit(0)
+
+
+@cli.command(help='Start all proxy drivers on separate processes.')
+def startall(name):
+    failed = boot()
+    if not failed:
+        click.echo('All servers have been spawn successfully.')
+    else:
+        click.echo(f'{failed} : error while starting process.')
     sys.exit(0)
