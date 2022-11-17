@@ -42,70 +42,31 @@ DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_
               #'xspectrum': {'driver': xspectrum.XSpectrum},
                }
 
-AVAILABLE = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
+# List of drivers that should run on the current host
+AVAILABLE = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS.get(THIS_HOST, [])]
 
 logger = logging.getLogger("manager")
 
 
-def instantiate_driver(name, admin=True, spawn=True):
+def instantiate_driver(name, admin=True):
     """
-    Helper function to instantiate a driver (client) and spawn the corresponding server proxy
-    if necessary and requested.
+    Helper function to instantiate a driver (client).
 
     name: driver name - a key of DRIVER_DATA.
     admin: If True, request admin rights
-    spawn: If True, start the remote server if it is not found.
     """
     driver_data = DRIVER_DATA[name]
     driver = driver_data['driver']
     net_info = driver_data['net_info']
 
-    # Try to instantiate a driver client
-    d = None
-    while True:
-        try:
-            d = driver.Client(address=net_info['control'],
-                              admin=admin,
-                              name=name)
-            return d
-        except ProxyClientError:
-            if not spawn:
-                logger.warning(f'The proxy server for driver {name} is unreachable')
-                return None
-
-            # Didn't connect. Let's try to spawn the server.
-            if ask_yes_no(f'Server proxy for {name} unreachable. Spawn it?'):
-
-                # TODO: use paramiko.SSHClient for drivers that need to start on another host
-                # On windows, the command will be something like:
-                # Invoke-CimMethod -ClassName 'Win32_Process' -MethodName Create -Arguments @{ CommandLine = 'python -m labcontrol start varex'}
-                p = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
-                                     start_new_session=True,
-                                     stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.PIPE)
-                logger.info(f'Trying to spawn proxy server process for driver {name}.')
-
-                time.sleep(.5)
-                t0 = time.time()
-                failed = False
-                while time.time() < t0 + 10:
-                    err = p.stderr.read()
-                    if (b'Error' in err) or (p.poll() is not None):
-                        # Process exited
-                        logger.warning('Driver proxy spawning failed')
-                        failed = True
-                        break
-                    time.sleep(.1)
-
-                if failed:
-                    break
-
-                spawn = False
-                continue
-            else:
-                logger.error(f'Driver {driver.__name__} is not running.')
-                return None
-    return d
+    try:
+        d = driver.Client(address=net_info['control'],
+                          admin=admin,
+                          name=name)
+        return d
+    except ProxyClientError:
+        logger.warning(f'The proxy server for driver {name} is unreachable')
+        return None
 
 
 def boot(monitor_time=10):
@@ -142,7 +103,7 @@ def boot(monitor_time=10):
     return len(failed)
 
 
-def init(yes=None, spawn=False):
+def init(yes=None):
     """
     Initialize components of the setup.
     Syntax:
@@ -154,13 +115,13 @@ def init(yes=None, spawn=False):
 
     # Excillum
     if ask_yes_no("Connect to Excillum?"):
-        driver = instantiate_driver(name='excillum', spawn=spawn)
+        driver = instantiate_driver(name='excillum')
         drivers['excillum'] = driver
 
     # Smaract
     if ask_yes_no('Initialise smaracts?',
                   help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
-        driver = instantiate_driver(name='smaract', spawn=spawn)
+        driver = instantiate_driver(name='smaract')
         drivers['smaract'] = driver
         if driver is not None:
             motors['sx'] = smaract.Motor('sx', driver, axis=0)
@@ -170,19 +131,19 @@ def init(yes=None, spawn=False):
     # Coarse stages
     if ask_yes_no('Initialise short branch coarse stages?'):
         # McLennan 1 (sample coarse x translation)
-        driver = instantiate_driver(name='mclennan1', spawn=spawn)
+        driver = instantiate_driver(name='mclennan1')
         drivers['mclennan_sample'] = driver
         if driver is not None:
             motors['ssx'] = mclennan.Motor('ssx', driver)
 
         # McLennan 2 (detector coarse x translation)
-        driver = instantiate_driver(name='mclennan2', spawn=spawn)
+        driver = instantiate_driver(name='mclennan2')
         drivers['mclennan_detector'] = driver
         if driver is not None:
             motors['dsx'] = mclennan.Motor('dsx', driver)
 
     if ask_yes_no('Initialise Varex detector?'):
-        driver = instantiate_driver(name='varex', spawn=spawn)
+        driver = instantiate_driver(name='varex')
         drivers['varex'] = driver
 
     if ask_yes_no('Initialise PCO camera?'):
@@ -195,7 +156,7 @@ def init(yes=None, spawn=False):
         print('TODO')
 
     if ask_yes_no('Initialise rotation stage?'):
-        driver = instantiate_driver(name='aerotech', spawn=spawn)
+        driver = instantiate_driver(name='aerotech')
         drivers['aerotech'] = driver
         if driver is not None:
             motors['rot'] = aerotech.Motor('rot', driver)
@@ -204,7 +165,7 @@ def init(yes=None, spawn=False):
         print('TODO')
 
     if ask_yes_no('Initialize mecademic robot?'):
-        driver = instantiate_driver(name='mecademic', spawn=spawn)
+        driver = instantiate_driver(name='mecademic')
         drivers['mecademic'] = driver
         if driver is not None:
             motors.update(driver.create_motors())

@@ -23,7 +23,8 @@ NETWORK_CONF = {
     'dummy':  {'control': (HOST_IPS['control'], 5060), 'device': ('127.0.0.1', 6789),  'logging': (HOST_IPS['control'], 7060)},
     'varex': {'control': (HOST_IPS['varex'], 5070), 'device': None,  'logging': (HOST_IPS['varex'], 7070), 'broadcast_port': 8070},
     'pco': {'control': (HOST_IPS['pco'], 5080), 'device': None, 'logging': (HOST_IPS['pco'], 7080), 'broadcast_port': 8080},
-    'xspectrum': {'control': (HOST_IPS['lambda'], 5090), 'device': None, 'logging': (HOST_IPS['lambda'], 7090), 'broadcast_port': 8090}
+    'xspectrum': {'control': (HOST_IPS['lambda'], 5090), 'device': None, 'logging': (HOST_IPS['lambda'], 7090), 'broadcast_port': 8090},
+    'datalogger': {'control': (HOST_IPS['control'], 8086)}
 }
 
 # For convenience
@@ -40,7 +41,7 @@ DUMMY = NETWORK_CONF['dummy']
 VAREX = NETWORK_CONF['varex']
 PCO = NETWORK_CONF['pco']
 XSPECTRUM = NETWORK_CONF['xspectrum']
-
+DATALOGGER = NETWORK_CONF['datalogger']
 
 """
 ################################

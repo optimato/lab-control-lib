@@ -11,6 +11,7 @@ import socket
 
 from .base import MotorBase, SocketDriverBase, emergency_stop, _recv_all
 from .network_conf import HOST_IPS, DUMMY as NET_INFO
+from .datalogger import DataLogger
 from . import motors
 from .util.proxydevice import proxydevice, proxycall
 from .ui_utils import ask_yes_no
@@ -28,11 +29,14 @@ class Dummy(SocketDriverBase):
     # temporization for rapid status checks during moves.
     POLL_INTERVAL = 0.01
 
+    data_logger = DataLogger()
+
     def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
         super().__init__(device_address=device_address)
         self.metacalls.update({'position': self.get_pos})
+        self.data_logger.start(self)
 
     def init_device(self):
         """
@@ -73,6 +77,7 @@ class Dummy(SocketDriverBase):
         reply = self.device_cmd(b'ABORT\n')
         return
 
+    @data_logger.meta(field_name="position", tags={'type': 'fake', 'units': 'meters'}, interval=10)
     @proxycall()
     def get_pos(self, to_stdout=False):
         """
