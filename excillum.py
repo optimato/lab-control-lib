@@ -11,6 +11,7 @@ from .base import SocketDriverBase, DeviceException
 from .network_conf import EXCILLUM as NET_INFO
 from .ui_utils import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
+from .datalogger import DataLogger
 
 EOL = b'\n'
 
@@ -35,6 +36,7 @@ class Excillum(SocketDriverBase):
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
+    data_logger = DataLogger()
 
     def __init__(self, device_address=None):
         if device_address is None:
@@ -53,6 +55,8 @@ class Excillum(SocketDriverBase):
                                'spot_position_y_um': lambda: self.spot_position_y_um,
                                'vacuum_pressure_pa': lambda: self.vacuum_pressure_pa,
                                })
+
+        self.data_logger.start(self)
 
     def init_device(self):
         """
@@ -111,6 +115,7 @@ class Excillum(SocketDriverBase):
         """
         return self.send_cmd('#admin', '#whoami')
 
+    @data_logger.meta(field_name="state", tags={'type': 'source', 'units': 'none', 'branch': 'both'})
     @proxycall()
     def get_state(self):
         """
