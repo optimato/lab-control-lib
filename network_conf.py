@@ -20,7 +20,7 @@ NETWORK_CONF = {
     'mclennan1': {'control': (HOST_IPS['control'], 5050), 'device': ('10.19.48.?', 7776),  'logging': (HOST_IPS['control'], 7050)},
     'mclennan2': {'control': (HOST_IPS['control'], 5051), 'device': ('10.19.48.?', 7777), 'logging': (HOST_IPS['control'], 7051)},
     'mclennan3': {'control': (HOST_IPS['control'], 5052), 'device': ('10.19.48.?', 7778), 'logging': (HOST_IPS['control'], 7052)},
-    'dummy':  {'control': (HOST_IPS['control'], 5060), 'device': ('127.0.0.1', 6789),  'logging': (HOST_IPS['control'], 7060)},
+    'dummy':  {'control': ('127.0.0.1', 5060), 'device': ('127.0.0.1', 6789),  'logging': ('127.0.0.1', 7060)},
     'varex': {'control': (HOST_IPS['varex'], 5070), 'device': None,  'logging': (HOST_IPS['varex'], 7070), 'broadcast_port': 8070},
     'pco': {'control': (HOST_IPS['pco'], 5080), 'device': None, 'logging': (HOST_IPS['pco'], 7080), 'broadcast_port': 8080},
     'xspectrum': {'control': (HOST_IPS['lambda'], 5090), 'device': None, 'logging': (HOST_IPS['lambda'], 7090), 'broadcast_port': 8090},

@@ -10,11 +10,9 @@ import time
 import socket
 
 from .base import MotorBase, SocketDriverBase, emergency_stop, _recv_all
-from .network_conf import HOST_IPS, DUMMY as NET_INFO
-from .datalogger import DataLogger
-from . import motors
+from .network_conf import DUMMY as NET_INFO
+from .util.datalogger import DataLogger
 from .util.proxydevice import proxydevice, proxycall
-from .ui_utils import ask_yes_no
 
 __all__ = ['Dummy', 'Motor']
 
@@ -77,8 +75,8 @@ class Dummy(SocketDriverBase):
         reply = self.device_cmd(b'ABORT\n')
         return
 
-    @data_logger.meta(field_name="position", tags={'type': 'fake', 'units': 'meters'}, interval=10)
     @proxycall()
+    @data_logger.meta(field_name="position", tags={'type': 'fake', 'units': 'meters'}, interval=10)
     def get_pos(self, to_stdout=False):
         """
         Dummy position
@@ -111,6 +109,17 @@ class Dummy(SocketDriverBase):
                 # Temporise
                 time.sleep(self.POLL_INTERVAL)
         self.logger.info("Finished moving dummy stage.")
+
+    @proxycall()
+    @property
+    @data_logger.meta(field_name="position", tags={'type': 'fake', 'units': 'meters'}, interval=10)
+    def pos(self):
+        """
+        Dummy position
+        """
+        pos = self.device_cmd(b'GET_POSITION\n')
+        return float(pos.strip())
+
 
     def _finish(self):
         """

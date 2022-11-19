@@ -57,7 +57,7 @@ import time
 
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .network_conf import SMARACT as NET_INFO
-from .ui_utils import ask_yes_no
+from .util.uitools import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
 
 __all__ = ['Smaract', 'Motor']

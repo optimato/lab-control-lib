@@ -18,7 +18,6 @@ from . import conf_path, FileDict
 from .util.future import Future
 from .util.proxydevice import proxycall
 
-
 class MotorLimitsException(Exception):
     pass
 

@@ -131,7 +131,6 @@ print('\n'.join(['*{:^64s}*'.format(f"OptImaTo Lab Control"),
 class ControllerRunningError(RuntimeError):
     pass
 
-
 # dictionary for driver instances
 drivers = {}
 
@@ -142,6 +141,7 @@ motors = {}
 cameras = {}
 
 from .manager import init
+from . import experiment
 # Import all driver submodules
 #from . import aerotech
 #from . import dummy

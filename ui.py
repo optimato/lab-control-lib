@@ -19,7 +19,6 @@ import random
 import logging
 import base64
 from io import StringIO
-import optimatools
 
 from optimatools import stitching, rebin, io
 from . import mtffun_hans
@@ -31,13 +30,11 @@ from . import xpsfun_ronan
 from . import microscope
 from . import pco
 #from . import andor
-from . import dummy
 #from . import excillum
-from . import spec_magics
 
 from . import drivers, motors, config, conf_path
-from .ui_utils import ask, ask_yes_no
-from . import ui_utils
+from .util.uitools import ask, ask_yes_no
+from .util import uitools
 
 from glob import glob
 

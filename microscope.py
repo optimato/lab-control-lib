@@ -93,7 +93,7 @@ import time
 import logging
 import threading
 
-from .ui_utils import ask_yes_no
+from .util.uitools import ask_yes_no
 
 logger = logging.getLogger("Microscope driver")
 

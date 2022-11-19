@@ -16,11 +16,10 @@ import time
 import socket
 import os
 import threading
-import select
 
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException, _recv_all
 from .network_conf import MECADEMIC as NET_INFO, MECADEMIC_MONITOR
-from .ui_utils import ask_yes_no
+from .util.uitools import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
 
 __all__ = ['Mecademic']#, 'Motor']

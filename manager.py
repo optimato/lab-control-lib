@@ -2,22 +2,19 @@
 Manage driver and daemon creation.
 """
 
-import logging
 import subprocess
 import time
-import sys
 
 import logging
 import sys
 import inspect
 import click
 
-from . import ui_utils
 from . import THIS_HOST, LOCAL_HOSTNAME
 from .network_conf import NETWORK_CONF, HOST_IPS
-from .ui_utils import ask_yes_no
+from .util.uitools import ask_yes_no
 from .util.proxydevice import ProxyClientError
-from . import drivers, motors, cameras
+from . import drivers, motors
 from . import aerotech
 from . import mclennan
 from . import mecademic
@@ -26,7 +23,6 @@ from . import dummy
 from . import smaract
 from . import excillum
 from . import varex
-from . import xspectrum
 
 DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_CONF['mecademic']},
                'smaract': {'driver': smaract.Smaract, 'net_info': NETWORK_CONF['smaract']},

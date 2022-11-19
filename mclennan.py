@@ -96,7 +96,7 @@ import time
 import json
 
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
-from .ui_utils import ask_yes_no
+from .util.uitools import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
 from .network_conf import NETWORK_CONF
 

@@ -11,7 +11,7 @@ import os
 from datetime import datetime
 
 from . import data_path
-from .ui_utils import ask, user_prompt
+from .util.uitools import ask, user_prompt
 from .aggregate import get_all_meta
 
 # INVESTIGATION and EXPERIMENT will be populated by user prompts or other ways

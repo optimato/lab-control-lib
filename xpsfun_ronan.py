@@ -9,7 +9,7 @@ This uses the group XYZ, if errors are thrown trying to connect to this group, y
 network GUI on 192.168.0.254 and setup the group again.
 '''
 
-from .ui_utils import ask_yes_no
+from .util.uitools import ask_yes_no
 from .base import MotorBase
 import socket
 

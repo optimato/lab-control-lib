@@ -9,8 +9,7 @@ import numpy as np
 
 from .camera import CameraBase
 from .network_conf import VAREX as NET_INFO
-from .util.proxydevice import proxycall, proxydevice
-from .ui_utils import ask_yes_no
+from .util.proxydevice import proxydevice
 
 logger = logging.getLogger(__name__)
 

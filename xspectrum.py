@@ -12,7 +12,6 @@ from .camera import CameraBase
 from .network_conf import XSPECTRUM as NET_INFO
 from .util.proxydevice import proxycall, proxydevice
 from .util.future import Future
-from .ui_utils import ask_yes_no
 
 logger = logging.getLogger(__name__)
 
