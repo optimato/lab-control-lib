@@ -90,7 +90,7 @@ class ServerBase:
 
     PING_INTERVAL = 1
     PING_TIMEOUT = 30
-    POLL_TIMEOUT = 10
+    POLL_TIMEOUT = 100
     ESCAPE_STRING = '^'
     ADDRESS = None
     API = None
@@ -141,7 +141,7 @@ class ServerBase:
         self.socket = None
 
         self.admin = None
-        self._stopping = False
+        self._stopping = None
         atexit.register(self.stop)
 
         if instantiate:
@@ -198,14 +198,25 @@ class ServerBase:
         Prepare the server and start listening for connections.
         (runs on the separate thread)
         """
+        # _stopping might have been set to True already because of instantiation failure.
+        if self._stopping:
+            self.logger.info('Aborting')
+            return
+
         self._stopping = False
 
         # Initialize socket for entry point
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         full_address = f'tcp://{self.address[0]}:{self.address[1]}'
-        self.socket.bind(full_address)
-
+        try:
+            self.socket.bind(full_address)
+        except zmq.error.ZMQError as e:
+            print(str(e))
+            print(f'Full address: {full_address}')
+            self.logger.error(repr(e))
+            self.logger.error(f'Full address: {full_address}')
+            return
         self.logger.info(f'Server bound to {full_address}')
 
         # Initialize poller
@@ -376,6 +387,8 @@ class ServerBase:
         try:
             self.instance = self.cls(*args, **kwargs)
         except BaseException as error:
+            self.logger.critical('Class instantiation failed!', exc_info=True)
+            self._stopping = True
             self.instance = None
             return
 

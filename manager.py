@@ -131,7 +131,7 @@ def start(name):
 
 
 @cli.command(help='Start all proxy drivers on separate processes.')
-def startall(name):
+def startall():
     failed = boot()
     if not failed:
         click.echo('All servers have been spawn successfully.')

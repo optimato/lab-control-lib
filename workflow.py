@@ -26,7 +26,7 @@ def connect():
     if experiment is not None:
         return
     from .manager import instantiate_driver
-    d = instantiate_driver(name='Experiment', admin=False)
+    d = instantiate_driver(name='experiment', admin=False)
     globals().update({'experiment': d})
 
 
@@ -80,15 +80,21 @@ class Experiment(DriverBase):
         """
         super().__init__()
 
+        if not self.config.get('experiment'):
+            self.config['experiment'] = None
+        if not self.config.get('investigation'):
+            self.config['investigation'] = None
+
         # Set initial parameters
-        self._experiment = None
-        self._investigation = None
         self._running = False
         self._scan_name = None
         self._label = None
         self._base_file_name = None
 
-        self._scan_number = self.next_scan()
+        try:
+            self._scan_number = self.next_scan()
+        except Exception as e:
+            self.logger.warning('Could not find first available scan number (have experiment and investigation been set?)')
         self.counter = 0
 
     @proxycall(admin=True)
@@ -148,7 +154,7 @@ class Experiment(DriverBase):
         experiment path.
         """
         try:
-            exp_path = self.path
+            exp_path = os.path.join(data_path, self.path)
         except RuntimeError as e:
             return None
         scan_numbers = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
