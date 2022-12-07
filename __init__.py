@@ -68,7 +68,7 @@ conf_file = os.path.join(conf_path, 'config.json')
 config = FileDict(conf_file)
 
 # Data paths
-data_path = '/data/optimato/'
+data_path = '/data/'
 
 # Setup logging
 logging.basicConfig(
@@ -141,7 +141,7 @@ motors = {}
 cameras = {}
 
 from .manager import init
-from . import experiment
+from . import workflow
 # Import all driver submodules
 #from . import aerotech
 #from . import dummy

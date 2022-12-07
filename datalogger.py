@@ -1,4 +1,4 @@
-import experiment
+import workflow
 from .util.datalogger import DataLogger as DataLoggerBase
 from .network_conf import DATALOGGER as NET_INFO
 

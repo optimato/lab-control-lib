@@ -69,7 +69,7 @@ import json
 
 from optimatools.io.h5rw import h5write
 
-from . import experiment, aggregate
+from . import workflow, aggregate
 from .base import DriverBase
 from .util import now, FramePublisher
 from .util.proxydevice import proxydevice, proxycall
@@ -118,6 +118,9 @@ class CameraBase(DriverBase):
         # Prepare metadata collection
         aggregate.connect()
 
+        # prepare experiment parameters
+        self.experiment = workflow.Experiment.Client()
+
         # Broadcasting
         self.broadcaster = None
         if self.config['do_broadcast']:
@@ -151,7 +154,7 @@ class CameraBase(DriverBase):
         # Start collecting metadata *before* acquisition
         metadata = aggregate.get_all_meta()
 
-        scan_name = experiment.SCAN.scan_name if experiment.SCAN else None
+        scan_name = self.experiment.scan_name
         localmeta = {'detector': self.name,
                      'scan_name': scan_name,
                      'acquisition_start': now(),
@@ -263,12 +266,13 @@ class CameraBase(DriverBase):
                 self.exposure_number = exp_num
 
         # Check if this is part of a scan
-        if experiment.SCAN:
+        scan_path = self.experiment.scan_path
+        if scan_path:
             old_file_prefix = self.file_prefix
             old_save_path = self.save_path
             try:
-                self.save_path = experiment.SCAN.scan_path
-                self.file_prefix = experiment.SCAN.next_prefix()
+                self.save_path = scan_path
+                self.file_prefix = self.experiment.next_prefix()
                 self.acquire()
             finally:
                 self.file_prefix = old_file_prefix

@@ -24,7 +24,8 @@ NETWORK_CONF = {
     'varex': {'control': (HOST_IPS['varex'], 5070), 'device': None,  'logging': (HOST_IPS['varex'], 7070), 'broadcast_port': 8070},
     'pco': {'control': (HOST_IPS['pco'], 5080), 'device': None, 'logging': (HOST_IPS['pco'], 7080), 'broadcast_port': 8080},
     'xspectrum': {'control': (HOST_IPS['lambda'], 5090), 'device': None, 'logging': (HOST_IPS['lambda'], 7090), 'broadcast_port': 8090},
-    'datalogger': {'control': (HOST_IPS['control'], 8086)}
+    'datalogger': {'control': (HOST_IPS['control'], 8086)},
+    'experiment': {'control': (HOST_IPS['control'], 9001)}
 }
 
 # For convenience
@@ -42,6 +43,7 @@ VAREX = NETWORK_CONF['varex']
 PCO = NETWORK_CONF['pco']
 XSPECTRUM = NETWORK_CONF['xspectrum']
 DATALOGGER = NETWORK_CONF['datalogger']
+EXPERIMENT = NETWORK_CONF['experiment']
 
 """
 ################################

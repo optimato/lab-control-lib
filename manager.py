@@ -12,6 +12,7 @@ import click
 
 from . import THIS_HOST, LOCAL_HOSTNAME
 from .network_conf import NETWORK_CONF, HOST_IPS
+from .util import uitools
 from .util.uitools import ask_yes_no
 from .util.proxydevice import ProxyClientError
 from . import drivers, motors
@@ -19,6 +20,7 @@ from . import aerotech
 from . import mclennan
 from . import mecademic
 from . import dummy
+from . import workflow
 #from . import microscope
 from . import smaract
 from . import excillum
@@ -33,6 +35,7 @@ DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_
                'excillum': {'driver': excillum.Excillum, 'net_info': NETWORK_CONF['excillum']},
                'dummy': {'driver': dummy.Dummy, 'net_info': NETWORK_CONF['dummy']},
                'varex': {'driver': varex.Varex, 'net_info': NETWORK_CONF['varex']},
+               'experiment': {'driver': workflow.Experiment, 'net_info': NETWORK_CONF['experiment']}
               # 'xps': {},
               # 'pco': {},
               #'xspectrum': {'driver': xspectrum.XSpectrum},
@@ -65,135 +68,6 @@ def instantiate_driver(name, admin=True):
         return None
 
 
-def boot(monitor_time=10):
-    """
-    Initialize all proxy servers that should run on this host.
-    Wait for monitor_time to check and report errors.
-    """
-    # Start a new process for all proxy servers
-    processes = {}
-    for name in AVAILABLE:
-        processes[name] = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
-                             start_new_session=True,
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.PIPE)
-        logger.info(f'Spawning proxy server process for driver {name}...')
-
-    # Monitor for failure
-    time.sleep(.5)
-    t0 = time.time()
-    failed = []
-    while time.time() < t0 + monitor_time:
-        for name, p in processes.items():
-            err = p.stderr.read().decode()
-            if ('Traceback ' in err) or (p.poll() is not None):
-                # Process exited
-                logger.warning(f'Driver proxy spawning for {name} failed!')
-                print(err)
-                failed.append(name)
-        for f in failed:
-            processes.pop(f, None)
-        if not processes:
-            break
-        time.sleep(.1)
-    return len(failed)
-
-
-def init(yes=None):
-    """
-    Initialize components of the setup.
-    Syntax:
-        init()
-    """
-    if yes:
-        # Fake non-interactive to answer all questions automatically
-        ui_utils.user_interactive = False
-
-    # Excillum
-    if ask_yes_no("Connect to Excillum?"):
-        driver = instantiate_driver(name='excillum')
-        drivers['excillum'] = driver
-
-    # Smaract
-    if ask_yes_no('Initialise smaracts?',
-                  help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
-        driver = instantiate_driver(name='smaract')
-        drivers['smaract'] = driver
-        if driver is not None:
-            motors['sx'] = smaract.Motor('sx', driver, axis=0)
-            motors['sy'] = smaract.Motor('sy', driver, axis=2)
-            motors['sz'] = smaract.Motor('sz', driver, axis=1)
-
-    # Coarse stages
-    if ask_yes_no('Initialise short branch coarse stages?'):
-        # McLennan 1 (sample coarse x translation)
-        driver = instantiate_driver(name='mclennan1')
-        drivers['mclennan_sample'] = driver
-        if driver is not None:
-            motors['ssx'] = mclennan.Motor('ssx', driver)
-
-        # McLennan 2 (detector coarse x translation)
-        driver = instantiate_driver(name='mclennan2')
-        drivers['mclennan_detector'] = driver
-        if driver is not None:
-            motors['dsx'] = mclennan.Motor('dsx', driver)
-
-    if ask_yes_no('Initialise Varex detector?'):
-        driver = instantiate_driver(name='varex')
-        drivers['varex'] = driver
-
-    if ask_yes_no('Initialise PCO camera?'):
-        print('TODO')
-
-    if ask_yes_no('Initialise Andor camera?'):
-        print('TODO')
-
-    if ask_yes_no('Initialise microscope?'):
-        print('TODO')
-
-    if ask_yes_no('Initialise rotation stage?'):
-        driver = instantiate_driver(name='aerotech')
-        drivers['aerotech'] = driver
-        if driver is not None:
-            motors['rot'] = aerotech.Motor('rot', driver)
-
-    if ask_yes_no('Initialise Newport XPS motors?'):
-        print('TODO')
-
-    if ask_yes_no('Initialize mecademic robot?'):
-        driver = instantiate_driver(name='mecademic')
-        drivers['mecademic'] = driver
-        if driver is not None:
-            motors.update(driver.create_motors())
-
-    if ask_yes_no('Initialise stage pseudomotors?'):
-        print('TODO')
-        # motors['sxl'] = labframe.Motor(
-        #    'sxl', motors['sx'], motors['sz'], motors['rot'], axis=0)
-        # motors['szl'] = labframe.Motor(
-        #    'szl', motors['sx'], motors['sz'], motors['rot'], axis=1)
-
-    if ask_yes_no('Dump all motor objects in global namespace?'):
-        # This is a bit of black magic
-        for s in inspect.stack():
-            if 'init_all' in s[4][0]:
-                s[0].f_globals.update(motors)
-                break
-
-    return
-
-
-def init_dummy(yes=None):
-    """
-    Initialize the dummy component for testing
-    """
-    if yes:
-        # Fake non-interactive to answer all questions automatically
-        ui_utils.user_interactive = False
-
-    if ask_yes_no("Start dummy driver?"):
-        driver = instantiate_driver(name='dummy')
-        drivers['dummy'] = driver
 
 
 # Command Line Interface
@@ -264,3 +138,37 @@ def startall(name):
     else:
         click.echo(f'{failed} : error while starting process.')
     sys.exit(0)
+
+
+def boot(monitor_time=10):
+    """
+    Initialize all proxy servers that should run on this host.
+    Wait for monitor_time to check and report errors.
+    """
+    # Start a new process for all proxy servers
+    processes = {}
+    for name in AVAILABLE:
+        processes[name] = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
+                             start_new_session=True,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE)
+        logger.info(f'Spawning proxy server process for driver {name}...')
+
+    # Monitor for failure
+    time.sleep(.5)
+    t0 = time.time()
+    failed = []
+    while time.time() < t0 + monitor_time:
+        for name, p in processes.items():
+            err = p.stderr.read().decode()
+            if ('Traceback ' in err) or (p.poll() is not None):
+                # Process exited
+                logger.warning(f'Driver proxy spawning for {name} failed!')
+                print(err)
+                failed.append(name)
+        for f in failed:
+            processes.pop(f, None)
+        if not processes:
+            break
+        time.sleep(.1)
+    return len(failed)
