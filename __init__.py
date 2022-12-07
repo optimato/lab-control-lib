@@ -140,7 +140,6 @@ motors = {}
 # dictionary of camera instances
 cameras = {}
 
-from .manager import init
 from . import workflow
 # Import all driver submodules
 #from . import aerotech
