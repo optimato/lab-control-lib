@@ -1,4 +1,4 @@
-import workflow
+from . import workflow
 from .util.datalogger import DataLogger as DataLoggerBase
 from .network_conf import DATALOGGER as NET_INFO
 
@@ -11,9 +11,10 @@ class DataLogger(DataLoggerBase):
         """
         Add tags related to current scan
         """
+        workflow.connect()
+
         tags = {}
-        tags['investigation'] = experiment.INVESTIGATION or 'undefined'
-        tags['experiment'] = experiment.EXPERIMENT or 'undefined'
-        if experiment.SCAN is not None:
-            tags['scan_number'] = experiment.SCAN.scan_number
+        tags['investigation'] = workflow.experiment.investigation or 'undefined'
+        tags['experiment'] = workflow.experiment.experiment or 'undefined'
+        tags['scan_name'] = workflow.experiment.scan_name or 'undefined'
         return tags

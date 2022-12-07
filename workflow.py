@@ -19,15 +19,15 @@ from .util.proxydevice import proxydevice, proxycall
 from .base import DriverBase
 from .aggregate import get_all_meta
 
-EXPERIMENT_DRIVER = None
+experiment = None
 
 
 def connect():
-    if EXPERIMENT_DRIVER is not None:
+    if experiment is not None:
         return
     from .manager import instantiate_driver
     d = instantiate_driver(name='Experiment', admin=False)
-    globals().update({'EXPERIMENT_DRIVER': d})
+    globals().update({'experiment': d})
 
 
 class Scan:
@@ -45,7 +45,7 @@ class Scan:
         Prepare for scan
         """
         # New scan
-        self.scan_data = EXPERIMENT_DRIVER.new_scan(label=self.label)
+        self.scan_data = experiment.new_scan(label=self.label)
 
         self.name = self.scan_data['scan_name']
         self.scan_path = self.scan_data['scan_path']
@@ -63,7 +63,7 @@ class Scan:
 
         TODO: manage exceptions
         """
-        EXPERIMENT_DRIVER.end_scan()
+        experiment.end_scan()
         self.logger.info(f'Scan {self.name} complete.')
 
 
