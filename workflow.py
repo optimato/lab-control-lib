@@ -17,7 +17,6 @@ from .network_conf import EXPERIMENT as NET_INFO
 from .util.uitools import ask, user_prompt
 from .util.proxydevice import proxydevice, proxycall
 from .base import DriverBase
-from .manager import instantiate_driver
 from .aggregate import get_all_meta
 
 EXPERIMENT_DRIVER = None
@@ -26,6 +25,7 @@ EXPERIMENT_DRIVER = None
 def connect():
     if EXPERIMENT_DRIVER is not None:
         return
+    from .manager import instantiate_driver
     d = instantiate_driver(name='Experiment', admin=False)
     globals().update({'EXPERIMENT_DRIVER': d})
 
