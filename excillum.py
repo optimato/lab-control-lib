@@ -115,8 +115,8 @@ class Excillum(SocketDriverBase):
         """
         return self.send_cmd('#admin', '#whoami')
 
-    @data_logger.meta(field_name="state", tags={'type': 'source', 'units': 'none', 'branch': 'both'})
     @proxycall()
+    @data_logger.meta(field_name="state", tags={'type': 'source', 'units': 'none', 'branch': 'both'})
     def get_state(self):
         """
         Get source state.
@@ -183,11 +183,13 @@ class Excillum(SocketDriverBase):
 
     @proxycall()
     @property
+    @data_logger.meta(field_name="spotsize_x", tags={'type': 'source', 'units': 'um', 'branch': 'both'})
     def spotsize_x_um(self):
         return try_float(self.send_cmd("spotsize_x_um?"))
 
     @proxycall()
     @property
+    @data_logger.meta(field_name="spotsize_y", tags={'type': 'source', 'units': 'um', 'branch': 'both'})
     def spotsize_y_um(self):
         return try_float(self.send_cmd("spotsize_y_um?"))
 
