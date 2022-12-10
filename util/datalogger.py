@@ -3,9 +3,8 @@ Data logging module
 
 The object DataLogger provides the functionality to all drivers to add time-stamped data points
 to an influxdb database (this backend could be changed easily if needed)
-
-
 """
+
 from functools import wraps
 from datetime import datetime
 import logging
@@ -14,17 +13,17 @@ import importlib.util
 from . import utcnow
 from .future import Future
 
-DEFAULT_DATABASE = 'labcontrol'
+DEFAULT_BUCKET = 'labcontrol'
 
 logger = logging.getLogger(__name__)
 
 # Try to import influxdb
-if importlib.util.find_spec('influxdb') is not None:
-    import influxdb
+if importlib.util.find_spec('influxdb_client') is not None:
+    import influxdb_client
 else:
-    logger.debug("Module influxdb unavailable on this host")
+    logger.debug("Module influxdb_client unavailable on this host")
     import json
-    globals().update({'influxdb': None})
+    globals().update({'influxdb_client': None})
 
 
 class DataLogger:
@@ -55,17 +54,19 @@ class DataLogger:
 
     DEFAULT_ADDRESS = None
 
-    def __init__(self, address=None, database=None):
+    def __init__(self, address=None, bucket=None):
         """
 
         """
-        if influxdb is None:
+        if influxdb_client is None:
             logger.warning('Data will not be logged in a database (influxdb unavailable but in a file!')
 
         self.address = address or self.DEFAULT_ADDRESS
-        self.db = database or DEFAULT_DATABASE
+        self.url = f'http://{address[0]}:{address[1]}'
+        self.bucket = bucket or DEFAULT_BUCKET
 
         self.client = None
+        self.write_api = None
         self.schedule = []
         self.futures = []
         self._stop = False
@@ -108,8 +109,14 @@ class DataLogger:
 
                     all_tags = self.get_tags().update(her.tags)
 
+                    # If result is dict, build field from this
+                    if type(result) is dict:
+                        fields = {f'{her.field_name}.k': v for k, v in result}
+                    else:
+                        fields = {her.field_name: result}
+
                     # Log this data
-                    self.new_entry(name=name, fields={her.field_name: result}, tags=all_tags, timeval=timestamp)
+                    self.new_entry(name=name, fields=fields, tags=all_tags, timeval=timestamp)
 
                     return result
 
@@ -125,9 +132,9 @@ class DataLogger:
         """
         Connect the client to the database.
         """
-        if influxdb and not self.client:
-            self.client = influxdb.InfluxDBClient(host=self.address[0], port=self.address[1])
-            self.client.switch_database(self.db)
+        if influxdb_client and not self.client:
+            self.client = influxdb_client.InfluxDBClient(url=self.url)
+            self.write_api = self.client.write_api(write_options=influxdb_client.client.write_api.SYNCHRONOUS)
 
         for method_name, interval in self.schedule:
             method = getattr(instance, method_name)
@@ -162,17 +169,16 @@ class DataLogger:
         if timeval is None:
             timeval = utcnow()
 
-        json_body = [
-            {
+        pt = {
               "measurement": name,
               "tags": tags,
               "time": timeval,
               "fields": fields
              }
-           ]
 
-        if influxdb:
-            self.client.write_points(json_body)
+
+        if influxdb_client:
+            self.write_api.write(bucket=self.bucket, record=influxdb_client.Point.from_dict(pt))
         else:
-            line = json.dumps(json_body) + '\n'
-            open(f'{self.db}.json', 'a').write(line)
+            line = json.dumps(pt) + '\n'
+            open(f'{self.bucket}.json', 'a').write(line)
