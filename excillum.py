@@ -41,6 +41,7 @@ class Excillum(SocketDriverBase):
     def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
+        self.data_logger.start(self)
         super().__init__(device_address=device_address)
 
         self.metacalls.update({'state': lambda: self.state,
@@ -56,8 +57,6 @@ class Excillum(SocketDriverBase):
                                'vacuum_pressure_pa': lambda: self.vacuum_pressure_pa,
                                })
 
-        self.data_logger.start(self)
-
     def init_device(self):
         """
         Device initialization.
@@ -65,6 +64,8 @@ class Excillum(SocketDriverBase):
         # ask for firmware version to see if connection works
         version = self.send_cmd(b'#version')
         self.logger.info(f'Firmware version is {version}')
+
+        self.send_cmd(b'#admin', b'state?')
 
         # Announce current state
         state = self.get_state()

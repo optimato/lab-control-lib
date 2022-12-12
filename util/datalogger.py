@@ -54,15 +54,16 @@ class DataLogger:
 
     DEFAULT_ADDRESS = None
 
-    def __init__(self, address=None, bucket=None):
+    def __init__(self, token, address=None, bucket=None):
         """
 
         """
         if influxdb_client is None:
             logger.warning('Data will not be logged in a database (influxdb unavailable but in a file!')
 
+        self.token = token
         self.address = address or self.DEFAULT_ADDRESS
-        self.url = f'http://{address[0]}:{address[1]}'
+        self.url = f'http://{self.address[0]}:{self.address[1]}'
         self.bucket = bucket or DEFAULT_BUCKET
 
         self.client = None
@@ -107,7 +108,8 @@ class DataLogger:
 
                     timestamp = tm.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
-                    all_tags = self.get_tags().update(her.tags)
+                    all_tags = self.get_tags()
+                    all_tags.update(her.tags)
 
                     # If result is dict, build field from this
                     if type(result) is dict:
@@ -133,7 +135,7 @@ class DataLogger:
         Connect the client to the database.
         """
         if influxdb_client and not self.client:
-            self.client = influxdb_client.InfluxDBClient(url=self.url)
+            self.client = influxdb_client.InfluxDBClient(url=self.url, org='optimato', token=self.token)
             self.write_api = self.client.write_api(write_options=influxdb_client.client.write_api.SYNCHRONOUS)
 
         for method_name, interval in self.schedule:

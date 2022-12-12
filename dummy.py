@@ -11,7 +11,7 @@ import socket
 
 from .base import MotorBase, SocketDriverBase, emergency_stop, _recv_all
 from .network_conf import DUMMY as NET_INFO
-from .util.datalogger import DataLogger
+from .datalogger import DataLogger
 from .util.proxydevice import proxydevice, proxycall
 
 __all__ = ['Dummy', 'Motor']

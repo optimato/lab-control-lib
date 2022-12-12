@@ -1,11 +1,17 @@
 from . import workflow
 from .util.datalogger import DataLogger as DataLoggerBase
 from .network_conf import DATALOGGER as NET_INFO
-
+from . import config
 
 class DataLogger(DataLoggerBase):
 
     DEFAULT_ADDRESS = NET_INFO['control']
+
+    def __init__(self, address=None):
+        """
+        Initilization
+        """
+        super().__init__(address=address, token=config['influxdb_token'])
 
     def get_tags(self):
         """
@@ -13,8 +19,7 @@ class DataLogger(DataLoggerBase):
         """
         workflow.connect()
 
-        tags = {}
-        tags['investigation'] = workflow.experiment.investigation or 'undefined'
-        tags['experiment'] = workflow.experiment.experiment or 'undefined'
-        tags['scan_name'] = workflow.experiment.scan_name or 'undefined'
+        tags = {'investigation': workflow.experiment.investigation or 'undefined',
+                'experiment': workflow.experiment.experiment or 'undefined',
+                'scan_name': workflow.experiment.scan_name or 'undefined'}
         return tags
