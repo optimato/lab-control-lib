@@ -20,9 +20,18 @@ import threading
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException, _recv_all
 from .network_conf import MECADEMIC as NET_INFO, MECADEMIC_MONITOR
 from .util.uitools import ask_yes_no
+from .util.future import Future
 from .util.proxydevice import proxydevice, proxycall
+from .datalogger import datalogger
 
 __all__ = ['Mecademic']#, 'Motor']
+
+logtags = {'type': 'motion',
+           'branch': 'long',
+           'device_ip': NET_INFO['device'][0],
+           'device_port': NET_INFO['device'][1]
+          }
+
 
 # This API uses null character (\0) as end-of-line.
 EOL = b'\0'
@@ -574,9 +583,7 @@ class Mecademic(SocketDriverBase):
             self.check_done()
             fct()
 
-        t = threading.Thread(target=do_after_done)
-        t.daemon = True
-        t.start()
+        Future(target=do_after_done)
         return
 
     @proxycall()
@@ -592,7 +599,20 @@ class Mecademic(SocketDriverBase):
             # That's not right. Try again.
             return self.get_joints()
         # Drop the first element (timestamp)
+        self.log_joints(joints[:1])
         return joints[1:]
+
+    @datalogger.meta(field_name='joints', tags=logtags)
+    def log_joints(self, joints):
+        """
+        Helper function just for logging.
+        """
+        return {'theta_1': joints[0],
+                'theta_2': joints[1],
+                'theta_3': joints[2],
+                'theta_4': joints[3],
+                'theta_5': joints[4],
+                'theta_6': joints[5]}
 
     @proxycall(admin=True, block=False)
     def move_pose(self, pose):
@@ -615,8 +635,21 @@ class Mecademic(SocketDriverBase):
         """
         code, reply = self.send_cmd('GetRtCartPos')
         pose = [float(x) for x in reply.split(',')]
+        self.log_pose(pose)
         # Drop the first element (timestamp)
         return pose[1:]
+
+    @datalogger.meta(field_name='pose', tags=logtags)
+    def log_pose(self, pose):
+        """
+        Helper function just for logging.
+        """
+        return {'x': pose[0],
+                'y': pose[1],
+                'z': pose[2],
+                'alpha': pose[3],
+                'beta': pose[4],
+                'gamma': pose[5]}
 
     @proxycall()
     def check_done(self):

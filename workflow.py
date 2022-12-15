@@ -9,15 +9,18 @@ Suggested structure similar to Elettra's
 import logging
 import os
 from datetime import datetime
-import zmq
 
 from . import data_path
-from . import HOST_IPS, THIS_HOST
 from .network_conf import EXPERIMENT as NET_INFO
 from .util.uitools import ask, user_prompt
 from .util.proxydevice import proxydevice, proxycall
 from .base import DriverBase
 from .aggregate import get_all_meta
+from .datalogger import datalogger
+
+logtags = {'type': 'workflow',
+           'branch': 'both'
+           }
 
 experiment = None
 
@@ -97,7 +100,8 @@ class Experiment(DriverBase):
             self.logger.warning('Could not find first available scan number (have experiment and investigation been set?)')
         self.counter = 0
 
-    @proxycall(admin=True)
+    @proxycall()
+    @datalogger.meta(field_name='scan_start', tags=logtags)
     def start_scan(self, label=None):
         """
         Start a new scan.
@@ -129,6 +133,7 @@ class Experiment(DriverBase):
                 'path': self.path}
 
     @proxycall()
+    @datalogger.meta(field_name='scan_stop', tags=logtags)
     def end_scan(self):
         """
         Finalize the scan
@@ -136,6 +141,14 @@ class Experiment(DriverBase):
         if not self._running:
             raise RuntimeError(f'No scan currently running')
         self._running = False
+        return {'scan_number': self._scan_number,
+                'scan_name': self._scan_name,
+                'investigation': self.investigation,
+                'experiment': self.experiment,
+                'path': self.path,
+                'count': self.counter
+                 }
+
     @proxycall()
     def next_prefix(self):
         """
@@ -174,7 +187,6 @@ class Experiment(DriverBase):
         except RuntimeError as e:
             self.logger.warning(str(e))
 
-
     def _valid_name(self, s):
         """
         Confirm that the given string can be used as part of a path
@@ -191,7 +203,7 @@ class Experiment(DriverBase):
             return None
         return self._scan_name
 
-    @proxycall(admin=True)
+    @proxycall()
     @property
     def investigation(self):
         """
@@ -210,7 +222,7 @@ class Experiment(DriverBase):
         self.config['investigation'] = v
         self.config['experiment'] = None
 
-    @proxycall(admin=True)
+    @proxycall()
     @property
     def experiment(self):
         """
