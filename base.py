@@ -206,6 +206,7 @@ class SocketDriverBase(DriverBase):
     NUM_CONNECTION_RETRY = 2            # Number of times to try to connect
     KEEPALIVE_INTERVAL = 10.            # Default Polling (keep-alive) interval
     logger = None
+    REPLY_WAIT_TIME = 0.
 
     def __init__(self, device_address):
         """
@@ -300,25 +301,38 @@ class SocketDriverBase(DriverBase):
         if not self.initialized:
             self.logger.info('Device not (yet?) initialized.')
 
-        with self._lock:
-            # Clear the "new data" flag so we can wait on the reply.
-            self.recv_flag.clear()
+        # Flush the replies
+        reply = self.get_recv_buffer()
 
+        with self._lock:
             # Pass command to device
             _send_all(self.device_sock, cmd)
 
         # Wait for reply
+        time.sleep(self.REPLY_WAIT_TIME)
         self.recv_flag.wait()
 
-        # Just to be super safe: take the lock again
+        # Concatenate replies
+        reply += self.get_recv_buffer()
+
+        return reply
+
+    def get_recv_buffer(self):
+        """
+        Read and reset the recv buffer. This can be used to flush the buffer.
+        """
         with self._lock:
             # Reply is in the local buffer
-            reply = self.recv_buffer
+            data = self.recv_buffer
 
             # Clear the local buffer
             self.recv_buffer = b''
 
-        return reply
+            # Clear flag
+            self.recv_flag.clear()
+
+        return data
+
 
     def terminal(self):
         """
