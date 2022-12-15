@@ -82,7 +82,7 @@ def init(yes=None):
         driver = instantiate_driver(name='aerotech')
         drivers['aerotech'] = driver
         if driver is not None:
-            import aerotech
+            from . import aerotech
             motors['rot'] = aerotech.Motor('rot', driver)
 
     if ask_yes_no('Initialise Newport XPS motors?'):
@@ -92,7 +92,8 @@ def init(yes=None):
         driver = instantiate_driver(name='mecademic')
         drivers['mecademic'] = driver
         if driver is not None:
-            motors.update(driver.create_motors())
+            from . import mecademic
+            motors.update(mecademic.create_motors(driver))
 
     if ask_yes_no('Initialise stage pseudomotors?'):
         print('TODO')

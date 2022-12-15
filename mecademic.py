@@ -24,7 +24,7 @@ from .util.future import Future
 from .util.proxydevice import proxydevice, proxycall
 from .datalogger import datalogger
 
-__all__ = ['Mecademic']#, 'Motor']
+__all__ = ['Mecademic', 'create_motors', 'MecademicMonitor']#, 'Motor']
 
 logtags = {'type': 'motion',
            'branch': 'long',
@@ -647,9 +647,9 @@ class Mecademic(SocketDriverBase):
         return {'x': pose[0],
                 'y': pose[1],
                 'z': pose[2],
-                'alpha': pose[3],
-                'beta': pose[4],
-                'gamma': pose[5]}
+                'tilt': pose[3],
+                'roll': pose[4],
+                'rot': pose[5]}
 
     @proxycall()
     def check_done(self):
@@ -732,21 +732,6 @@ class Mecademic(SocketDriverBase):
 
         return
 
-    def create_motors(self):
-        """
-        Create the 6 pose motors.
-        
-        TODO: make this more flexible.
-        """
-        motors = {}
-        motors['bx'] = Motor('bx', self, 'x')
-        motors['by'] = Motor('by', self, 'y')
-        motors['bz'] = Motor('bz', self, 'z')
-        motors['btilt'] = Motor('btilt', self, 'tilt')
-        motors['broll'] = Motor('broll', self, 'roll')
-        motors['brot'] = Motor('brot', self, 'rot')
-        return motors
-
     @proxycall()
     def abort(self):
         """
@@ -795,3 +780,17 @@ class Motor(MotorBase):
         pose[self.axis] = x
         new_pose = self.driver.move_pose(pose)
         return new_pose[self.axis]
+
+
+def create_motors(driver):
+    """
+    Create the 6 pose motors.
+    """
+    motors = {}
+    motors['bx'] = Motor('bx', driver, 'x')
+    motors['by'] = Motor('by', driver, 'y')
+    motors['bz'] = Motor('bz', driver, 'z')
+    motors['btilt'] = Motor('btilt', driver, 'tilt')
+    motors['broll'] = Motor('broll', driver, 'roll')
+    motors['brot'] = Motor('brot', driver, 'rot')
+    return motors
