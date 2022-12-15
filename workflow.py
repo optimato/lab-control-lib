@@ -270,10 +270,10 @@ class Experiment(DriverBase):
 
     @proxycall()
     @property
-    def scan_name(self):
+    def scan_number(self):
         """
         Return scan name - None if no scan is running.
         """
         if not self._running:
             return None
-        return self._scan_name
+        return self._scan_number
