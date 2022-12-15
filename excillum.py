@@ -286,4 +286,4 @@ class Excillum(SocketDriverBase):
         """
         Jet pressure TODO: units?
         """
-        return self.send_cmd('jet_pressure?')
+        return try_float(self.send_cmd('jet_pressure?'))

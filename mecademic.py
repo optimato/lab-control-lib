@@ -224,9 +224,10 @@ class Mecademic(SocketDriverBase):
         """
         # ask for firmware version to see if connection works
         version = self.device_cmd(b'GetFwVersion' + self.EOL)
+        #version = self.send_cmd('GetFwVersion')
+        #print(f'{version}')
         version = version.decode('ascii').strip()
         self.logger.debug(f'Firmware version is {version}')
-
         self.initialized = True
         return
 
@@ -328,6 +329,8 @@ class Mecademic(SocketDriverBase):
         # Convert each
         formatted_replies = []
         for r in raw_replies:
+            if not r:
+                continue
             r_str = r.decode('ascii', errors='ignore')
             code, message = r_str.strip('[]').split('][')
             code = int(code)

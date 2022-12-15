@@ -45,7 +45,7 @@ class Scan:
         Prepare for scan
         """
         # New scan
-        self.scan_data = experiment.new_scan(label=self.label)
+        self.scan_data = experiment.start_scan(label=self.label)
 
         self.name = self.scan_data['scan_name']
         self.scan_path = self.scan_data['scan_path']
