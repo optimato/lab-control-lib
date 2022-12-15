@@ -7,14 +7,19 @@ Current version Pierre 2022
 """
 import time
 
-from .base import SocketDriverBase, DeviceException
+from .base import SocketDriverBase
 from .network_conf import EXCILLUM as NET_INFO
 from .util.uitools import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
-from .datalogger import DataLogger
+from .datalogger import datalogger
+
+logtags = {'type': 'source',
+           'branch': 'both',
+           'device_ip': NET_INFO['device'][0],
+           'device_port': NET_INFO['device'][1]
+          }
 
 EOL = b'\n'
-
 
 def try_float(value):
     """
@@ -24,6 +29,16 @@ def try_float(value):
         return float(value)
     except ValueError:
         return value
+
+
+def float_or_None(value):
+    """
+    Convert value to None if not float for storage into influxdb.
+    """
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 @proxydevice(address=NET_INFO['control'])
@@ -36,14 +51,13 @@ class Excillum(SocketDriverBase):
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
-    data_logger = DataLogger()
 
     def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
-        self.data_logger.start(self)
-        super().__init__(device_address=device_address)
 
+        self.periodic_calls.update({'status': self.status, 1})
+        super().__init__(device_address=device_address)
         self.metacalls.update({'state': lambda: self.state,
                                'jet_is_stable': lambda: self.jet_is_stable,
                                'jet_pump_frequency': lambda: self.jetpump_frequency,
@@ -54,7 +68,7 @@ class Excillum(SocketDriverBase):
                                'spotsize_y_um': lambda: self.spotsize_y_um,
                                'spot_position_x_um': lambda: self.spot_position_x_um,
                                'spot_position_y_um': lambda: self.spot_position_y_um,
-                               'vacuum_pressure_pa': lambda: self.vacuum_pressure_pa,
+                               'vacuum_pressure_mbar': lambda: self.vacuum_pressure_mbar,
                                })
 
     def init_device(self):
@@ -74,13 +88,26 @@ class Excillum(SocketDriverBase):
         self.initialized = True
         return
 
-    def wait_call(self):
+    @proxycall()
+    @datalogger.meta(field_name='status', tags=logtags)
+    def status(self):
         """
-        Keep-alive call
+        Wrapper method used to retrieve the general status of the source.
+
+        Used mostly for automated data logging.
         """
-        r = self.send_cmd(b'state?')
-        if not r:
-            raise DeviceException
+        status = {'jet_pump_frequency': float_or_None(self.jetpump_frequency),
+                  'generator_high_voltage': float_or_None(self.generator_high_voltage),
+                  'generator_emission_power_w': float_or_None(self.generator_emission_power_w),
+                  'generator_emission_current_a': float_or_None(self.generator_emission_current_a),
+                  'spotsize_x_um': float_or_None(self.spotsize_x_um),
+                  'spotsize_y_um': float_or_None(self.spotsize_y_um),
+                  'spot_position_x_um': float_or_None(self.spot_position_x_um),
+                  'spot_position_y_um': float_or_None(self.spot_position_y_um),
+                  'vacuum_pressure_mbar': float_or_None(self.vacuum_pressure_mbar),
+                  'jet_pressure': float_or_None(self.jet_pressure),
+                  }
+        return status
 
     def send_cmd(self, cmd, replycmd=None):
         """
@@ -117,7 +144,7 @@ class Excillum(SocketDriverBase):
         return self.send_cmd('#admin', '#whoami')
 
     @proxycall()
-    @data_logger.meta(field_name="state", tags={'type': 'source', 'units': 'none', 'branch': 'both'})
+    @data_logger.meta(field_name="state", tags=logtags)
     def get_state(self):
         """
         Get source state.
@@ -184,13 +211,13 @@ class Excillum(SocketDriverBase):
 
     @proxycall()
     @property
-    @data_logger.meta(field_name="spotsize_x", tags={'type': 'source', 'units': 'um', 'branch': 'both'})
+    #@datalogger.meta(field_name="spotsize_x_um", tags=logtags)
     def spotsize_x_um(self):
         return try_float(self.send_cmd("spotsize_x_um?"))
 
     @proxycall()
     @property
-    @data_logger.meta(field_name="spotsize_y", tags={'type': 'source', 'units': 'um', 'branch': 'both'})
+    #@datalogger.meta(field_name="spotsize_y_um", tags=logtags)
     def spotsize_y_um(self):
         return try_float(self.send_cmd("spotsize_y_um?"))
 
@@ -211,7 +238,7 @@ class Excillum(SocketDriverBase):
 
     @proxycall()
     @property
-    def vacuum_pressure_pa(self):
+    def vacuum_pressure_mbar(self):
         return try_float(self.send_cmd("vacuum_pressure_mbar_short_average?"))
 
     @property
@@ -249,3 +276,11 @@ class Excillum(SocketDriverBase):
         Check if the jet is stable
         """
         return self.send_cmd('jet_is_stable?')
+
+    @proxycall()
+    @property
+    def jet_pressure(self):
+        """
+        Jet pressure TODO: units?
+        """
+        return self.send_cmd('jet_pressure?')

@@ -129,14 +129,50 @@ class DriverBase:
 
         # Dictionary of metadata calls
         self.metacalls = {}
+
+        # Periodic calls for logging
+        self.periodic_calls = {}
+        self.periodic_futures = {}
+
         self.initialized = False
 
     def init_device(self):
         """
-        Device initalization.
+        Device initialization.
         """
-        self.initialized = True
         raise NotImplementedError
+
+    def start_periodic_calls(self):
+        """
+        Start periodic calls used as heartbeat and for data logging.
+        """
+        for label, d in self.periodic_calls.items():
+            self.periodic_futures[label] = Future(self._periodic_call, args=d)
+
+    def _periodic_call(self, method, interval):
+        """
+        This thread runs on a separate thread and calls
+        the given method at a given interval.
+        """
+        t0 = time.time()
+        n = 0
+        while True:
+            n += 1
+            if not self.initialized:
+                time.sleep(t0 + n*interval - time.time())
+                continue
+            try:
+                method()
+            except socket.timeout:
+                self.logger.exception(f'Socket Timeout after calling method {self.__class__.__name__}.{method.__name__}')
+                break
+            except DeviceException:
+                self.logger.exception('Device disconnected.')
+                break
+
+            # Try to keep the beat
+            time.sleep(t0 + n * interval - time.time())
+
 
     @proxycall()
     def get_meta(self, metakeys=None):
@@ -206,11 +242,8 @@ class SocketDriverBase(DriverBase):
         self.init_device()
         self.logger.info('Device initialized')
 
-        # Start polling
-        # number of skipped answers in polling thread (not sure that's useful)
-        self.device_N_noreply = 0
-        # "keep alive" thread
-        self.future_keep_alive = Future(self._keep_alive)
+        # Start periodic calls
+        self.start_periodic_calls()
 
     def connect_device(self):
         """
@@ -260,34 +293,6 @@ class SocketDriverBase(DriverBase):
                     self.recv_flag.set()
             if self.shutdown_requested:
                 break
-
-    def _keep_alive(self):
-        """
-        Infinite loop on a separate thread that pings the device periodically to keep the connection alive.
-
-        TODO: figure out what to do if device dies.
-        """
-        while True:
-            if not (self.connected and self.initialized):
-                time.sleep(self.KEEPALIVE_INTERVAL)
-                continue
-            try:
-                self.wait_call()
-                self.device_N_noreply = 0
-            except socket.timeout:
-                self.device_N_noreply += 1
-            except DeviceException:
-                self.logger.critical('Device disconnected.')
-                self.close_device()
-            time.sleep(self.KEEPALIVE_INTERVAL)
-
-    def wait_call(self):
-        """
-        Keep-alive call to the device
-        If possible, the implementation should raise a
-        DeviceDisconnectException if the device disconnects.
-        """
-        raise NotImplementedError
 
     def device_cmd(self, cmd: bytes) -> bytes:
         """

@@ -32,24 +32,25 @@ class DataLogger:
 
     Intended usage:
 
-    class A:
-        # The data_logger instance is a class attribute
-        data_logger = DataLogger()
+    # Single instance created at module load.
+    data_logger = DataLogger()
 
-        def __init__(self):
-            # connection to the database only at the instance creation of A
-            self.data_logger.start()
+    # In a module
+    from ??? import data_logger
+    class A:
 
         @data_logger.meta(field_name='quantity_to_log', tags={"version": "1"})
         def get_quantity(self):
             return 1
 
-        @data_logger.meta(field_name='quantity_to_log_also_at_regular_interval', tags={"version": "1"}, interval=30)
-        def get_other_quantity(self):
-            return 2
+        @property
+        @data_logger.meta(field_name='parameter_to_log', tags={"version": "1"})
+        def parameter(self):
+            return self.some_parameter
+
 
     The output of each call to A.get_quantity and A.get_other_quantity will be logged, along with the parameters
-    specified in the decorator. In addition A.get_other_quantity will be called (on a separate thread) every 30 seconds.
+    specified in the decorator.
     """
 
     DEFAULT_ADDRESS = None
@@ -68,69 +69,51 @@ class DataLogger:
 
         self.client = None
         self.write_api = None
-        self.schedule = []
-        self.futures = []
         self._stop = False
+        self.start()
 
-        # Create decorator class. This needs to be done here because the decorator
-        # is linked to this instance.
+    def meta(self, field_name, tags):
+        """
+        Method decorator to declare that its output is metadate to be logged.
+        """
 
-        class MetaDecorator:
+        def meta_decorator(method):
             """
-            Method decorator to declare that its output is metadate to be logged.
+            Add info to method to make it discoverable by datalog
             """
 
-            def __init__(her, field_name, tags, interval=None):
-                """
-                Gather metadata for logging
+            @wraps(method)
+            def logged_method(self1, *args, **kwargs):
+                name = self1.name
 
-                field_name: that name attached to the output of the method
-                tags: additional tags describing this method / driver
-                interval: time interval in seconds for automatic logging. If None, no automatic logging.
-                """
-                her.field_name = field_name
-                her.tags = tags
-                her.interval = interval
+                # Call method and get result
+                t0 = datetime.utcnow()
+                result = method(self1, *args, **kwargs)
 
-            def __call__(her, method):
-                """
-                Add info to method to make it discoverable by datalog
-                """
-                @wraps(method)
-                def logged_method(him, *args, **kwargs):
-                    name = him.name
-                    # Call method and get result
-                    t0 = datetime.utcnow()
-                    result = method(him, *args, **kwargs)
+                # Timestamp is mean between call before and call after
+                tm = t0 + .5 * (datetime.utcnow() - t0)
 
-                    # Timestamp is mean between call before and call after
-                    tm = t0 + .5*(datetime.utcnow()-t0)
+                timestamp = tm.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
-                    timestamp = tm.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+                all_tags = self.get_tags()
+                all_tags.update(tags)
 
-                    all_tags = self.get_tags()
-                    all_tags.update(her.tags)
+                # If result is dict, build field from this
+                if type(result) is dict:
+                    fields = {f'{field_name}.{k}': v for k, v in result}
+                else:
+                    fields = {field_name: result}
 
-                    # If result is dict, build field from this
-                    if type(result) is dict:
-                        fields = {f'{her.field_name}.k': v for k, v in result}
-                    else:
-                        fields = {her.field_name: result}
+                # Log this data
+                self.new_entry(name=name, fields=fields, tags=all_tags, timeval=timestamp)
 
-                    # Log this data
-                    self.new_entry(name=name, fields=fields, tags=all_tags, timeval=timestamp)
+                return result
 
-                    return result
+            return logged_method
 
-                if her.interval:
-                    # We keep track of the method name (the method itself is unbound at this point)
-                    self.schedule.append((logged_method.__name__, her.interval))
+        return meta_decorator
 
-                return logged_method
-
-        self.meta = MetaDecorator
-
-    def start(self, instance):
+    def start(self):
         """
         Connect the client to the database.
         """
@@ -138,30 +121,11 @@ class DataLogger:
             self.client = influxdb_client.InfluxDBClient(url=self.url, org='optimato', token=self.token)
             self.write_api = self.client.write_api(write_options=influxdb_client.client.write_api.SYNCHRONOUS)
 
-        for method_name, interval in self.schedule:
-            method = getattr(instance, method_name)
-            self.futures.append(Future(target=self._run_periodically, args=(method, interval)))
-
-    def stop(self):
-        self._stop = True
-
     def get_tags(self):
         """
         To be overridden
         """
         return {}
-
-    def _run_periodically(self, method, interval):
-        """
-        Call [method] every [interval] seconds. Runs forever.
-        """
-        time.sleep(interval)
-        while not self._stop:
-            try:
-                method()
-            except:
-                pass
-            time.sleep(interval)
 
     def new_entry(self, name, fields, tags, timeval=None):
         """
@@ -172,12 +136,11 @@ class DataLogger:
             timeval = utcnow()
 
         pt = {
-              "measurement": name,
-              "tags": tags,
-              "time": timeval,
-              "fields": fields
-             }
-
+            "measurement": name,
+            "tags": tags,
+            "time": timeval,
+            "fields": fields
+        }
 
         if influxdb_client:
             self.write_api.write(bucket=self.bucket, record=influxdb_client.Point.from_dict(pt))
