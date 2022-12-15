@@ -242,9 +242,6 @@ class SocketDriverBase(DriverBase):
         self.init_device()
         self.logger.info('Device initialized')
 
-        # Start periodic calls
-        self.start_periodic_calls()
-
     def connect_device(self):
         """
         Device connection

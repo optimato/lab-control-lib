@@ -56,7 +56,6 @@ class Excillum(SocketDriverBase):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
 
-        self.periodic_calls.update({'status': self.status, 1})
         super().__init__(device_address=device_address)
         self.metacalls.update({'state': lambda: self.state,
                                'jet_is_stable': lambda: self.jet_is_stable,
@@ -70,6 +69,10 @@ class Excillum(SocketDriverBase):
                                'spot_position_y_um': lambda: self.spot_position_y_um,
                                'vacuum_pressure_mbar': lambda: self.vacuum_pressure_mbar,
                                })
+
+        # Start periodic calls
+        self.periodic_calls.update({'status': (self.status, 1)})
+        self.start_periodic_calls()
 
     def init_device(self):
         """
@@ -144,7 +147,7 @@ class Excillum(SocketDriverBase):
         return self.send_cmd('#admin', '#whoami')
 
     @proxycall()
-    @data_logger.meta(field_name="state", tags=logtags)
+    @datalogger.meta(field_name="state", tags=logtags)
     def get_state(self):
         """
         Get source state.

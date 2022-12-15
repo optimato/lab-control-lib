@@ -100,7 +100,7 @@ class DataLogger:
 
                 # If result is dict, build field from this
                 if type(result) is dict:
-                    fields = {f'{field_name}.{k}': v for k, v in result}
+                    fields = {f'{field_name}.{k}': v for k, v in result.items()}
                 else:
                     fields = {field_name: result}
 
