@@ -739,11 +739,11 @@ class ClientProxy:
     def get_result(self):
         return self.send_recv([self.ID, '^result', [], {}])
 
-    def ask_admin(self, admin=None):
+    def ask_admin(self, admin=None, force=False):
         """
         Send a request for admin rights.
         """
-        return self.send_recv([self.ID, '^admin', [], {'admin': admin}], clean=False)
+        return self.send_recv([self.ID, '^admin', [], {'admin': admin, 'force': force}], clean=False)
 
 
 class ClientBase:

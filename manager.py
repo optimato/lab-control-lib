@@ -12,7 +12,7 @@ import click
 
 from . import THIS_HOST, LOCAL_HOSTNAME
 from .network_conf import NETWORK_CONF, HOST_IPS
-from .util import uitools
+from .util.future import Future
 from .util.uitools import ask_yes_no
 from .util.proxydevice import ProxyClientError
 from . import drivers, motors
@@ -134,7 +134,20 @@ def start(name):
 def kill(name):
     d = instantiate_driver(name[0])
     if d:
+        time.sleep(.2)
+        d.ask_admin(True, True)
+        time.sleep(.2)
         d._proxy.kill()
+
+
+@cli.command(help='Kill all running server proxy.')
+@click.argument('name', nargs=-1)
+def killall():
+    futures = []
+    for name in DRIVER_DATA.keys():
+        futures.append(Future(kill, ((name,),)))
+    for f in futures:
+        f.join()
 
 
 @cli.command(help='Start all proxy drivers on separate processes.')
