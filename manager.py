@@ -129,6 +129,13 @@ def start(name):
     s.wait()
     sys.exit(0)
 
+@cli.command(help='Kill the server proxy of driver [name] if running.')
+@click.argument('name', nargs=-1)
+def kill(name):
+    d = instantiate_driver(name)
+    if d:
+        d._proxy.kill()
+
 
 @cli.command(help='Start all proxy drivers on separate processes.')
 def startall():
