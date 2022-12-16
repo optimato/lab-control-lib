@@ -132,7 +132,7 @@ def start(name):
 @cli.command(help='Kill the server proxy of driver [name] if running.')
 @click.argument('name', nargs=-1)
 def kill(name):
-    d = instantiate_driver(name)
+    d = instantiate_driver(name[0])
     if d:
         d._proxy.kill()
 
