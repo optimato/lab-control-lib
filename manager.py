@@ -141,7 +141,6 @@ def kill(name):
 
 
 @cli.command(help='Kill all running server proxy.')
-@click.argument('name', nargs=-1)
 def killall():
     futures = []
     for name in DRIVER_DATA.keys():
