@@ -88,8 +88,6 @@ class ServerBase:
     Server for a wrapped class.
     """
 
-    PING_INTERVAL = 1
-    PING_TIMEOUT = 30
     POLL_TIMEOUT = 100
     ESCAPE_STRING = '^'
     ADDRESS = None
@@ -129,8 +127,6 @@ class ServerBase:
 
         # Futures for the listening and heartbeat (ping) threads
         self.server_future = None
-        self.ping_future = None
-        self.ping_lock = threading.Lock()
         self.awaiting_result = None
         self._awaiting_result = None   # For lingering result, after cancellation
 
@@ -159,11 +155,9 @@ class ServerBase:
                 self.logger.warning('Server was still running. Restarting.')
                 self.stop()
                 self.server_future.result()
-                self.ping_future.result()
         except:
             pass
         self.server_future = Future(self._run)
-        self.ping_future = Future(self._ping_counter)
 
     def wait(self):
         """
@@ -177,21 +171,6 @@ class ServerBase:
         Stop the server. This signals both listening and ping threads to terminate.
         """
         self._stopping = True
-
-    def _ping_counter(self):
-        """
-        Manages the presence of clients by monitoring the amount of time since each client
-        has sent a ping command.
-        """
-        while True:
-            if self._stopping:
-                return
-            with self.ping_lock:
-                for ID in list(self.counters.keys()):
-                    self.counters[ID] -= self.PING_INTERVAL
-                    if self.counters[ID] <= 0:
-                        self.disconnect(ID)
-            time.sleep(self.PING_INTERVAL)
 
     def _run(self):
         """
@@ -247,9 +226,9 @@ class ServerBase:
                 cmd = message[1]
                 self.logger.debug(f'{ID} sent command {cmd}')
 
-                if ID == 0:
+                if (ID == 0) or (ID not in self.clients):
                     # ID == 0 is a request from a new client
-                    reply = self.new_connection(message)
+                    reply = self.new_connection(message, ID=ID)
                     self.socket.send_json(reply)
                     continue
                 if ID not in self.clients:
@@ -264,7 +243,6 @@ class ServerBase:
                 self.logger.debug(f'Reply: {reply}')
 
                 # Compute some statistics
-                # Disconnect might have happened, so we need to check
                 if ID in self.clients:
                     dt = time.time() - t0
                     self.clients[ID]['reply_number'] += 1
@@ -400,19 +378,17 @@ class ServerBase:
                 self.logger.info(f'Method {cmd} is the abort call.')
         self.logger.info('Created instance of wrapped class.')
 
-    def new_connection(self, message):
+    def new_connection(self, message, ID):
         """
         Manage new client.
         """
         _, _, args, kwargs = message
 
-        # Prepare client-specific info
-        ID = self.IDcounter + 0
-        self.IDcounter += 1
-
-        # Add ping time
-        with self.ping_lock:
-            self.counters[ID] = self.PING_INTERVAL
+        if ID == 0:
+            # Find smallest free ID
+            ID = 1
+            while ID in self.clients:
+                ID += 1
 
         # Set statistics
         self.clients[ID] = {'startup': time.time(),
@@ -432,21 +408,6 @@ class ServerBase:
         self.logger.info(f'Client #{ID} connected.')
         return reply
 
-    def disconnect(self, ID):
-        """
-        Disconnect the client ID. This is not really a disconnection, but we "forget" the ID, so the client
-        with this ID won't be allowed to do anything.
-        """
-        try:
-            self.clients.pop(ID)
-            self.counters.pop(ID)
-            if ID == self.admin:
-                self.admin = None
-        except KeyError:
-            return {'status': 'error', 'msg': f'{ID} not recognised'}
-        self.logger.info(f'Client #{ID} disconnected.')
-        return {'status': 'ok'}
-
     def _parse_escaped(self, ID, cmd, args, kwargs):
         """
         Escaped commands.
@@ -455,17 +416,15 @@ class ServerBase:
         # PING
         #
         if cmd.lower() == 'ping':
-            try:
-                self.counters[ID] = self.PING_TIMEOUT
-                return {'status': 'ok'}
-            except BaseException as error:
-                return {'status': 'error', 'msg': repr(error)}
+            return {'status': 'ok'}
 
         #
         # DISCONNECT
         #
         if cmd.lower() == 'disconnect':
-            return self.disconnect(ID)
+            if self.admin == ID:
+                self.admin = None
+            return {'status': 'ok'}
 
         #
         # KILL
@@ -660,7 +619,7 @@ class ClientProxy:
         """
         _, cmd, _, _ = cmd_seq
 
-        retries_left = self.NUM_RECONNECT
+        retries = 0
         if not self.connecting and not self.connected:
             raise ProxyClientError('Client is not connected.')
         try:
@@ -696,12 +655,12 @@ class ClientProxy:
 
             self.socket.setsockopt(zmq.LINGER, 0)
             self.socket.close()
-            if retries_left == 0:
+            if retries == self.NUM_RECONNECT:
                 self.logger.error("Server seems to be offline.")
                 raise ProxyClientError(f'Could not connect to server at {self.full_address}')
 
-            self.logger.info("Reconnecting to server")
-            retries_left -= 1
+            retries += 1
+            self.logger.info(f"Trying to reconnect to server (attempt {retries})")
 
             # Reconnect and send again
             self.socket = self.context.socket(zmq.REQ)
@@ -790,6 +749,10 @@ class ClientProxy:
 class ClientBase:
 
     _proxy = None
+    _address = None
+    _API = None
+    _clean = None
+    _cls_name = None
 
     def __init__(self, address=None, admin=True, name=None, args=None, kwargs=None):
         """
@@ -800,8 +763,7 @@ class ClientBase:
         args = args or ()
         kwargs = kwargs or {}
         self.name = name or self.__class__.__name__
-        if not self._proxy:
-            raise RuntimeError('Something wrong. A ClientProxy instance should be present!')
+        self._proxy = ClientProxy(address=self._address, API=self._API, clean=self._clean, cls_name=self._cls_name)
         self._proxy.connect(args, kwargs, address=address, admin=admin)
         self.ask_admin = self._proxy.ask_admin
         self.get_result = self._proxy.get_result
@@ -886,9 +848,12 @@ class proxydevice:
         # Define client subclass
         Client = type(f'{cls.__name__}ProxyClient', (ClientBase,), {})
 
-        # Instantiate the client proxy and attach it to the client class
-        proxy = ClientProxy(address=self.address, API=API, clean=self.clean, cls_name=cls.__name__)
-        Client._proxy = proxy
+        # Attach parameters needed for proxy instantiation.
+        Client._address = self.address
+        Client._API = API
+        Client._clean = self.clean
+        Client._cls_name = cls.__name__
+
 
         # Create all fake methods and properties for Client
         for k, api_info in API.items():
