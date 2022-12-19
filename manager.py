@@ -13,6 +13,7 @@ import click
 from . import THIS_HOST, LOCAL_HOSTNAME
 from .network_conf import NETWORK_CONF, HOST_IPS
 from .util.future import Future
+from .util.logs import logging_muted
 from .util.uitools import ask_yes_no
 from .util.proxydevice import ProxyClientError
 from . import drivers, motors
@@ -86,10 +87,11 @@ def list():
 @cli.command(help='List running proxy drivers')
 def running():
     click.echo('Running drivers:\n\n')
-    for name in DRIVER_DATA.keys():
-        d = instantiate_driver(name)
-        if d is not None:
-            click.echo(f' * {name}')
+    with logging_muted():
+        for name in DRIVER_DATA.keys():
+            d = instantiate_driver(name)
+            if d is not None:
+                click.echo(f' * {name}')
 
 
 @cli.command(help='Start the server proxy of driver [name]. Does not return.')

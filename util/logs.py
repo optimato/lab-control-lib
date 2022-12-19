@@ -3,6 +3,7 @@ Logging manager
 """
 
 import logging
+from contextlib import contextmanager
 import logging.config
 import logging.handlers
 
@@ -47,3 +48,29 @@ def set_level(log_level=logging.INFO):
         console_handler.setFormatter(second_extended_formatter)
     else:
         console_handler.setFormatter(default_formatter)
+
+
+@contextmanager
+def logging_muted(highest_level=logging.CRITICAL):
+    """
+    A context manager that will prevent any logging messages
+    triggered during the body from being processed.
+    :param highest_level: the maximum logging level in use.
+      This would only need to be changed if a custom level greater than CRITICAL
+      is defined.
+
+    (adapted from: https://gist.github.com/simon-weber/7853144)
+    """
+    # two kind-of hacks here:
+    #    * can't get the highest logging level in effect => delegate to the user
+    #    * can't get the current module-level override => use an undocumented
+    #       (but non-private!) interface
+
+    previous_level = logging.root.manager.disable
+
+    logging.disable(highest_level)
+
+    try:
+        yield
+    finally:
+        logging.disable(previous_level)
