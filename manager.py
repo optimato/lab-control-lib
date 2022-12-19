@@ -89,9 +89,12 @@ def running():
     click.echo('Running drivers:\n\n')
     with logging_muted():
         for name in DRIVER_DATA.keys():
+            click.echo(f' * {name+":":<20}', nl=False)
             d = instantiate_driver(name)
             if d is not None:
-                click.echo(f' * {name}')
+                click.secho('YES', fg='green')
+            else:
+                click.secho('NO', fg='red')
 
 
 @cli.command(help='Start the server proxy of driver [name]. Does not return.')
