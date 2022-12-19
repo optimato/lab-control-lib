@@ -61,6 +61,8 @@ a.get_multiple(5)
 """
 
 import logging
+import traceback
+
 import zmq
 from zmq.log.handlers import PUBHandler
 import time
@@ -305,14 +307,14 @@ class ServerBase:
                     setattr(self.instance, cmd, args[0])
                     reply = {'status': 'ok', 'value': None}
                 except BaseException as error:
-                    reply = {'status': 'error', 'msg': repr(error)}
+                    reply = {'status': 'error', 'msg': traceback.format_exc()}
             else:
                 # Try to call property getter
                 try:
                     v = getattr(self.instance, cmd)
                     reply = {'status': 'ok', 'value': v}
                 except BaseException as error:
-                    reply = {'status': 'error', 'msg': repr(error)}
+                    reply = {'status': 'error', 'msg': traceback.format_exc()}
         else:
             if self.API[cmd]['admin'] and self.admin != ID:
                 return {'status': 'error', 'msg': f'Command "{cmd}" cannot be run by non-admin clients.'}
@@ -327,7 +329,7 @@ class ServerBase:
                         result = result.decode()
                     reply = {'value': result, 'status': 'ok'}
                 except BaseException as error:
-                    reply = {'status': 'error', 'msg': repr(error)}
+                    reply = {'status': 'error', 'msg': traceback.format_exc()}
             else:
                 # Non-blocking
                 if self.awaiting_result is not None:
@@ -352,7 +354,7 @@ class ServerBase:
             result = method(*kwargs['args'], **kwargs['kwargs'])
             return result
         except BaseException as error:
-            return 'Error: ' + repr(error)
+            return 'Error: ' + traceback.format_exc()
 
     def create_instance(self, args=None, kwargs=None):
         """
