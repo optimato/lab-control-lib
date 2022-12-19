@@ -26,11 +26,12 @@ experiment = None
 
 
 def connect():
+    global experiment
     if experiment is not None:
         return
     from .manager import instantiate_driver
     d = instantiate_driver(name='experiment', admin=False)
-    globals().update({'experiment': d})
+    globals()['experiment'] = d
 
 
 class Scan:
