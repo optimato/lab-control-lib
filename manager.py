@@ -72,19 +72,24 @@ def instantiate_driver(name, admin=True):
 
 # Command Line Interface
 
-@click.group(help='Labcontrol daemon management')
+@click.group(help='Labcontrol proxy driver management')
 def cli():
     pass
 
 
-@cli.command(help='List available daemons')
+@cli.command(help='List proxy drivers that can be spawned on the current host')
 def list():
-    click.echo('Here I will list all available daemons')
+    available_drivers = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
+    click.echo('Available drivers:\n\n * ' + '\n * '.join(available_drivers))
 
 
-@cli.command(help='List running daemons')
+@cli.command(help='List running proxy drivers')
 def running():
-    click.echo('Here I will list all running daemons')
+    click.echo('Running drivers:\n\n')
+    for name in DRIVER_DATA.keys():
+        d = instantiate_driver(name)
+        if d is not None:
+            click.echo(f' * {name}')
 
 
 @cli.command(help='Start the server proxy of driver [name]. Does not return.')
@@ -128,6 +133,7 @@ def start(name):
     # Wait for completion, then exit.
     s.wait()
     sys.exit(0)
+
 
 @cli.command(help='Kill the server proxy of driver [name] if running.')
 @click.argument('name', nargs=-1)
