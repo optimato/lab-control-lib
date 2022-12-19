@@ -125,7 +125,8 @@ def start(name):
     click.echo(f'{name+":":<15}', nl=False)
 
     # Check if already running
-    d = instantiate_driver(name)
+    with logging_muted():
+        d = instantiate_driver(name)
     if d is not None:
         click.secho('ALREADY RUNNING', fg='yellow')
         return
@@ -136,7 +137,8 @@ def start(name):
     instance_kwargs = driver_data.get('instance_kwargs', {})
 
     # Start the server
-    s = driver_cls.Server(address=net_info['control'],
+    with logging_muted():
+        s = driver_cls.Server(address=net_info['control'],
                           instantiate=True,
                           instance_args=instance_args,
                           instance_kwargs=instance_kwargs)
@@ -218,7 +220,7 @@ def boot(monitor_time=10):
     time.sleep(.5)
     t0 = time.time()
     failed = []
-    while time.time() < t0 + monitor_time:
+    while time.time() < (t0 + monitor_time):
         for name, p in processes.items():
             err = p.stderr.read().decode()
             if ('Traceback ' in err) or (p.poll() is not None):

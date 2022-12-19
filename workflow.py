@@ -115,7 +115,7 @@ class Experiment(DriverBase):
         # Create scan name
         today = datetime.now().strftime('%y-%m-%d')
 
-        scan_name = f'{self.scan_number:06d}_{today}'
+        scan_name = f'{self._scan_number:06d}_{today}'
         if label is not None:
             scan_name += f'_{label}'
 
