@@ -122,7 +122,13 @@ def start(name):
     except KeyError:
         raise click.BadParameter(f'No driver named {name}')
 
-    click.echo(f'Starting server proxy for driver {name}')
+    click.echo(f'{name+":":<15}', nl=False)
+
+    # Check if already running
+    d = instantiate_driver(name)
+    if d is not None:
+        click.secho('ALREADY RUNNING', fg='yellow')
+        return
 
     # Get driver class and instantiation arguments
     driver_cls = driver_data['driver']
@@ -136,6 +142,7 @@ def start(name):
                           instance_kwargs=instance_kwargs)
 
     # Wait for completion, then exit.
+    click.secho('RUNNING', fg='green')
     s.wait()
     sys.exit(0)
 
@@ -162,12 +169,35 @@ def killall():
 
 @cli.command(help='Start all proxy drivers on separate processes.')
 def startall():
-    failed = boot()
-    if not failed:
-        click.echo('All servers have been spawn successfully.')
-    else:
-        click.echo(f'{failed} : error while starting process.')
-    sys.exit(0)
+
+    monitor_time = 10
+
+    available_drivers = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
+
+    processes = {}
+    for name in available_drivers:
+        processes[name] = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
+                             start_new_session=True,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE)
+
+    # Monitor for failure
+    time.sleep(.5)
+    t0 = time.time()
+    failed = []
+    while time.time() < (t0 + monitor_time):
+        for name, p in processes.items():
+            err = p.stderr.read().decode()
+            if ('Traceback ' in err) or (p.poll() is not None):
+                # Process exited
+                logger.warning(f'Driver proxy spawning for {name} failed!')
+                print(err)
+                failed.append(name)
+        for f in failed:
+            processes.pop(f, None)
+        if not processes:
+            break
+        time.sleep(.1)
 
 
 def boot(monitor_time=10):
