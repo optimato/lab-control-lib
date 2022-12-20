@@ -139,7 +139,6 @@ class Experiment(DriverBase):
                 'experiment': self.experiment,
                 'path': self.path}
 
-        self.logger.critical(str(scan_info))
         return scan_info
 
     @proxycall()
