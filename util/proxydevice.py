@@ -261,7 +261,7 @@ class ServerBase:
                     self.socket.send_json(reply)
                 except TypeError as e:
                     # We just tried to send a non-serializable reply
-                    reply = {'status': 'error', 'msg': repr(e)}
+                    reply = {'status': 'error', 'msg': traceback.format_exc()}
                     self.socket.send_json(reply)
 
         # This should delete the running instance, assuming that there are no other references to it.
@@ -342,7 +342,7 @@ class ServerBase:
                         self.awaiting_result = Future(self._run_awaiting, args=(method,), kwargs={'args':args, 'kwargs':kwargs})
                         reply = {'status': 'ok', 'value': None, 'msg': 'Non-block call started'}
                     except BaseException as error:
-                        reply = {'status': 'error', 'msg': repr(error)}
+                        reply = {'status': 'error', 'msg': traceback.format_exc()}
 
         return reply
 
@@ -467,7 +467,7 @@ class ServerBase:
             try:
                 result = awaiting_result.result()
             except BaseException as error:
-                return {'status': 'error', 'msg': repr(error)}
+                return {'status': 'error', 'msg': traceback.format_exc()}
             finally:
                 self.awaiting_result = None
                 self._awaiting_result = None
@@ -484,7 +484,7 @@ class ServerBase:
                 try:
                     result = self.awaiting_result.result()
                 except BaseException as error:
-                    return {'status': 'error', 'msg': repr(error)}
+                    return {'status': 'error', 'msg': traceback.format_exc()}
                 finally:
                     self.awaiting_result = None
                 self.logger.warning('ABORT signal received but task was complete')
@@ -494,7 +494,7 @@ class ServerBase:
                     try:
                         result = self.interrupt_method()
                     except BaseException as error:
-                        return {'status': 'error', 'msg': repr(error)}
+                        return {'status': 'error', 'msg': traceback.format_exc()}
                     self.logger.warning('ABORT signal received, and interrupt method called.')
                     reply = {'status': 'ok', 'value': result}
                 else:
@@ -635,7 +635,7 @@ class ClientProxy:
         except Exception as e:
             # Connection problems (e.g. the server shut down) are managed here
             self.logger.warning('Could not send command to server.')
-            return {'status': 'error', 'msg': repr(e)}
+            return {'status': 'error', 'msg': traceback.format_exc()}
 
         # Manage possible difficulties connecting
         poll_timeout = 1000 * self.REQUEST_TIMEOUT
