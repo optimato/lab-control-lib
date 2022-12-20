@@ -22,16 +22,16 @@ logtags = {'type': 'workflow',
            'branch': 'both'
            }
 
-experiment = None
+_client = []
 
 
-def connect():
-    global experiment
-    if experiment is not None:
-        return
+def getExperiment():
+    if _client:
+        return _client[0]
     from .manager import instantiate_driver
     d = instantiate_driver(name='experiment', admin=False)
-    globals()['experiment'] = d
+    _client.append(d)
+    return d
 
 
 class Scan:
@@ -42,12 +42,13 @@ class Scan:
     def __init__(self, label=None):
         self.label = label
         self.logger = None
-        connect()
 
     def __enter__(self):
         """
         Prepare for scan
         """
+        experiment = getExperiment()
+
         # New scan
         self.scan_data = experiment.start_scan(label=self.label)
 
@@ -67,7 +68,7 @@ class Scan:
 
         TODO: manage exceptions
         """
-        experiment.end_scan()
+        getExperiment().end_scan()
         self.logger.info(f'Scan {self.name} complete.')
 
 

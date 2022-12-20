@@ -23,11 +23,12 @@ class DataLogger(datalogger.DataLogger):
         """
         Add tags related to current scan
         """
-        workflow.connect()
+        from . import workflow
+        experiment = workflow.getExperiment()
 
-        tags = {'investigation': workflow.experiment.investigation or 'undefined',
-                'experiment': workflow.experiment.experiment or 'undefined',
-                'scan_name': workflow.experiment.scan_name or 'undefined',
+        tags = {'investigation': experiment.investigation or 'undefined',
+                'experiment': experiment.experiment or 'undefined',
+                'scan_name': experiment.scan_name or 'undefined',
                 'host': THIS_HOST}
         return tags
 

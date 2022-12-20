@@ -30,7 +30,7 @@ def init(yes=None):
         uitools.user_interactive = False
 
     # Experiment management
-    workflow.connect()
+    experiment = workflow.getExperiment()
     load_past_investigations()
 
     # Excillum
@@ -175,7 +175,7 @@ def choose_investigation(name=None):
                 inv = user_prompt('Enter new investigation name:')
             else:
                 inv = invkeys[ichoice-1]
-    workflow.EXPERIMENT_DRIVER.investigation = inv
+    workflow.getExperiment().investigation = inv
     return inv
 
 
@@ -191,7 +191,7 @@ def choose_experiment(inv=None, name=None):
 
     # Use global investigation name if none was provided
     if inv is None:
-        inv = workflow.EXPERIMENT_DRIVER.investigation
+        inv = workflow.getExperiment().investigation
 
     # This will break if inv is not a key of investigations
     # So be it. Create one first.
