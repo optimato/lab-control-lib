@@ -26,10 +26,11 @@ _client = []
 
 
 def getExperiment():
-    if _client:
+    if _client and _client[0]:
         return _client[0]
     from .manager import instantiate_driver
     d = instantiate_driver(name='experiment', admin=False)
+    _client.clear()
     _client.append(d)
     return d
 
@@ -53,7 +54,7 @@ class Scan:
         self.scan_data = experiment.start_scan(label=self.label)
 
         self.name = self.scan_data['scan_name']
-        self.scan_path = self.scan_data['scan_path']
+        self.scan_path = self.scan_data['path']
 
         self.logger = logging.getLogger(self.name)
         self.logger.info(f'Starting scan {self.name}')
@@ -101,6 +102,10 @@ class Experiment(DriverBase):
         except Exception as e:
             self.logger.warning('Could not find first available scan number (have experiment and investigation been set?)')
         self.counter = 0
+        
+        # HACK (kind of) here, getExperiement must return the instance, not a client.
+        _client.clear()
+        _client.append(self)
 
     @proxycall()
     @datalogger.meta(field_name='scan_start', tags=logtags)
@@ -128,11 +133,14 @@ class Experiment(DriverBase):
         self._label = label
         self.counter = 0
 
-        return {'scan_number': self._scan_number,
+        scan_info = {'scan_number': self._scan_number,
                 'scan_name': scan_name,
                 'investigation': self.investigation,
                 'experiment': self.experiment,
                 'path': self.path}
+
+        self.logger.critical(str(scan_info))
+        return scan_info
 
     @proxycall()
     @datalogger.meta(field_name='scan_stop', tags=logtags)

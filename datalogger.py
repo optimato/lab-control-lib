@@ -1,12 +1,12 @@
 from . import workflow
-from .util import datalogger
+from .util import datalogger as dl
 from .network_conf import DATALOGGER as NET_INFO
 from . import config, THIS_HOST
 
 __all__ = ['datalogger']
 
 
-class DataLogger(datalogger.DataLogger):
+class DataLogger(dl.DataLogger):
 
     DEFAULT_ADDRESS = NET_INFO['control']
 
@@ -16,7 +16,7 @@ class DataLogger(datalogger.DataLogger):
         """
         influxdb_token = config.get('influxdb_token')
         if influxdb_token is None:
-            datalogger.logger.error('Influxdb token not found.')
+            dl.logger.error('Influxdb token not found.')
         super().__init__(address=address, token=influxdb_token)
 
     def get_tags(self):

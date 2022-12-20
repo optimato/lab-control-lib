@@ -63,6 +63,9 @@ def instantiate_driver(name, admin=True):
         d = driver.Client(address=net_info['control'],
                           admin=admin,
                           name=name)
+        # temporize slightly
+        time.sleep(.5)
+        
         return d
     except ProxyClientError:
         logger.warning(f'The proxy server for driver {name} is unreachable')
