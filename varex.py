@@ -10,6 +10,7 @@ import numpy as np
 from .camera import CameraBase
 from .network_conf import VAREX as NET_INFO
 from .util.proxydevice import proxydevice
+from .util.future import Future
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,8 @@ class Varex(CameraBase):
     SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal)
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
+    MAX_FPS = 5           # The real max FPS is higher (especially in binning mode) but this seems sufficient.
+
     def __init__(self, broadcast_port=None):
         """
         Initialization.
@@ -49,6 +52,9 @@ class Varex(CameraBase):
         super().__init__(broadcast_port=broadcast_port)
 
         self.detector = None
+        self.cont_acq_future = None      # Will be set with future created by init_rolling
+        self._stop_continuous_acquisition = False
+        self.cont_buffer = []
         self.init_device()
 
     def init_device(self):
@@ -105,13 +111,74 @@ class Varex(CameraBase):
 
         return np.array(frames), meta
 
-    def roll(self, switch=None):
+    def init_rolling(self, fps):
         """
-        Toggle rolling mode.
+        Initialize rolling mode.
+        This sets the exposure time in accordance with the provided fps and starts the infinite acquisition loop.
+        """
+        # Adjust exposure time
+        if fps > self.MAX_FPS:
+            raise RuntimeError(f'Requested FPS ({fps}) is higher than the maximum allowed value ({self.MAX_FPS}).')
+        self.exposure_time = 1./fps
 
-        TODO
+        # Start the background thread.
+        self._stop_continuous_acquisition = False
+        self.cont_acq_future = Future(self._continuous_acquire)
+
+    def _continuous_acquire(self):
         """
-        raise NotImplementedError
+        Threaded task that grabs frames in the background and makes them available.
+        """
+        det = self.detector
+
+        # Unimportant number of exposures.
+        Nexp = 250
+        det.set_num_of_exposures(Nexp)
+
+        det.go_live()
+        det.software_trigger()
+
+        frame = []
+        meta = []
+
+        count_start = 0
+        try:
+            while not self._stop_continuous_acquisition:
+                det.wait_image(2000.)
+                count = det.get_field_count()
+                i = det.get_captured_buffer()
+                self.cont_buffer.append(det.read_buffer(i))
+                det.check_for_live_error()
+
+                if (count - count_start - 1) % Nexp == 0:
+                    # Need to trigger again
+                    if det.is_live():
+                        det.go_unlive()
+                    det.go_live()
+                    det.software_trigger()
+                    count_start = count
+        finally:
+            if det.is_live():
+                det.go_unlive()
+
+    def stop_rolling(self):
+        """
+        Exit rolling mode.
+        Stop acquisition loop.
+        """
+        self._stop_continuous_acquisition = True
+        self.cont_acq_future.join()
+
+    def grab_rolling_frame(self):
+        """
+        Wait for latest frame and metadata and return them.
+
+        TODO: implement timeout.
+        """
+        while True:
+            if self.cont_buffer:
+                return self.cont_buffer.pop()
+            time.sleep(.05)
 
     def _get_exposure_time(self):
         # Convert from milliseconds to seconds

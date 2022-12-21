@@ -112,6 +112,8 @@ class CameraBase(DriverBase):
 
         self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
+        self.roll_future = None       # Will be replaced with a future when starting rolling acquisition
+        self._stop_roll = False       # To interrupt rolling
 
         # Used for file naming when acquiring sequences
 
@@ -144,6 +146,18 @@ class CameraBase(DriverBase):
         self.acq_future = Future(self._acquire_task, kwargs=kwargs)
         self.logger.debug('Acquisition started')
 
+    def get_local_meta(self):
+        """
+        Return camera-specifiv metadata
+        """
+        meta = {'detector': self.name,
+                'scan_name': workflow.getExperiment().scan_name,
+                'psize': self.psize,
+                'epsize': self.epsize,
+                'exposure_time': self.exposure_time,
+                'operation_mode': self.operation_mode}
+        return meta
+
     def _acquire_task(self, **kwargs):
         """
         Threaded acquisition task.
@@ -151,19 +165,14 @@ class CameraBase(DriverBase):
         # Start collecting metadata *before* acquisition
         metadata = aggregate.get_all_meta()
 
-        experiment = workflow.getExperiment()
-        scan_name = experiment.scan_name
-        localmeta = {'detector': self.name,
-                     'scan_name': scan_name,
-                     'acquisition_start': now(),
-                     'psize': self.psize,
-                     'epsize': self.epsize,
-                     'exposure_time': self.exposure_time,
-                     'operation_mode': self.operation_mode}
-
         # Extract filename if present
         filename = kwargs.pop('filename', None)
 
+        # Collect local metadata
+        localmeta = self.get_local_meta()
+        localmeta['acquisition_start'] = now()
+
+        # Grab frame
         frame, meta = self.grab_frame(**kwargs)
 
         localmeta['acquisition_end'] = now()
@@ -282,6 +291,78 @@ class CameraBase(DriverBase):
         Start endless sequence acquisition for live mode.
 
         If switch is None: toggle rolling state, otherwise turn on (True) or off (False)
+        """
+        # If currently rolling
+        if self.is_rolling:
+            if switch:
+                return
+            self._stop_roll = True
+            self.roll_future.join()
+            self.roll_future = None
+            return
+
+        if switch == False:
+            return
+
+        # Start rolling
+        if not self.is_live:
+            self.live_on()
+        self._stop_roll = False
+        self.roll_future = Future(self._roll_task)
+
+    @proxycall()
+    @property
+    def is_rolling(self):
+        """
+        Return True if the camera is currently in rolling mode.
+        """
+        return self.roll_future and not self.roll_future.done()
+
+    def _roll_task(self):
+        """
+        Running on a thread
+        """
+        try:
+            self.init_rolling(fps=self.config['live_fps'])
+            while not self._stop_roll:
+                # For now: do not grap all meta at every frame
+                # metadata = aggregate.get_all_meta()
+                metadata = {}
+
+                # Collect local metadata
+                localmeta = self.get_local_meta()
+                localmeta['acquisition_start'] = now()
+
+                # Grab frame
+                frame, meta = self.grab_rolling_frame()
+
+                localmeta['acquisition_end'] = now()
+                localmeta.update(meta)
+
+                # Update metadata with detector metadata
+                metadata[self.name] = localmeta
+
+                # Broadcast
+                if self.broadcaster:
+                    self.broadcaster.pub(frame, metadata)
+        finally:
+            self.stop_rolling()
+
+    def init_rolling(self, fps):
+        """
+        Camera-specific preparation for rolling mode.
+        """
+        raise NotImplementedError
+
+    def stop_rolling(self):
+        """
+        Camera-specific preparation when exiting rolling mode.
+        """
+        raise NotImplementedError
+
+    def grab_rolling_frame(self):
+        """
+        Camera-specific frame grabbing during rolling mode
         """
         raise NotImplementedError
 
