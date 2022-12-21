@@ -271,7 +271,7 @@ class CameraBase(DriverBase):
         if scan_path:
             filename = self._build_filename(prefix=experiment.next_prefix(), path=scan_path)
             self.logger.info(f'Save path: {filename}')
-            self.acquire()
+            self.acquire(filename=filename)
         else:
             self.acquire()
             self.counter += 1

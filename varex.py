@@ -13,7 +13,7 @@ from .util.proxydevice import proxydevice
 
 logger = logging.getLogger(__name__)
 
-BASE_PATH = "C:\\DATA\\"
+BASE_PATH = "C:\\data\\"
 
 # Try to import dexela
 if importlib.util.find_spec('dexela') is not None:
