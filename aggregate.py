@@ -22,8 +22,11 @@ def connect(name=None):
     from .manager import instantiate_driver, DRIVER_DATA
 
     if name is None:
+        futures = []
         for name in DRIVER_DATA.keys():
-            connect(name)
+            futures.append(Future(connect, args=(name,)))
+        for f in futures:
+            f.join()
         return
 
     # Check if a running driver exists already
@@ -58,6 +61,9 @@ def get_all_meta(block=False):
 
     If block is True: wait for all thread to return.
     """
+    if not DRIVERS:
+        connect()
+
     if not DRIVERS:
         logger.warning('No metadata can be collected: No running driver.')
         return {}
