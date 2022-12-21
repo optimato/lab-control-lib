@@ -133,6 +133,9 @@ class Experiment(DriverBase):
         self._label = label
         self.counter = 0
 
+        # Create path (ok even if on control host)
+        os.makedirs(os.path.join(data_path, self.path, scan_name), exist_ok=True)
+
         scan_info = {'scan_number': self._scan_number,
                 'scan_name': scan_name,
                 'investigation': self.investigation,
@@ -157,6 +160,17 @@ class Experiment(DriverBase):
                 'path': self.path,
                 'count': self.counter
                  }
+
+    @proxycall()
+    def status(self):
+        """
+        Summary of current configuration.
+        """
+        s = f' * Investigation: {self.investigation}\n'
+        s += f' * Experiment: {self.experiment}\n'
+        ns = self.next_scan()
+        s += f' * Last scan number: {"[none]" if ns==0 else ns}'
+        return s
 
     @proxycall()
     def next_prefix(self):

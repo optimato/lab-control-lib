@@ -31,6 +31,7 @@ def init(yes=None):
 
     # Experiment management
     experiment = workflow.getExperiment()
+    print(experiment.status())
     load_past_investigations()
 
     # Excillum
@@ -102,11 +103,12 @@ def init(yes=None):
         # motors['szl'] = labframe.Motor(
         #    'szl', motors['sx'], motors['sz'], motors['rot'], axis=1)
 
-    if ask_yes_no('Dump all motor objects in global namespace?'):
+    if ask_yes_no('Dump motors and drivers in global namespace?', yes_is_default=False):
         # This is a bit of black magic
         for s in inspect.stack():
             if 'init' in s[4][0]:
                 s[0].f_globals.update(motors)
+                s[0].f_globals.update(drivers)
                 break
 
     return
@@ -173,6 +175,7 @@ def choose_investigation(name=None):
             ichoice = ask('Select investigation', clab=labels, cval=values, multiline=True)
             if ichoice == 0:
                 inv = user_prompt('Enter new investigation name:')
+                INVESTIGATIONS[inv] = {}
             else:
                 inv = invkeys[ichoice-1]
     workflow.getExperiment().investigation = inv
@@ -215,5 +218,5 @@ def choose_experiment(inv=None, name=None):
     exp_path = os.path.join(os.path.join(data_path, inv), exp)
     print(f'Experiment: {exp} at {exp_path}')
     os.makedirs(exp_path, exist_ok=True)
-    globals()['EXPERIMENT'] = exp
+    workflow.getExperiment().experiment = exp
     return exp
