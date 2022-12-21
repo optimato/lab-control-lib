@@ -127,12 +127,12 @@ class CameraBase(DriverBase):
     # INTERNAL METHODS
     #
 
-    def acquire(self, *args, **kwargs):
+    def acquire(self, **kwargs):
         """
         Acquisition wrapper, taking care of metadata collection and
         of frame broadcasting.
 
-        args and kwargs are most likely to remain empty, but can be used to
+        kwargs are most likely to remain empty, but can be used to
         pass additional parameters to self.grab_frame
 
         NOTE: This is always non-blocking!
@@ -141,10 +141,10 @@ class CameraBase(DriverBase):
         """
         if self.acquiring:
             raise RuntimeError('Currently acquiring')
-        self.acq_future = Future(self._acquire_task, args=args, kwargs=kwargs)
+        self.acq_future = Future(self._acquire_task, kwargs=kwargs)
         self.logger.debug('Acquisition started')
 
-    def _acquire_task(self, *args, **kwargs):
+    def _acquire_task(self, **kwargs):
         """
         Threaded acquisition task.
         """
@@ -161,7 +161,10 @@ class CameraBase(DriverBase):
                      'exposure_time': self.exposure_time,
                      'operation_mode': self.operation_mode}
 
-        frame, meta = self.grab_frame(*args, **kwargs)
+        # Extract filename if present
+        filename = kwargs.pop('filename', None)
+
+        frame, meta = self.grab_frame(**kwargs)
 
         localmeta['acquisition_end'] = now()
         localmeta.update(meta)
@@ -173,9 +176,9 @@ class CameraBase(DriverBase):
         if self.broadcaster:
             self.broadcaster.pub(frame, metadata)
 
-        self._store(frame, metadata)
+        self._store(frame, metadata, filename=filename)
 
-    def _store(self, frame, metadata):
+    def _store(self, frame, metadata, filename=None):
         """
         Store (if requested) frame and metadata
         """
@@ -185,7 +188,7 @@ class CameraBase(DriverBase):
             return
 
         # Build file name and call corresponding saving function
-        filename = self._build_filename()
+        filename = filename or self._build_filename(prefix=self.file_prefix, path=self.save_path)
 
         if filename.endswith('h5'):
             self._save_h5(filename, frame, metadata)
@@ -193,19 +196,18 @@ class CameraBase(DriverBase):
             self._save_tif(filename, frame, metadata)
         self.logger.info(f'Saved {filename}')
 
-    def _build_filename(self) -> str:
+    def _build_filename(self, prefix, path) -> str:
         """
         Build the full file name to save to.
         """
 
         # Try to replace counter of prefix is a format string.
-        file_prefix = self.file_prefix
         try:
-            file_prefix = file_prefix.format(self.counter)
+            prefix = prefix.format(self.counter)
         except NameError:
             pass
 
-        full_file_prefix = os.path.join(self.BASE_PATH, self.save_path, file_prefix)
+        full_file_prefix = os.path.join(self.BASE_PATH, path, prefix)
 
         # Add extension based on file format
         if self.file_format == 'hdf5':
@@ -267,19 +269,12 @@ class CameraBase(DriverBase):
         experiment = workflow.getExperiment()
         scan_path = experiment.scan_path
         if scan_path:
-            old_file_prefix = self.file_prefix
-            old_save_path = self.save_path
-            try:
-                self.save_path = scan_path
-                self.file_prefix = experiment.next_prefix()
-                self.acquire()
-            finally:
-                self.file_prefix = old_file_prefix
-                self.save_path = old_save_path
+            filename = self._build_filename(prefix=experiment.next_prefix(), path=scan_path)
+            self.logger.info(f'Save path: {filename}')
+            self.acquire()
         else:
             self.acquire()
             self.counter += 1
-
 
     @proxycall(admin=True, block=False)
     def roll(self, switch=None):
