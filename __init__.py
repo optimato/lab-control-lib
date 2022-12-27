@@ -137,10 +137,12 @@ drivers = {}
 # dictionary of motor instances
 motors = {}
 
-# dictionary of camera instances
-cameras = {}
-
 from . import workflow
+
+# Import ui
+from .ui import init, load_past_investigations, choose_investigation, choose_experiment
+from .workflow import Scan
+
 # Import all driver submodules
 #from . import aerotech
 #from . import dummy

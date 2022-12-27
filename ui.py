@@ -103,7 +103,7 @@ def init(yes=None):
         # motors['szl'] = labframe.Motor(
         #    'szl', motors['sx'], motors['sz'], motors['rot'], axis=1)
 
-    if ask_yes_no('Dump motors and drivers in global namespace?', yes_is_default=False):
+    if ask_yes_no('Dump motors and drivers in global namespace?'):
         # This is a bit of black magic
         for s in inspect.stack():
             if 'init' in s[4][0]:
