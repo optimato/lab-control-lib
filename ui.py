@@ -214,7 +214,7 @@ def choose_experiment(inv=None, name=None):
             if ichoice == 0:
                 exp = user_prompt('Enter new experiment name:')
             else:
-                exp = expkeys[ichoice]
+                exp = expkeys[ichoice - 1]
     exp_path = os.path.join(os.path.join(data_path, inv), exp)
     print(f'Experiment: {exp} at {exp_path}')
     os.makedirs(exp_path, exist_ok=True)
