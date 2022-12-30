@@ -194,6 +194,13 @@ class DriverBase:
                 meta[key] = call()
         return meta
 
+    @proxycall()
+    def set_log_level(self, level):
+        """
+        Set logging level for this driver only.
+        """
+        self.logger.setLevel(level)
+
 
 class SocketDriverBase(DriverBase):
     """
