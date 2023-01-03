@@ -40,8 +40,6 @@ subclass of DriverBase. The hope is to make instances of `Motor` and `CameraBase
 use.
 
 """
-import logging
-import logging.handlers
 import os
 import platform
 import json
@@ -49,15 +47,8 @@ import subprocess
 
 from .network_conf import HOST_IPS
 from . import util
-from .util import logs, FileDict
+from .util import FileDict
 from ._version import version
-
-#
-# SETUP LOGGING
-#
-
-# Package-wide default log level (this sets up console handler)
-util.logs.set_level(logging.INFO)
 
 # Basic configuration
 conf_path = os.path.expanduser("~/.optimato-labcontrol/")
@@ -65,32 +56,22 @@ os.makedirs(conf_path, exist_ok=True)
 conf_file = os.path.join(conf_path, 'config.json')
 
 # Persistent configuration and parameters
-config = FileDict(conf_file)
+config = util.FileDict(conf_file)
 
 # Data paths
 data_path = '/data/'
 
-# Setup logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-
+#
+# SETUP LOGGING
+#
+# File logging
 LOG_DIR = os.path.join(conf_path, 'logs/')
 LOG_FILE = os.path.join(LOG_DIR, 'optimato-labcontrol.log')
-
-
 os.makedirs(LOG_DIR, exist_ok=True)
-file_handler = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=1024*1024*10, backupCount=300, encoding='utf-8')
 
-current_level = logging.root.level
-if current_level <= 5:
-    file_handler.setFormatter(logs.second_extended_formatter)
-elif current_level <= logging.DEBUG:
-    file_handler.setFormatter(logs.extended_formatter)
-else:
-    file_handler.setFormatter(logs.default_formatter)
-logging.root.addHandler(file_handler)
+# This import takes care of setting up everything
+from .util import logs
+
 
 #
 # IDENTIFY SYSTEM

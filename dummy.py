@@ -31,8 +31,8 @@ class Dummy(SocketDriverBase):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
 
-        self.periodic_calls.update({'status': (self.status, 10.)})
         super().__init__(device_address=device_address)
+        self.periodic_calls.update({'status': (self.status, 10.)})
         self.metacalls.update({'position': self.get_pos})
 
     def init_device(self):

@@ -17,6 +17,8 @@ import zmq.log.handlers
 from . import conf_path, FileDict
 from .util.future import Future
 from .util.proxydevice import proxycall
+from .util.logs import logger as rootlogger
+from .util.logs import json_formatter
 
 class MotorLimitsException(Exception):
     pass
@@ -110,7 +112,7 @@ class DriverBase:
         """
         # Get logger if not set in subclass
         if self.logger is None:
-            self.logger = logging.getLogger(self.__class__.__name__)
+            self.logger = rootlogger.getChild(self.__class__.__name__)
 
         # Set default name here. Can be overriden by subclass, for instance to allow multiple instances to run
         # concurrently
@@ -120,8 +122,9 @@ class DriverBase:
         if self.DEFAULT_LOGGING_ADDRESS is not None:
             pub_interface = f'tcp://*:{self.DEFAULT_LOGGING_ADDRESS[1]}'
             pub_handler = zmq.log.handlers.PUBHandler(pub_interface, root_topic=self.name)
+            pub_handler.setFormatter(json_formatter)
             self.logger.addHandler(pub_handler)
-            self.logger.info(f'Driver {self.name} publishing logs on {pub_interface}.')
+            self.logger.info(f'Driver {self.name} publishing logs on {pub_interface} (topic: "{self.name}".')
 
         # Load (or create) config dictionary
         self.config_filename = os.path.join(conf_path, 'drivers', self.name + '.json')
