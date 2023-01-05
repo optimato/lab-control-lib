@@ -16,6 +16,7 @@ from .util.future import Future
 from .util.logs import logging_muted
 from .util.uitools import ask_yes_no
 from .util.proxydevice import ProxyClientError
+from .util.logs import DisplayLogger
 from . import drivers, motors
 from . import aerotech
 from . import mclennan
@@ -170,6 +171,15 @@ def killall():
         futures.append(Future(kill, ((name,),)))
     for f in futures:
         f.join()
+
+
+@cli.command(help='Start log display')
+def displayall():
+    dl = DisplayLogger()
+    for name, data in DRIVER_DATA.items():
+        if addr:= data['net_info'].get('logging', None):
+            dl.sub(name, addr)
+    dl.show()
 
 
 @cli.command(help='Start all proxy drivers on separate processes.')

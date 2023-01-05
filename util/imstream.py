@@ -146,7 +146,7 @@ class FrameSubscriber:
                 continue
             self._data = self._recv()
             self.num_frames += 1
-            if self._data_ready.isSet():
+            if self._data_ready.is_set():
                 self.num_frames_dropped += 1
                 self.num_frames_dropped_sequence += 1
             else:

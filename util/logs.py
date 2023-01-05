@@ -5,10 +5,15 @@ Logging manager
 import logging
 import logging.config
 import logging.handlers
+import zmq
 import json
 from contextlib import contextmanager
+import threading
+import time
+import datetime
 
 from .. import LOG_FILE
+from .future import Future
 
 # Basic config
 DEFAULT_LOGGING = {
@@ -66,7 +71,8 @@ class JsonFormatter(logging.Formatter):
                 'processName',
                 'relativeCreated',
                 'thread',
-                'threadName']
+                'threadName',
+                'msg']
 
         d = {k: getattr(record, k, None) for k in keys}
         return json.dumps(d)
@@ -109,3 +115,131 @@ def logging_muted(highest_level=logging.CRITICAL):
         yield
     finally:
         logging.disable(previous_level)
+
+
+class LogClient:
+
+    def __init__(self, address):
+        """
+        Subscriber to a PubHandler Logger. Messages are assumed to be json formatted.
+        """
+        ip, port = address
+        self.address = f'tcp://{ip}:{port}'
+
+        # Stats to evaluate the rate of dropped frames
+        self.num_frames = 0
+        self.num_frames_dropped = 0
+        self.num_frames_dropped_sequence = 0
+
+        self.zmq_context = zmq.Context()
+        self.zmq_socket = self.zmq_context.socket(zmq.SUB)
+        self.zmq_socket.setsockopt(zmq.SUBSCRIBE, b'')
+        self.zmq_socket.connect(self.address)
+
+        self._stop = False
+        self._data_ready = threading.Event()
+        self.recv_future = Future(self._run)
+
+    def _run(self):
+        """
+        Start receiving on a separate thread to avoid data backlogs
+        """
+        while not self._stop:
+            if (self.zmq_socket.poll(50.) & zmq.POLLIN) == 0:
+                continue
+            self._data = self._recv()
+            self._data_ready.set()
+
+    def _recv(self):
+        """
+        Receive message
+        """
+        name, json_data = self.zmq_socket.recv_multipart()
+        data = json.loads(json_data)
+        return data
+
+    def receive(self, timeout=0.):
+        """
+        Receive log message. Return None if timed out.
+        """
+        flag = self._data_ready.wait(timeout=timeout)
+        if not flag:
+            return None
+        self._data_ready.clear()
+        return self._data
+
+    def close(self):
+        """
+        Close socket and stop receiving thread.
+        """
+        self._stop = True
+        self.recv_future.join()
+        self.zmq_socket.close()
+        self.zmq_context.term()
+
+
+class DisplayLogger:
+
+    def __init__(self):
+        """
+        Connect to given addresses to print out logs.
+        """
+        self.log_clients = {}
+
+    def sub(self, name, address):
+        """
+        Add or replace Log client.
+        """
+        if cl := self.log_clients.get(name, None):
+            cl.close()
+
+        cl = LogClient(address)
+        self.log_clients[name] = cl
+
+    @staticmethod
+    def _show(data):
+        """
+        TODO: implement custom highlights.
+        """
+        #print('[{name}] - {levelname} - {msg}'.format(**data))
+        if data['levelno'] >= 40:
+            L = _cE('E')
+        elif data['levelno'] >= 30:
+            L = _cW('W')
+        else:
+            L = data['levelname'][0]
+
+        T = str(datetime.datetime.utcfromtimestamp(data['created']))
+        N = data['name'].split('.', 1)[1]
+        M = data['msg']
+        print(f'[{L}] {T} - {" " + N + " ":-^20s} - {M}')
+
+
+    def show(self):
+        try:
+            while True:
+                for name, cl in self.log_clients.items():
+                    if data := cl.receive():
+                        self._show(data)
+                # temporize slightly
+                time.sleep(.05)
+        except KeyboardInterrupt:
+            # We are done.
+            return
+def _cE(s):
+    """
+    Formatting for ERROR
+    """
+    return f"\x1b[1;4;31;40m{s}\x1b[0m"
+
+def _cW(s):
+    """
+    Formatting for WARNING
+    """
+    return f"\x1b[1;33;40m{s}\x1b[0m"
+
+def _cU(s):
+    """
+    Formatting for underline
+    """
+    return f"\x1b[4m{s}\x1b[0m"
