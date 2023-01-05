@@ -26,10 +26,13 @@ class DataLogger(dl.DataLogger):
         from . import workflow
         experiment = workflow.getExperiment()
 
-        tags = {'investigation': experiment.investigation or 'undefined',
-                'experiment': experiment.experiment or 'undefined',
-                'scan_name': experiment.scan_name or 'undefined',
-                'host': THIS_HOST}
+        if experiment is None:
+            tags = {'host': THIS_HOST}
+        else:
+            tags = {'investigation': experiment.investigation or 'undefined',
+                    'experiment': experiment.experiment or 'undefined',
+                    'scan_name': experiment.scan_name or 'undefined',
+                    'host': THIS_HOST}
         return tags
 
 
