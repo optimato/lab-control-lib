@@ -94,6 +94,7 @@ class ViewerBase:
         self.frame_subscriber = FrameSubscriber(address=self.address, frames=not self.compress)
         self._stop_yielding = False
         self.start_viewer()
+        print('here')
 
     def stop(self):
         """
@@ -157,6 +158,7 @@ class NapariViewer(ViewerBase):
         @magicgui(call_button="Pause")
         def pause():
             self.worker.toggle_pause()
+        print(5)
 
         """
         @magicgui(
@@ -177,6 +179,7 @@ class NapariViewer(ViewerBase):
         self.v.window.add_dock_widget(pause, area='right')
 
         self.worker.start()
+        napari.run()
 
     def stop_viewer(self):
         self.worker.quit()

@@ -17,6 +17,7 @@ from .util.logs import logging_muted
 from .util.uitools import ask_yes_no
 from .util.proxydevice import ProxyClientError
 from .util.logs import DisplayLogger
+from .util import viewers
 from . import drivers, motors
 from . import aerotech
 from . import mclennan
@@ -27,6 +28,7 @@ from . import workflow
 from . import smaract
 from . import excillum
 from . import varex
+from . import xspectrum
 
 DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_CONF['mecademic']},
                'smaract': {'driver': smaract.Smaract, 'net_info': NETWORK_CONF['smaract']},
@@ -37,6 +39,7 @@ DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_
                'excillum': {'driver': excillum.Excillum, 'net_info': NETWORK_CONF['excillum']},
                'dummy': {'driver': dummy.Dummy, 'net_info': NETWORK_CONF['dummy']},
                'varex': {'driver': varex.Varex, 'net_info': NETWORK_CONF['varex']},
+               'xspectrum': {'driver': xspectrum.XSpectrum, 'net_info': NETWORK_CONF['xspectrum']},
                'experiment': {'driver': workflow.Experiment, 'net_info': NETWORK_CONF['experiment']}
               # 'xps': {},
               # 'pco': {},
@@ -181,6 +184,38 @@ def displayall():
             dl.sub(name, addr)
     dl.show()
 
+@cli.command(help='Start frame viewer')
+@click.argument('name', nargs=1)
+@click.option('--type', '-t', 'vtype', default='napari', show_default=True, help='Viewer type: "napari" or "cv".')
+@click.option('--maxfps', '-m', default=10, show_default=True, help='Maximum refresh rate (FPS).')
+def viewer(name, vtype, maxfps):
+    viewer_addr = {'varex': (DRIVER_DATA['varex']['net_info']['control'][0],
+                             DRIVER_DATA['varex']['net_info']['broadcast_port']),
+                   'xspectrum': (DRIVER_DATA['xspectrum']['net_info']['control'][0],
+                             DRIVER_DATA['xspectrum']['net_info']['broadcast_port'])
+                   }
+    addr = viewer_addr.get(name.lower(), None)
+    if not addr:
+        click.echo(f'Unknown detector: {name}')
+        sys.exit(0)
+    if vtype.lower() == 'napari':
+        Vclass = viewers.NapariViewer
+    elif vtype.lower() == 'cv':
+        Vclass = viewers.CvViewer
+    else:
+        click.echo(f'Unknown viewer type: {vtype}')
+        sys.exit(0)
+
+    if maxfps > 25:
+        click.echo(f'Frame rate cannot be higher than 25.')
+        sys.exit(0)
+    if maxfps < 0:
+        click.echo(f'Invalid FPS')
+        sys.exit(0)
+
+    v = Vclass(address=addr, max_fps=maxfps)
+    v.start()
+    sys.exit(0)
 
 @cli.command(help='Start all proxy drivers on separate processes.')
 def startall():
