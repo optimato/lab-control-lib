@@ -134,7 +134,12 @@ class Excillum(SocketDriverBase):
         cmd += self.EOL
         if replycmd is not None:
             cmd += replycmd + self.EOL
+
         reply = self.device_cmd(cmd)
+
+        self.logger.debug(f'Sent: "{cmd}"')
+        self.logger.debug(f'Received: "{reply}"')
+
         return reply.strip(self.EOL).decode('utf-8', errors='ignore')
 
     @proxycall(admin=True)

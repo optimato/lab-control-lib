@@ -15,6 +15,18 @@ import datetime
 from .. import LOG_FILE
 from .future import Future
 
+
+# This adds another debug level but it is not well managed by
+# zmq.logs.PubHandler so for now not used.
+"""
+VERBOSE_NUM = 5
+logging.addLevelName(VERBOSE_NUM, "VERBOSE")
+def verbose(self, message, *args, **kws):
+    if self.isEnabledFor(VERBOSE_NUM):
+        # Yes, logger takes its '*args' as 'args'.
+        self._log(VERBOSE_NUM, message, args, **kws)
+logging.Logger.verbose = verbose
+"""
 # Basic config
 DEFAULT_LOGGING = {
     'version': 1,
