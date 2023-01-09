@@ -224,7 +224,7 @@ class DisplayLogger:
         T = str(datetime.datetime.utcfromtimestamp(data['created']))
         N = data['name'].split('.', 1)[1]
         M = data['msg']
-        print(f'[{L}] {T} - {" " + N + " ":-^20s} - {M}')
+        print(f'[{L}] {T} - {" " + N + " ":-^30s} - {M}')
 
 
     def show(self):

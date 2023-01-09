@@ -176,8 +176,8 @@ def killall():
         f.join()
 
 
-@cli.command(help='Start log display')
-def displayall():
+@cli.command(help='Start Display real-time logs of all running drivers')
+def logall():
     dl = DisplayLogger()
     for name, data in DRIVER_DATA.items():
         if addr:= data['net_info'].get('logging', None):

@@ -71,9 +71,9 @@ import threading
 import inspect
 
 from .future import Future
+from .logs import logger as rootlogger
 
 logger = logging.getLogger(__name__)
-
 
 class ProxyClientError(Exception):
     pass
@@ -109,7 +109,7 @@ class ServerBase:
         self.API = API or self.API
         self.address = address or self.ADDRESS
 
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = self.logger = rootlogger.getChild(self.cls.__name__).getChild(self.__class__.__name__)
         self.name = self.__class__.__name__.lower()
 
         # instance of the class cls once we have received the initialization parameters from the first client.
