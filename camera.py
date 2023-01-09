@@ -557,7 +557,7 @@ class CameraBase(DriverBase):
     @property
     def binning(self):
         """
-        Exposure time in seconds.
+        Binning type.
         """
         return self._get_binning()
 

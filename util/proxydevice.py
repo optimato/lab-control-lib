@@ -1,6 +1,6 @@
 """
 Proxy Device: decorators that expose a class and chose methods/properties
-trough network.
+through network.
 
 Example code:
 
