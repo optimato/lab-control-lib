@@ -18,7 +18,7 @@ class ViewerBase:
     def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15):
         """
         Base class for frame viewers. This class contains a FrameSubscriber that connects to a FramePublisher.
-        The method yeild_new_frame is a generator that can be iterated over.
+        The method yield_new_frame is a generator that can be iterated over.
 
         address: tuple (ip, port) of the FramePublisher
         compress: whether to use JPG compressed images (not a good idea for now)
@@ -186,7 +186,7 @@ class NapariViewer(ViewerBase):
 
     def manage_new_frame(self, frame_and_meta):
         """
-        Update the viewer and scalebar. This could be overriden for detector-specific
+        Update the viewer and scale bar. This could be overridden for detector-specific
         viewers.
         """
         frame, metadata = frame_and_meta
@@ -206,7 +206,7 @@ class NapariViewer(ViewerBase):
 
     def update_scalebar(self, epsize):
         """
-        Update or add scalebar if needed.
+        Update or add scale bar if needed.
         """
         if epsize == self.epsize:
             return
