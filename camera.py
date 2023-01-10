@@ -162,6 +162,8 @@ class CameraBase(DriverBase):
         """
         Threaded acquisition task.
         """
+        self.logger.debug('Threaded frame acquisition: start')
+
         # Start collecting metadata *before* acquisition
         metadata = aggregate.get_all_meta()
 
@@ -172,8 +174,12 @@ class CameraBase(DriverBase):
         localmeta = self.get_local_meta()
         localmeta['acquisition_start'] = now()
 
+        self.logger.debug('Threaded frame acquisition: calling grab_frame')
+
         # Grab frame
         frame, meta = self.grab_frame(**kwargs)
+
+        self.logger.debug('Threaded frame acquisition: grab_frame returned')
 
         localmeta['acquisition_end'] = now()
         localmeta.update(meta)
@@ -181,11 +187,17 @@ class CameraBase(DriverBase):
         # Update metadata with detector metadata
         metadata[self.name] = localmeta
 
+
         # Broadcast and store
         if self.broadcaster:
+            self.logger.debug('Threaded frame acquisition: broadcasting frame')
             self.broadcaster.pub(frame, metadata)
+            self.logger.debug('Threaded frame acquisition: frame broadcast returned')
 
+        self.logger.debug('Threaded frame acquisition: calling _store')
         self._store(frame, metadata, filename=filename)
+        self.logger.debug('Threaded frame acquisition: _store returned')
+        self.logger.debug('Threaded frame acquisition: completed, shutting down')
 
     def _store(self, frame, metadata, filename=None):
         """
