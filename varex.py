@@ -82,21 +82,34 @@ class Varex(CameraBase):
         Independent of the number of exposures, the returned array
         "frame" is a 3D array, with the frame index as the first dimension
         """
+        self.logger.debug('Starting frame grab.')
+
         det = self.detector
         n_exp = self.exposure_number
 
+        self.logger.debug('Detector going live.')
+
         det.go_live(0, n_exp - 1, n_exp)
+
+        self.logger.debug('Getting field count.')
+
         startCount = det.get_field_count()
         count = startCount + 0
 
+        self.logger.debug('Triggering detector.')
+
         det.software_trigger()
+
+        self.logger.debug('Starting check loop.')
 
         while True:
             count = det.get_field_count()
             if count > (startCount + n_exp):
                 break
             det.check_for_live_error()
-            time.sleep(.05)
+            time.sleep(.01)
+
+        self.logger.debug('Acquisition done. Reading out data.')
 
         frames = []
         meta = {}
@@ -106,8 +119,12 @@ class Varex(CameraBase):
             # Overwrite meta - it's all the same.
             meta = m
 
+        self.logger.debug('Data readout done.')
+
         if det.is_live():
             det.go_unlive()
+
+        self.logger.debug('Detector "unlive". Grab completed.')
 
         return np.array(frames), meta
 

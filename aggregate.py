@@ -64,6 +64,9 @@ def get_all_meta(block=False):
 
     If block is True: wait for all thread to return.
     """
+
+    logger.debug('Aggregation started.')
+
     if not DRIVERS:
         connect()
 
@@ -79,6 +82,9 @@ def get_all_meta(block=False):
     meta.update({motor_name: {} for motor_name in motors.keys()})
 
     # Use threads to optimize I/O
+
+    logger.debug('Creating workers.')
+
     workers = []
     for k in DRIVERS.keys():
         f = Future(target=meta_fetch_task, args=(DRIVERS[k].get_meta, meta[k]))
@@ -87,6 +93,8 @@ def get_all_meta(block=False):
     for motor_name, motor in motors.items():
         f = Future(target=meta_fetch_task, args=(motor.get_meta, meta['motors'][motor_name]))
         workers.append(f)
+
+    logger.debug('Done creating workers.')
 
     # Thread watcher will add key "collection_end" once done. This is a way
     # to evaluate overall collection time, and whether collection is finished.
@@ -97,8 +105,14 @@ def get_all_meta(block=False):
         dt = time.time() - t0
         logger.info(f'Metadata collection completed in {dt*1000:3.2f} ms')
 
+    logger.debug('Starting watcher.')
+
     watcher = Future(target=watch_futures, args=(workers, meta))
     if block:
+        logger.debug('Waiting for watcher.')
         watcher.result()
+        logger.debug('Watcher done.')
+
+    logger.debug('Aggregation complete.')
 
     return meta

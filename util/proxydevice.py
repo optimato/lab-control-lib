@@ -449,6 +449,16 @@ class ServerBase:
             return {'status': 'ok', 'value': self.clients[ID]}
 
         #
+        # LOGLEVEL
+        #
+        if cmd.lover() =='loglevel':
+            try:
+                self.logger.setLevel(kwargs['level'])
+            except BaseException as error:
+                return {'status': 'error', 'msg': traceback.format_exc()}
+            return {'status': 'ok'}
+
+        #
         # RESULT
         #
         if cmd.lower() == 'result':
@@ -562,6 +572,7 @@ class ClientProxy:
 
         # This will hold the ping thread
         self.future_ping = None
+        self._last_ping = 0.
         # Flag to kill the ping thread
         self._stopping = False
 
@@ -696,6 +707,7 @@ class ClientProxy:
         while not self._stopping:
             try:
                 reply = self.send_recv([self.ID, '^ping', [], {}])
+                self._last_ping = time.time()
             except BaseException as error:
                 self.logger.error(repr(error))
             time.sleep(self.PING_INTERVAL)
@@ -740,6 +752,16 @@ class ClientProxy:
         Send a request for admin rights.
         """
         return self.send_recv([self.ID, '^admin', [], {'admin': admin, 'force': force}], clean=False)
+
+    def set_log_level(self, level):
+        """
+        Set the log level of the proxy server.
+        """
+        return self.send_recv([self.ID, '^loglevel', [], {'level': level}], clean=False)
+
+    @property
+    def running(self):
+        return (self._last_ping + self.PING_INTERVAL) > time.time()
 
 
 class ClientBase:

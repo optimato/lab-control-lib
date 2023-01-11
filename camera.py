@@ -137,6 +137,7 @@ class CameraBase(DriverBase):
         kwargs are most likely to remain empty, but can be used to
         pass additional parameters to self.grab_frame
 
+        WHY DID I DO THAT??? NOT TRUE ANYMORE: BLOCKING CALL!
         NOTE: This is always non-blocking!
 
         Note: metadata collection is initiated *just before* acquisition.
@@ -146,9 +147,12 @@ class CameraBase(DriverBase):
         self.acq_future = Future(self._acquire_task, kwargs=kwargs)
         self.logger.debug('Acquisition started')
 
+        # BLOCK UNTIL DONE. WHY WAS IT NON-BLOCKING???
+        self.acq_future.join()
+
     def get_local_meta(self):
         """
-        Return camera-specifiv metadata
+        Return camera-specific metadata
         """
         meta = {'detector': self.name,
                 'scan_name': workflow.getExperiment().scan_name,
@@ -296,6 +300,7 @@ class CameraBase(DriverBase):
         else:
             self.acquire()
             self.counter += 1
+
 
     @proxycall(admin=True, block=False)
     def roll(self, switch=None):

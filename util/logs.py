@@ -52,7 +52,7 @@ class DualFormatter(logging.Formatter):
         self.default_formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
                                       "%d/%m/%Y %H:%M:%S")
         self.extended_formatter = logging.Formatter(
-        "[%(asctime)s] [%(levelname)s] [%(name)s] [%(funcName)s():%(lineno)s] [PID:%(process)d TID:%(thread)d] %(message)s",
+        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] [%(funcName)s():%(lineno)s] [PID:%(process)d TID:%(thread)d] %(message)s",
         "%d/%m/%Y %H:%M:%S")
 
     def format(self, record):
