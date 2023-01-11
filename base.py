@@ -162,7 +162,7 @@ class DriverBase:
         while True:
             n += 1
             if not self.initialized:
-                time.sleep(t0 + n*interval - time.time())
+                time.sleep(max(0, t0 + n*interval - time.time()))
                 continue
             try:
                 method()
@@ -174,7 +174,7 @@ class DriverBase:
                 break
 
             # Try to keep the beat
-            time.sleep(t0 + n * interval - time.time())
+            time.sleep(max(0, t0 + n * interval - time.time()))
 
 
     @proxycall()

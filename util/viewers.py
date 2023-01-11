@@ -190,7 +190,11 @@ class NapariViewer(ViewerBase):
         viewers.
         """
         frame, metadata = frame_and_meta
-        epsize = metadata.get('epsize')
+        epsize = None
+        for v in metadata.values():
+            epsize = v.get('epsize')
+            if epsize:
+                break
         self.update_layer(frame, metadata)
         self.update_scalebar(epsize)
 
