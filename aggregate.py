@@ -31,7 +31,7 @@ def connect(name=None):
 
     # Check if a running driver exists already
     if name in DRIVERS:
-        if DRIVERS['name'].isalive:
+        if DRIVERS[name]._proxy.running:
             logger.info(f'Driver {name} already running and healthy.')
             return
         else:
@@ -50,7 +50,10 @@ def connect(name=None):
 
 
 def meta_fetch_task(fct, dct):
-    result = fct()
+    try:
+        result = fct()
+    except:
+        result = 'failed'
     dct.update(result)
     return None
 

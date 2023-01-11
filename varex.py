@@ -182,25 +182,26 @@ class Varex(CameraBase):
 
     def _get_exposure_time(self):
         # Convert from milliseconds to seconds
-        return self.detector.get_exposure_time() / 1000
+        return self.config['exposure_time']   # self.detector.get_exposure_time()
 
     def _set_exposure_time(self, value):
         # From seconds to milliseconds
         etime = int(value*1000)
         self.detector.set_exposure_time(etime)
+        self.config['exposure_time'] = value
 
     def _get_exposure_number(self):
-        return self.detector.get_num_of_exposures()
+        return self.config['exposure_number']  # self.detector.get_num_of_exposures()
 
     def _set_exposure_number(self, value):
         self.detector.set_num_of_exposures(value)
-        self.config['settings']['num_of_exposures'] = value
+        self.config['exposure_number'] = value
 
     def _get_operation_mode(self):
-        opmode = {'full_well_mode': self.detector.get_full_well_mode(),
-                  'exposure_mode': self.detector.get_exposure_mode(),
-                  'readout_mode': self.detector.get_readout_mode()}
-        return opmode
+        # opmode = {'full_well_mode': self.detector.get_full_well_mode(),
+        #          'exposure_mode': self.detector.get_exposure_mode(),
+        #          'readout_mode': self.detector.get_readout_mode()}
+        return self.config['operation_mode']
 
     def set_operation_mode(self, full_well_mode=None, exposure_mode=None, readout_mode=None):
         """
@@ -223,15 +224,16 @@ class Varex(CameraBase):
         self.detector.set_full_well_mode(full_well_mode)
         self.detector.set_exposure_mode(exposure_mode)
         self.detector.set_readout_mode(readout_mode)
-        self.config['settings']['operation_mode'] = {'full_well_mode': full_well_mode,
-                                                     'exposure_mode': exposure_mode,
-                                                     'readout_mode': readout_mode}
+        self.config['operation_mode'] = {'full_well_mode': full_well_mode,
+                                         'exposure_mode': exposure_mode,
+                                         'readout_mode': readout_mode}
 
     def _get_binning(self):
-        return self.detector.get_binning_mode()
+        return self.config['binning']  # self.detector.get_binning_mode()
 
     def _set_binning(self, value):
         self.detector.set_binning_mode(value)
+        self.config['binning'] = value
 
     def _get_psize(self):
         bins = self.binning
