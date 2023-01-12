@@ -109,7 +109,7 @@ class ServerBase:
         self.API = API or self.API
         self.address = address or self.ADDRESS
 
-        self.logger = self.logger = rootlogger.getChild(self.cls.__name__).getChild(self.__class__.__name__)
+        self.logger = rootlogger.getChild(self.__class__.__name__)
         self.name = self.__class__.__name__.lower()
 
         # instance of the class cls once we have received the initialization parameters from the first client.
@@ -175,7 +175,7 @@ class ServerBase:
         """
         # _stopping might have been set to True already because of instantiation failure.
         if self._stopping:
-            self.logger.info('Aborting')
+            self.logger.info('Shutting down')
             return
 
         self._stopping = False
@@ -187,11 +187,9 @@ class ServerBase:
         try:
             self.socket.bind(full_address)
         except zmq.error.ZMQError as e:
-            print(str(e))
-            print(f'Full address: {full_address}')
-            self.logger.error(repr(e))
-            self.logger.error(f'Full address: {full_address}')
+            self.logger.exception(f'Connection failed (full address: {full_address})')
             return
+
         self.logger.info(f'Server bound to {full_address}')
 
         # Initialize poller
@@ -531,7 +529,7 @@ class ServerBase:
                 return {'status': 'error', 'msg': 'Another client is already admin'}
         else:
             if self.admin != ID:
-                return {'status': 'error', 'msg': 'Already not admin'}
+                return {'status': 'ok', 'msg': 'Already not admin'}
             self.admin = None
             return {'status': 'ok'}
 
@@ -540,7 +538,7 @@ class ClientProxy:
 
     PING_INTERVAL = 10.
     REQUEST_TIMEOUT = 10.
-    NUM_RECONNECT = 3
+    NUM_RECONNECT = 1000000 # ~= infinity
 
     def __init__(self, address, API, clean=True, cls_name=None):
         """
@@ -557,7 +555,7 @@ class ClientProxy:
         self.API = API
         self.cls_name = cls_name
         self.name = self.__class__.__name__.lower()
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = rootlogger.getChild(self.__class__.__name__)
 
         # Flag for eventual lost connection
         self.connected = False
@@ -630,6 +628,11 @@ class ClientProxy:
         if not self.connecting and not self.connected:
             raise ProxyClientError('Client is not connected.')
         try:
+            # Many things can happen here:
+            # 1) Sending worked and reply (below) also -> fine
+            # 2) Sending "worked" but there won't be a reply -> the while loop will take over
+            # 3) The socket doesn't even exist: we're probably shutting down
+            # 4) Sending otherwise didn't work -> hopefully this won't happen
             self.socket.send_json(cmd_seq)
         except AttributeError:
             if self.socket is None:
@@ -649,6 +652,9 @@ class ClientProxy:
         while True:
             if (self.socket.poll(poll_timeout) & zmq.POLLIN) != 0:
                 reply = self.socket.recv_json()
+                if retries > 0:
+                    retries = 0
+                    self.logger.info(f"Reconnected to server")
                 break
 
             # If not even connected - give up
@@ -658,12 +664,13 @@ class ClientProxy:
                 self.connecting = False
                 raise ProxyClientError(f'Could not connect to server at {self.full_address}')
 
-            self.logger.warning("No response from server")
+            # self.logger.warning("No response from server")
 
             self.socket.setsockopt(zmq.LINGER, 0)
             self.socket.close()
             if retries == self.NUM_RECONNECT:
                 self.logger.error("Server seems to be offline.")
+                self.shutdown()
                 raise ProxyClientError(f'Could not connect to server at {self.full_address}')
 
             retries += 1
