@@ -53,7 +53,7 @@ class ViewerBase:
         """
         Show the frame. metadata is any metadata sent along with the frame.
         """
-        pass
+        return frame_and_meta
 
     def start_viewer(self):
         pass
@@ -64,6 +64,7 @@ class ViewerBase:
     def yield_new_frame(self):
         """
         Generator that yields a new frame at a maximum rate of self.max_fps
+        If yield_timeout is reached, yield None.
         """
         twait = 1. / self.max_fps
         t0 = time.time()
@@ -73,7 +74,8 @@ class ViewerBase:
             except TimeoutError:
                 if self.yield_timeout and self.yield_timeout < time.time() - t0:
                     self.logger.info('Timed out.')
-                    return
+                    yield
+                    continue
                 elif self._stop_yielding:
                     self.logger.info('Exiting frame yielding loop.')
                     return
@@ -94,7 +96,6 @@ class ViewerBase:
         self.frame_subscriber = FrameSubscriber(address=self.address, frames=not self.compress)
         self._stop_yielding = False
         self.start_viewer()
-        print('here')
 
     def stop(self):
         """
@@ -124,7 +125,7 @@ class ViewerBase:
 
 class NapariViewer(ViewerBase):
 
-    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=None):
+    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=2):
         self.v = None
         self.worker = None
         self.epsize = None
@@ -158,7 +159,6 @@ class NapariViewer(ViewerBase):
         @magicgui(call_button="Pause")
         def pause():
             self.worker.toggle_pause()
-        print(5)
 
         """
         @magicgui(
@@ -177,7 +177,6 @@ class NapariViewer(ViewerBase):
             pass
         """
         self.v.window.add_dock_widget(pause, area='right')
-
         self.worker.start()
         napari.run()
 
@@ -189,6 +188,8 @@ class NapariViewer(ViewerBase):
         Update the viewer and scale bar. This could be overridden for detector-specific
         viewers.
         """
+        if frame_and_meta is None:
+            return
         frame, metadata = frame_and_meta
         epsize = None
         for v in metadata.values():
