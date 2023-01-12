@@ -624,7 +624,9 @@ class ClientProxy:
         """
         _, cmd, _, _ = cmd_seq
 
-        retries = 0
+        ###################
+        # Send command
+        ###################
         if not self.connecting and not self.connected:
             raise ProxyClientError('Client is not connected.')
         try:
@@ -645,17 +647,28 @@ class ClientProxy:
             self.logger.warning('Could not send command to server.')
             return {'status': 'error', 'msg': traceback.format_exc()}
 
-        # Manage possible difficulties connecting
+        ###################
+        # Receive reply
+        ###################
+
+        retries = 0
         poll_timeout = 1000 * self.REQUEST_TIMEOUT
+
+        # Poll faster for the first connection attempt
         if not self.connected:
             poll_timeout /= 10
+
         while True:
+
+            # Ideal case: there's a reply
             if (self.socket.poll(poll_timeout) & zmq.POLLIN) != 0:
                 reply = self.socket.recv_json()
                 if retries > 0:
                     retries = 0
                     self.logger.info(f"Reconnected to server")
                 break
+
+            # We get here because polling failed.
 
             # If not even connected - give up
             if not self.connected:
@@ -664,8 +677,7 @@ class ClientProxy:
                 self.connecting = False
                 raise ProxyClientError(f'Could not connect to server at {self.full_address}')
 
-            # self.logger.warning("No response from server")
-
+            # We were connected but there was no reply. We need to keep trying
             self.socket.setsockopt(zmq.LINGER, 0)
             self.socket.close()
             if retries == self.NUM_RECONNECT:
@@ -680,6 +692,10 @@ class ClientProxy:
             self.socket = self.context.socket(zmq.REQ)
             self.socket.connect(self.full_address)
             self.socket.send_json(cmd_seq)
+
+        ###################
+        # Manage reply
+        ###################
 
         if ((clean is not None) and clean) or ((clean is None) and self.clean):
             # In clean mode, we reproduce the behaviour of the remote class
