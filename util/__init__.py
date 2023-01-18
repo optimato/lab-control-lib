@@ -3,7 +3,7 @@ from datetime import datetime
 from .filedict import FileDict
 from .fake_device import FakeDevice
 from .imstream import FramePublisher, FrameSubscriber
-from . import viewers
+#from . import viewers
 
 
 def now():

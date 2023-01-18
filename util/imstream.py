@@ -6,26 +6,32 @@ Code adapted from https://github.com/jeffbass/imagezmq
 
 import zmq
 import numpy as np
-import json
 import logging
 import threading
-
+import time
+from .future import Future
 
 class FramePublisher:
-    """Opens a zmq socket and send data using PUB.
+    """
+    Open a zmq socket and send data using PUB.
 
     This object is meant to be short-lived: created when staring to publish, destroyed
     as soon as we're done.
 
     Argument:
       port: the port number on which to publish (the address will be tcp://*:port)
-      frames: if True, send numpy array. If false, raw byte strings.
+      arrays: if True, send numpy array. If false, raw byte strings.
     """
 
-    def __init__(self, port=5555, frames=True):
+    def __init__(self, port=5555, arrays=True):
         """
         Initializes zmq socket for publishing data.
+
+        The broadcast address is localhost:port
+
+        if arrays is True, publish numpy arrays. If false, publish raw byte buffers.
         """
+        self.heartbeat_period = 1.
         self.logger = logging.getLogger(self.__class__.__name__)
         self.port = port
         self.address = f'tcp://*:{port}'
@@ -37,55 +43,62 @@ class FramePublisher:
         self.zmq_socket.bind(self.address)
 
         self.logger.info(f'Broadcasting on {self.address}')
+        self.arrays = arrays
 
-        if frames:
-            self.pub = self._pub_array
-        else:
-            self.pub = self._pub_buffer
+        self._stop_heartbeat = False
+        self.heartbeat_future = Future(self._heartbeat)
 
-    def _pub_array(self, data, metadata=None):
-        """Publish numpy array and metadata.
-
+    def pub(self, data, metadata=None):
+        """
+        Publish frame and metadata.
         Arguments:
-          data: numpy array
+          data: numpy array or buffer (or None)
           metadata: any json-serializable object (probably dictionary).
         """
-        msg = json.dumps(metadata)
-
         if not data.flags['C_CONTIGUOUS']:
             data = np.ascontiguousarray(data)
-        self.zmq_socket.send_array(data, msg, copy=False)
+        self.zmq_socket.send_frame(data, metadata, copy=False)
 
-    def _pub_buffer(self, buffer, metadata):
-        """Publish byte string and metadata
-
-        Arguments:
-          buffer: byte string
-          metadata: any json-serializable object (probably dictionary).
+    def _heartbeat(self):
         """
-        msg = json.dumps(metadata)
-        self.zmq_socket.send_buffer(buffer, msg, copy=False)
+        Publish None at a regular interval to show that the connection is still alive.
+        """
+        self.last_pub = time.time()
+        while not self._stop_heartbeat:
+            # Sleep until next time
+            next_beat = self.last_pub + self.heartbeat_period
+            time.sleep(max(0., next_beat - time.time()))
+
+            # If something happened in the meantime, start over
+            now = time.time()
+            if (now - self.last_pub ) < 1.05*self.heartbeat_period:
+                continue
+
+            # Send a peep
+            self.zmq_socket.send_frame(None, None)
+            self.last_pub = now
 
     def close(self):
         """Closes the ZMQ socket and the ZMQ context.
         """
         self.logger.info('Shutting down broadcast')
+        self._stop_heartbeat = True
         self.zmq_socket.close()
         self.zmq_context.term()
 
     def __enter__(self):
-        """Enables use of ImageSender in with statement.
+        """
+        To use in a with statement.
 
         Returns:
           self.
         """
-
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Enables use of ImageSender in with statement.
         """
-
+        To use in a with statement.
+        """
         self.close()
 
 
@@ -95,20 +108,14 @@ class FrameSubscriber:
 
     Argument:
         address: the address of the publisher, of the form (ip, port)
-        frames: if True, receive numpy array. If false receive raw byte strings.
+        arrays: if True, receive numpy array. If false receive raw byte strings.
     """
 
-    def __init__(self, address=('localhost', 5555), frames=True):
-        """Initializes zmq socket to receive images and text.
-
-        Expects an appropriate ZMQ socket at the senders tcp:port address:
-        If REQ_REP is True (the default), then a REP socket is created. It
-        must connect to a matching REQ socket on the ImageSender().
-
-        If REQ_REP = False, then a SUB socket is created. It must connect to
-        a matching PUB socket on the ImageSender().
-
+    def __init__(self, address=('localhost', 5555), arrays=True):
         """
+        Initializes zmq socket to receive frames and metadata.
+        """
+
         self.logger = logging.getLogger(self.__class__.__name__)
         ip, port = address
         self.address = f'tcp://{ip}:{port}'
@@ -119,16 +126,12 @@ class FrameSubscriber:
         self.num_frames_dropped = 0
         self.num_frames_dropped_sequence = 0
 
-        socketType = zmq.SUB
         self.zmq_context = SerializingContext()
-        self.zmq_socket = self.zmq_context.socket(socketType)
+        self.zmq_socket = self.zmq_context.socket(zmq.SUB)
         self.zmq_socket.setsockopt(zmq.SUBSCRIBE, b'')
         self.zmq_socket.connect(self.address)
 
-        if frames:
-            self._recv = self._recv_array
-        else:
-            self._recv = self._recv_buffer
+        self.arrays = arrays
 
         # Threaded receive to drop frames and stay real-time
         self._stop = False
@@ -144,7 +147,7 @@ class FrameSubscriber:
         while not self._stop:
             if (self.zmq_socket.poll(500.) & zmq.POLLIN) == 0:
                 continue
-            self._data = self._recv()
+            self._data = self.zmq_socket.recv_frame()
             self.num_frames += 1
             if self._data_ready.is_set():
                 self.num_frames_dropped += 1
@@ -154,37 +157,6 @@ class FrameSubscriber:
                     self.logger.debug(f'{self.num_frames_dropped_sequence} frames dropped.')
                 self.num_frames_dropped_sequence = 0
             self._data_ready.set()
-
-    def _recv_array(self, copy=False):
-        """
-        Receive numpy array and metadata.
-
-        Arguments:
-          copy: (optional) zmq copy flag.
-
-        Returns:
-          frame: the numpy array
-          metadata: the metadata
-        """
-
-        frame, msg = self.zmq_socket.recv_array(copy=copy)
-        metadata = json.loads(msg)
-        return frame, metadata
-
-    def _recv_buffer(self, copy=False):
-        """
-        Receive byte buffer and metadata.
-
-        Arguments:
-          copy: (optional) zmq copy flag
-        Returns:
-          buffer: the byte string
-          metadata: the metadata
-        """
-
-        buffer, msg = self.zmq_socket.recv_buffer(copy=copy)
-        metadata = json.loads(msg)
-        return buffer, metadata
 
     def receive(self, timeout=15.):
         """
@@ -207,7 +179,8 @@ class FrameSubscriber:
         self.zmq_context.term()
 
     def __enter__(self):
-        """Enables use of ImageHub in with statement.
+        """
+        To use in a with statement.
 
         Returns:
           self.
@@ -216,67 +189,53 @@ class FrameSubscriber:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Enables use of ImageHub in with statement.
+        """
+        To use in a with statement.
         """
 
         self.close()
 
 
 class SerializingSocket(zmq.Socket):
-    """Numpy array serialization methods.
-
-    Modelled on PyZMQ serialization examples.
-
-    Used for sending / receiving OpenCV images, which are Numpy arrays.
-    Also used for sending / receiving jpg compressed OpenCV images.
+    """
+    Serialization of numpy arrays or raw buffers
     """
 
-    def send_array(self, A, msg='NoName', flags=0, copy=True, track=False):
+    def send_frame(self, A, meta=None, flags=0, copy=True, track=False):
         """
-        Send a numpy array a text message.
+        Send a buffer or numpy array along with metadata.
 
         Arguments:
-          A: numpy array
-          msg: text message.
+          A: numpy array or buffer
+          meta: the metadata
           flags: (optional) zmq flags.
           copy: (optional) zmq copy flag.
           track: (optional) zmq track flag.
         """
 
-        md = dict(
-            msg=msg,
-            dtype=str(A.dtype),
-            shape=A.shape,
-        )
-        self.send_json(md, flags | zmq.SNDMORE)
-        return self.send(A, flags, copy=copy, track=track)
+        md = {'meta': meta}
+        if A is None:
+            md['type'] = None
+        elif type(A) == np.ndarray:
+            md['type'] = 'ndarray'
+            md['dtype'] = str(A.dtype)
+            md['shape'] = A.shape
+        else:
+            md['type'] = 'bytes'
 
-    def send_buffer(self,
-                 buffer=b'00',
-                 msg='NoName',
-                 flags=0,
-                 copy=True,
-                 track=False):
-        """Send a buffer with a text message.
+        if A is not None:
+            self.send_json(md, flags | zmq.SNDMORE)
+            return self.send(A, flags, copy=copy, track=track)
+        else:
+            return self.send_json(md, flags)
 
-        Arguments:
-          msg: image name or text message.
-          jpg_buffer: jpg buffer of compressed image to be sent.
-          flags: (optional) zmq flags.
-          copy: (optional) zmq copy flag.
-          track: (optional) zmq track flag.
+
+    def recv_frame(self, flags=0, copy=True, track=False):
         """
+        Receive a buffer or numpy array with metadata.
 
-        md = dict(msg=msg, )
-        self.send_json(md, flags | zmq.SNDMORE)
-        return self.send(buffer, flags, copy=copy, track=track)
-
-    def recv_array(self, flags=0, copy=True, track=False):
-        """Receives a numpy array with metadata and text message.
-
-        Receives a numpy array with the metadata necessary
-        for reconstructing the array (dtype,shape).
-        Returns the array and a text msg, often the array or image name.
+        If the buffer is that of a numpy array, the metadata
+        necessary for reconstructing the array is also present.
 
         Arguments:
           flags: (optional) zmq flags.
@@ -284,32 +243,18 @@ class SerializingSocket(zmq.Socket):
           track: (optional) zmq track flag.
 
         Returns:
-          frame: numpy array
-          msg: text message
+          frame: numpy array or buffer or None
+          msg: metadata
         """
 
         md = self.recv_json(flags=flags)
-        msg = self.recv(flags=flags, copy=copy, track=track)
-        A = np.frombuffer(msg, dtype=md['dtype'])
-        return A.reshape(md['shape']), md['msg']
+        if md['type'] is None:
+            return None, md['meta']
 
-    def recv_buffer(self, flags=0, copy=True, track=False):
-        """
-        Receive buffer and a text msg.
-
-        Arguments:
-          flags: (optional) zmq flags.
-          copy: (optional) zmq copy flag.
-          track: (optional) zmq track flag.
-
-        Returns:
-          buffer: bytestring
-          msg: text message
-        """
-
-        md = self.recv_json(flags=flags)  # metadata text
-        buffer = self.recv(flags=flags, copy=copy, track=track)
-        return buffer, md['msg']
+        A = self.recv(flags=flags, copy=copy, track=track)
+        if md['type'] == 'ndarray':
+            A = np.frombuffer(A, dtype=md['dtype']).reshape(md['shape'])
+        return A, md['meta']
 
 
 class SerializingContext(zmq.Context):
