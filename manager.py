@@ -28,6 +28,7 @@ from . import workflow
 from . import smaract
 from . import excillum
 from . import varex
+from . import xps
 from . import xspectrum
 
 DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_CONF['mecademic']},
@@ -40,8 +41,8 @@ DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_
                'dummy': {'driver': dummy.Dummy, 'net_info': NETWORK_CONF['dummy']},
                'varex': {'driver': varex.Varex, 'net_info': NETWORK_CONF['varex']},
                'xspectrum': {'driver': xspectrum.XSpectrum, 'net_info': NETWORK_CONF['xspectrum']},
-               'experiment': {'driver': workflow.Experiment, 'net_info': NETWORK_CONF['experiment']}
-              # 'xps': {},
+               'experiment': {'driver': workflow.Experiment, 'net_info': NETWORK_CONF['experiment']},
+               'xps': {'driver': xps.XPS, 'net_info': NETWORK_CONF['xps']}
               # 'pco': {},
               #'xspectrum': {'driver': xspectrum.XSpectrum},
                }

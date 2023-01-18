@@ -14,7 +14,7 @@ NETWORK_CONF = {
     'excillum': {'control': (HOST_IPS['control'], 5000), 'device': ('10.19.48.3', 4944), 'logging': (HOST_IPS['control'], 7000)},
     'mecademic': {'control': (HOST_IPS['control'], 5010), 'device': ('172.19.248.34', 10000), 'logging': (HOST_IPS['control'], 7010)},
     'mecademic_monitor': {'control': (HOST_IPS['control'], 5015), 'device': ('172.19.248.34', 10001), 'logging': (HOST_IPS['control'], 7015)},
-    'xps': {'control': (HOST_IPS['control'], 5020), 'device': ('10.19.48.?', 5001), 'logging': (HOST_IPS['control'], 7020)},
+    'xps': {'control': (HOST_IPS['control'], 5020), 'device': ('172.19.248.37', 5001), 'logging': (HOST_IPS['control'], 7020)},  # change the IP to a private one later
     'smaract': {'control': (HOST_IPS['control'], 5030), 'device': ('10.19.48.?', 5000), 'logging': (HOST_IPS['control'], 7030)},
     'aerotech': {'control': (HOST_IPS['control'], 5040), 'device': ('10.19.48.?', 8000), 'logging': (HOST_IPS['control'], 7040)},
     'mclennan1': {'control': (HOST_IPS['control'], 5050), 'device': ('10.19.48.?', 7776),  'logging': (HOST_IPS['control'], 7050)},

@@ -24,11 +24,12 @@ class XPS(SocketDriverBase):
 
     def __init__(self, device_address=None):
         device_address = device_address or self.DEFAULT_DEVICE_ADDRESS
+
+        self.group = 'XYZ'
         super().__init__(device_address=device_address)
 
         # Default group
         # TODO: understand what is the 'S' group
-        self.group = 'XYZ'
 
         # TODO
         self.metacalls.update({})
@@ -37,7 +38,7 @@ class XPS(SocketDriverBase):
         """
         Device initialization.
         """
-        pos = self.get_pos()
+        pos = self.get_pos(0)
         self.logger.info(f'Motor at position {pos}')
         self.initialized = True
         return
@@ -120,7 +121,9 @@ class XPS(SocketDriverBase):
         Get current position along given axis ['X', 'Y' or 'Z], or [0, 1, 2]
         TODO: understand when "Nelem" would not be 1.
         """
-        data = self.send_cmd(f'GroupPositionCurrentGet({group}{", double *"*Nelem})')
+        command = f'GroupPositionCurrentGet({group}{", double *"*Nelem})'
+        print('command:', command) # debug
+        data = self.send_cmd(command)
         return (float(x) for x in data.split(','))
 
     @proxycall(admin=True)
