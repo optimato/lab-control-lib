@@ -120,7 +120,7 @@ class DriverBase:
         if self.logger is None:
             self.logger = rootlogger.getChild(self.__class__.__name__)
 
-        # Set default name here. Can be overriden by subclass, for instance to allow multiple instances to run
+        # Set default name here. Can be overridden by subclass, for instance to allow multiple instances to run
         # concurrently
         if not hasattr(self, 'name'):
             self.name = self.__class__.__name__
@@ -220,6 +220,7 @@ class SocketDriverBase(DriverBase):
     DEFAULT_DEVICE_ADDRESS = None       # The default address of the device socket.
     DEVICE_TIMEOUT = None               # Device socket timeout
     NUM_CONNECTION_RETRY = 2            # Number of times to try to connect
+                                        # fdm: it's "tries", not "retries", so it mustn't be set to 0!
     KEEPALIVE_INTERVAL = 10.            # Default Polling (keep-alive) interval
     logger = None
     REPLY_WAIT_TIME = 0.
