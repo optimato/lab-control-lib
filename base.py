@@ -42,7 +42,13 @@ def _recv_all(sock, EOL=b'\n'):
         # This happens if the connection was closed at the other end
         return ret
     while not ret.endswith(EOL):
-        ret += sock.recv(1024)
+        try:
+            ret += sock.recv(1024)
+        except TimeoutError:
+            rootlogger.exception(f'EOL not reached after {ret}')
+            raise
+        except:
+            raise
     return ret
 
 

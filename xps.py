@@ -2,11 +2,11 @@
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .network_conf import XPS as NET_INFO
 from .util.proxydevice import proxydevice, proxycall
-
+from .util.logs import logger as rootlogger
 
 __all__ = ['XPS', 'Motor']
 
-EOL = b',EndOfApi'
+EOL = b',EndOfAPI'
 
 
 @proxydevice(address=NET_INFO['control'])
@@ -18,15 +18,14 @@ class XPS(SocketDriverBase):
     DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     EOL = EOL
-    AXIS_LABELS = {'X': 'X', 'Y': 'Y', 'Z': 'Z',
-                   'x': 'X', 'y': 'Y', 'z': 'Z',
-                   0: 'X', 1: 'Y', 2: 'Z'}
+    DEVICE_TIMEOUT = 1
 
     def __init__(self, device_address=None):
         device_address = device_address or self.DEFAULT_DEVICE_ADDRESS
 
-        self.group = 'XYZ'
         super().__init__(device_address=device_address)
+
+        self.monitor = XPSMonitor()
 
         # Default group
         # TODO: understand what is the 'S' group
@@ -38,8 +37,8 @@ class XPS(SocketDriverBase):
         """
         Device initialization.
         """
-        pos = self.get_pos(0)
-        self.logger.info(f'Motor at position {pos}')
+        # pos = self.get_pos(0)
+        # self.logger.info(f'Motor at position {pos}')
         self.initialized = True
         return
 
@@ -51,12 +50,12 @@ class XPS(SocketDriverBase):
 
     def send_cmd(self, cmd, parse_error=True):
         """
-        Send command an parse reply
+        Send command and parse reply
         """
         # Convert to bytes
         if isinstance(cmd, str):
             cmd = cmd.encode()
-        cmd += self.EOL
+        cmd += self.EOL + b'\n'
 
         s = self.device_cmd(cmd)
 
@@ -78,6 +77,17 @@ class XPS(SocketDriverBase):
         else:
             error_string = self.get_error_string(code)
             raise RuntimeError(error_string)
+
+    @property
+    def groups(self):
+        """
+        Return list of group names
+        """
+        return self.config['groups']
+
+    @groups.setter
+    def groups(self, gr):
+        self.config['groups'] = gr
 
     def get_error_string(self, error_code):
         """
@@ -122,9 +132,9 @@ class XPS(SocketDriverBase):
         TODO: understand when "Nelem" would not be 1.
         """
         command = f'GroupPositionCurrentGet({group}{", double *"*Nelem})'
-        print('command:', command) # debug
-        data = self.send_cmd(command)
-        return (float(x) for x in data.split(','))
+        self.logger.debug(f'Sending command: {command}')
+        reply = self.send_cmd(command)
+        return tuple(float(x) for x in reply.split(','))
 
     @proxycall(admin=True)
     def home(self, group, pos=None):
@@ -176,6 +186,43 @@ class XPS(SocketDriverBase):
         group = self.group + self.AXIS_LABELS[axis]
         return self.group_move_rel(disp, group)
 
+class XPSMonitor(SocketDriverBase):
+    """
+    A second pseudo-driver that connects only to probe real-time status.
+    """
+
+    DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
+    DEFAULT_LOGGING_ADDRESS = None
+    EOL = EOL
+
+    def __init__(self, device_address=None):
+
+        device_address = device_address or self.DEFAULT_DEVICE_ADDRESS
+
+        super().__init__(device_address=device_address)
+
+        # Make logger child of main driver
+        self.logger = rootlogger.getChild('XPS.' + self.__class__.__name__)
+
+    # Borrow methods defined above...
+    send_cmd = XPS.send_cmd
+    get_error_string = XPS.get_error_string
+
+    def init_device(self):
+        """
+        Nothing to do here. It is assumed that the main class XPS has done all the
+        initialization.
+        """
+        self.initialized = True
+
+    def group_get_pos(self, group, Nelem):
+        """
+        Get position of all `Nelem` elements of the group `group`.
+        """
+        command = f'GroupPositionCurrentGet({group}{", double *"*Nelem})'
+        self.logger.debug(f'Sending command: {command}')
+        reply = self.send_cmd(command)
+        return tuple(float(x) for x in reply.split(','))
 
 class Motor(MotorBase):
 
