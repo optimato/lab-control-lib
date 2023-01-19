@@ -42,8 +42,10 @@ DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_
                'varex': {'driver': varex.Varex, 'net_info': NETWORK_CONF['varex']},
                'xspectrum': {'driver': xspectrum.XSpectrum, 'net_info': NETWORK_CONF['xspectrum']},
                'experiment': {'driver': workflow.Experiment, 'net_info': NETWORK_CONF['experiment']},
-               'xps': {'driver': xps.XPS, 'net_info': NETWORK_CONF['xps']}
-              # 'pco': {},
+               'xps1': {'driver': xps.XPS1, 'net_info': NETWORK_CONF['xps1']},
+               'xps2': {'driver': xps.XPS2, 'net_info': NETWORK_CONF['xps2']},
+               'xps3': {'driver': xps.XPS3, 'net_info': NETWORK_CONF['xps3']},
+               # 'pco': {},
               #'xspectrum': {'driver': xspectrum.XSpectrum},
                }
 

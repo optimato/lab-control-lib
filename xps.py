@@ -1,34 +1,30 @@
 
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
-from .network_conf import XPS as NET_INFO
+from .network_conf import NETWORK_CONF
 from .util.proxydevice import proxydevice, proxycall
 from .util.logs import logger as rootlogger
 
-__all__ = ['XPS', 'Motor']
+__all__ = ['XPS1', 'XPS2', 'XPS3', 'Motor']
 
 EOL = b',EndOfAPI'
 
 
-@proxydevice(address=NET_INFO['control'])
+@proxydevice()
 class XPS(SocketDriverBase):
     """
-    XPS Driver
+    XPS Driver. Name and axis are defined in the subclasses below.
     """
-
-    DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
-    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     EOL = EOL
-    DEVICE_TIMEOUT = 1
 
-    def __init__(self, device_address=None):
+    def __init__(self, name, axis, device_address=None):
+        self.axis = axis
+        self.group = axis.split('.')[0]
+        self.name = name
         device_address = device_address or self.DEFAULT_DEVICE_ADDRESS
 
+        self.monitor = XPSMonitor(device_address=device_address, axis=self.axis)
+
         super().__init__(device_address=device_address)
-
-        self.monitor = XPSMonitor()
-
-        # Default group
-        # TODO: understand what is the 'S' group
 
         # TODO
         self.metacalls.update({})
@@ -37,8 +33,8 @@ class XPS(SocketDriverBase):
         """
         Device initialization.
         """
-        # pos = self.get_pos(0)
-        # self.logger.info(f'Motor at position {pos}')
+        pos = self.get_pos()
+        self.logger.info(f'Motor at position {pos}')
         self.initialized = True
         return
 
@@ -55,6 +51,9 @@ class XPS(SocketDriverBase):
         # Convert to bytes
         if isinstance(cmd, str):
             cmd = cmd.encode()
+
+        self.logger.debug(f'Sending command: {cmd}')
+
         cmd += self.EOL + b'\n'
 
         s = self.device_cmd(cmd)
@@ -78,17 +77,6 @@ class XPS(SocketDriverBase):
             error_string = self.get_error_string(code)
             raise RuntimeError(error_string)
 
-    @property
-    def groups(self):
-        """
-        Return list of group names
-        """
-        return self.config['groups']
-
-    @groups.setter
-    def groups(self, gr):
-        self.config['groups'] = gr
-
     def get_error_string(self, error_code):
         """
         Get string explaining error code.
@@ -104,105 +92,99 @@ class XPS(SocketDriverBase):
     def recalibrate(self):
         """
         Kill group, reinitialize, and home.
-
-        TODO: why 'S'?
         """
-        self.group_kill(group='S')
-        self.group_initialize(group='S')
-        self.home(group='S')
+        self.group_kill()
+        self.group_initialize()
+        self.home()
 
     @proxycall(admin=True)
-    def group_kill(self, group):
+    def group_kill(self):
         """
         Kill group
         """
-        return self.send_cmd(f'GroupKill({group})')
+        return self.send_cmd(f'GroupKill({self.group})')
 
     @proxycall(admin=True)
-    def group_initialize(self, group):
+    def group_initialize(self):
         """
         Initialize group (no encoder reset)
         """
-        return self.send_cmd(f'GroupInitializeNoEncoderReset({group})')
+        return self.send_cmd(f'GroupInitializeNoEncoderReset({self.group})')
 
     @proxycall()
-    def group_get_pos(self, group, Nelem=1):
+    def get_pos(self):
         """
-        Get current position along given axis ['X', 'Y' or 'Z], or [0, 1, 2]
-        TODO: understand when "Nelem" would not be 1.
+        Call the monitor method in case the socket is blocked by a motion command
         """
-        command = f'GroupPositionCurrentGet({group}{", double *"*Nelem})'
-        self.logger.debug(f'Sending command: {command}')
-        reply = self.send_cmd(command)
-        return tuple(float(x) for x in reply.split(','))
+        return self.monitor.get_pos()
 
     @proxycall(admin=True)
-    def home(self, group, pos=None):
+    def home(self, pos=None):
         """
-        Home the motors: move to (0,0,0), then back to the target position pos.
+        Home the motors: move to 0, then back to the target position pos.
         If pos is None, return to current positions.
         """
-        pos = pos or self.group_get_pos(group)
-        pos_str = ', '.join([str(p) for p in pos])
-        return self.send_cmd(f'GroupHomeSearchAndRelativeMove({group}, {pos_str})')
+        pos = pos or self.get_pos()
+        return self.send_cmd(f'GroupHomeSearchAndRelativeMove({self.group}, {pos})')
 
     @proxycall(admin=True)
-    def group_move_abs(self, pos, group):
+    def move_abs(self, pos):
         """
-        Move to requested position.
+        Move to requested position (mm)
         """
-        pos_str = ', '.join([str(p) for p in pos])
-        return self.send_cmd(f'GroupMoveAbsolute({group}, {pos_str})')
+        return self.send_cmd(f'GroupMoveAbsolute({self.axis}, {pos})')
 
     @proxycall(admin=True)
-    def group_move_rel(self, displacement, group):
+    def move_rel(self, disp):
         """
-        Move by requested displacement
+        Move by requested displacement disp (mm)
         """
-        disp_str = ', '.join([str(d) for d in displacement])
-        return self.send_cmd(f'GroupMoveRelative({group}, {disp_str})')
+        return self.send_cmd(f'GroupMoveRelative({self.axis}, {disp})')
 
-    @proxycall()
-    def get_pos(self, axis):
-        """
-        Get position of given axis.
-        """
-        group = self.group + self.AXIS_LABELS[axis]
-        return self.group_get_pos(group)
+@proxydevice(address=NETWORK_CONF['xps1']['control'])
+class XPS1(XPS):
+    """
+    Driver for motor 1
+    """
+    DEFAULT_DEVICE_ADDRESS = NETWORK_CONF['xps1']['device']
+    DEFAULT_LOGGING_ADDRESS = NETWORK_CONF['xps1']['logging']
+    def __init__(self, device_address=None):
+        super().__init__(name='xps1', axis='Group1.Pos')
 
-    @proxycall(admin=True)
-    def move_abs(self, pos, axis):
-        """
-        Move one specific axis to given position.
-        """
-        group = self.group + self.AXIS_LABELS[axis]
-        return self.group_move_abs(pos, group)
+@proxydevice(address=NETWORK_CONF['xps2']['control'])
+class XPS2(XPS):
+    """
+    Driver for motor 2
+    """
+    DEFAULT_DEVICE_ADDRESS = NETWORK_CONF['xps2']['device']
+    DEFAULT_LOGGING_ADDRESS = NETWORK_CONF['xps2']['logging']
+    def __init__(self, device_address=None):
+        super().__init__(name='xps2', axis='Group2.Pos')
 
-    @proxycall(admin=True)
-    def move_rel(self, disp, axis):
-        """
-        Move one specific axis by given displacement.
-        """
-        group = self.group + self.AXIS_LABELS[axis]
-        return self.group_move_rel(disp, group)
+@proxydevice(address=NETWORK_CONF['xps3']['control'])
+class XPS3(XPS):
+    """
+    Driver for motor 3
+    """
+    DEFAULT_DEVICE_ADDRESS = NETWORK_CONF['xps3']['device']
+    DEFAULT_LOGGING_ADDRESS = NETWORK_CONF['xps3']['logging']
+    def __init__(self, device_address=None):
+        super().__init__(name='xps3', axis='Group3.Pos')
 
 class XPSMonitor(SocketDriverBase):
     """
     A second pseudo-driver that connects only to probe real-time status.
     """
 
-    DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
     DEFAULT_LOGGING_ADDRESS = None
     EOL = EOL
 
-    def __init__(self, device_address=None):
+    def __init__(self, device_address, axis):
+        self.axis = axis
 
         device_address = device_address or self.DEFAULT_DEVICE_ADDRESS
 
         super().__init__(device_address=device_address)
-
-        # Make logger child of main driver
-        self.logger = rootlogger.getChild('XPS.' + self.__class__.__name__)
 
     # Borrow methods defined above...
     send_cmd = XPS.send_cmd
@@ -215,14 +197,14 @@ class XPSMonitor(SocketDriverBase):
         """
         self.initialized = True
 
-    def group_get_pos(self, group, Nelem):
+    def get_pos(self):
         """
-        Get position of all `Nelem` elements of the group `group`.
+        Get position of the group.
         """
-        command = f'GroupPositionCurrentGet({group}{", double *"*Nelem})'
+        command = f'GroupPositionCurrentGet({self.axis}, double *)'
         self.logger.debug(f'Sending command: {command}')
         reply = self.send_cmd(command)
-        return tuple(float(x) for x in reply.split(','))
+        return float(reply)
 
 class Motor(MotorBase):
 
