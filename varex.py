@@ -6,6 +6,7 @@ import time
 import importlib.util
 import logging
 import numpy as np
+from threading import Event
 
 from .camera import CameraBase
 from .network_conf import VAREX as NET_INFO
@@ -55,6 +56,8 @@ class Varex(CameraBase):
         self.cont_acq_future = None      # Will be set with future created by init_rolling
         self._stop_continuous_acquisition = False
         self.cont_buffer = []
+        self.cont_flag = Event()
+        self.cont_flag.clear()
         self.init_device()
 
     def init_device(self):
@@ -76,6 +79,62 @@ class Varex(CameraBase):
         self.initialized = True
 
     def grab_frame(self):
+        """
+        Grab and return frame(s)
+
+        Independent of the number of exposures, the returned array
+        "frame" is a 3D array, with the frame index as the first dimension
+        """
+        self.logger.debug('Starting frame grab.')
+
+        det = self.detector
+        n_exp = self.exposure_number
+
+        self.logger.debug('Detector going live.')
+
+        det.go_live()
+
+        count_start = det.get_field_count()
+        count = count_start + 0
+
+        self.logger.debug(f'Start field count: {count_start}')
+
+        frames = []
+        meta = {}
+
+        self.logger.debug('Triggering detector.')
+        det.software_trigger()
+
+        self.logger.debug('Starting acquisition loop.')
+
+        while True:
+            det.wait_image(10000.)
+            count = det.get_field_count()
+            i = det.get_captured_buffer()
+            self.logger.debug(f'Acquiring frame {count} from buffer {i}...')
+            f, m = det.read_buffer(i)
+            frames.append(f)
+            meta = m
+            det.check_for_live_error()
+
+            if len(frames) == n_exp:
+                break
+
+            if (count - count_start - 1) % n_exp == 0:
+                if det.is_live():
+                    det.go_unlive()
+                det.go_live()
+                det.software_trigger()
+                count_start = count
+
+        if det.is_live():
+            det.go_unlive()
+
+        self.logger.debug('Detector "unlive". Grab completed.')
+
+        return np.array(frames), meta
+
+    def grab_frame_legacy(self):
         """
         Grab and return frame(s)
 
@@ -165,6 +224,7 @@ class Varex(CameraBase):
                 count = det.get_field_count()
                 i = det.get_captured_buffer()
                 self.cont_buffer.append(det.read_buffer(i))
+                self.cont_flag.set()
                 det.check_for_live_error()
 
                 if (count - count_start - 1) % Nexp == 0:
@@ -193,9 +253,9 @@ class Varex(CameraBase):
         TODO: implement timeout.
         """
         while True:
-            if self.cont_buffer:
-                return self.cont_buffer.pop()
-            time.sleep(.05)
+            self.cont_flag.wait()
+            self.cont_flag.clear()
+            return self.cont_buffer.pop()
 
     def _get_exposure_time(self):
         # Convert from milliseconds to seconds

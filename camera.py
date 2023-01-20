@@ -137,9 +137,6 @@ class CameraBase(DriverBase):
         kwargs are most likely to remain empty, but can be used to
         pass additional parameters to self.grab_frame
 
-        WHY DID I DO THAT??? NOT TRUE ANYMORE: BLOCKING CALL!
-        NOTE: This is always non-blocking!
-
         Note: metadata collection is initiated *just before* acquisition.
         """
         if self.acquiring:
