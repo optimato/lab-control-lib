@@ -449,7 +449,7 @@ class ServerBase:
         #
         # LOGLEVEL
         #
-        if cmd.lover() =='loglevel':
+        if cmd.lower() =='loglevel':
             try:
                 self.logger.setLevel(kwargs['level'])
             except BaseException as error:

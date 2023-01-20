@@ -17,7 +17,6 @@ from .util.logs import logging_muted
 from .util.uitools import ask_yes_no
 from .util.proxydevice import ProxyClientError
 from .util.logs import DisplayLogger
-from .util import viewers
 from . import drivers, motors
 from . import aerotech
 from . import mclennan
@@ -192,6 +191,7 @@ def logall():
 @click.option('--type', '-t', 'vtype', default='napari', show_default=True, help='Viewer type: "napari" or "cv".')
 @click.option('--maxfps', '-m', default=10, show_default=True, help='Maximum refresh rate (FPS).')
 def viewer(name, vtype, maxfps):
+    from .util import viewers
     viewer_addr = {'varex': (DRIVER_DATA['varex']['net_info']['control'][0],
                              DRIVER_DATA['varex']['net_info']['broadcast_port']),
                    'xspectrum': (DRIVER_DATA['xspectrum']['net_info']['control'][0],
