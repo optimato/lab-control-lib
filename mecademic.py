@@ -595,11 +595,11 @@ class Mecademic(SocketDriverBase):
         """
         code, reply = self.send_cmd('GetRtJointPos')
         joints = [float(x) for x in reply.split(',')]
-        if joints[0] < 1600000000:
-            # That's not right. Try again.
-            return self.get_joints()
+        #if joints[0] < 1600000000:
+        #    # That's not right. Try again.
+        #    return self.get_joints()
         # Drop the first element (timestamp)
-        self.log_joints(joints[:1])
+        self.log_joints(joints[1:])
         return joints[1:]
 
     @datalogger.meta(field_name='joints', tags=logtags)
