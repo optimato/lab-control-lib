@@ -469,8 +469,7 @@ class MotorBase:
         Returns final USER position if block=True (default). If block=False, returns
         the thread that will terminate when motion is complete.
         """
-        if not self._within_limits(x):
-            raise MotorLimitsException()
+        self._within_limits(x, raise_error=True)
         if not block:
             t = threading.Thread(target=self._set_abs_pos, args=[self._user_to_dial(x)])
             t.start()
@@ -485,8 +484,7 @@ class MotorBase:
         Returns final USER position if block=True (default). If block=False, returns
         the thread that will terminate when motion is complete.
         """
-        if not self._within_limits(self.pos + x):
-            raise MotorLimitsException()
+        self._within_limits(self.pos + x, raise_error=True)
         if not block:
             t = threading.Thread(target=self._set_rel_pos, args=[self.scalar * x])
             t.start()
@@ -509,10 +507,9 @@ class MotorBase:
         Set *user* soft limits
         """
         if low >= high:
-            raise RuntimeError("Low limit (%f) should be lower than high limit (%f)" % (low, high))
+            raise RuntimeError(f'Low limit ({low}) should be lower than high limit ({high})')
         # Limits are stored in dial values
-        vals = [self._user_to_dial(low), self._user_to_dial(high)]  # to allow for scalar to be negative (flips limits)
-        self.limits = (min(vals), max(vals))
+        self.limits = sorted([self._user_to_dial(low), self._user_to_dial(high)])
         self._save_config()
 
     @property
@@ -568,11 +565,14 @@ class MotorBase:
 
         return
 
-    def _within_limits(self, x):
+    def _within_limits(self, x, raise_error=False):
         """
         Check if *user* position x is within soft limits.
         """
-        return self.limits[0] < self._user_to_dial(x) < self.limits[1]
+        valid = self.limits[0] < self._user_to_dial(x) < self.limits[1]
+        if raise_error and not valid:
+            raise MotorLimitsException(f'{self.limits[0]} < {self._user_to_dial(x)} < {self.limits[1]}')
+        return valid
 
     def _save_config(self):
         """

@@ -222,6 +222,8 @@ class Mecademic(SocketDriverBase):
                                'joints': self.get_joints,
                                'status': self.get_status})
 
+        self.periodic_calls.update({'status': (self.get_status, 10)})
+        
         self.last_error = None
         self.motion_paused = False
 
@@ -286,6 +288,10 @@ class Mecademic(SocketDriverBase):
             else:
                 self.logger.warning('Robot not homed after driver initialization.')
                 return
+
+        # Set joint velocity
+        jv = self.config.get('joint_velocity') or DEFAULT_VELOCITY
+        self.set_joint_velocity(jv)
 
         self.logger.info("Initialization complete.")
 
@@ -505,7 +511,9 @@ class Mecademic(SocketDriverBase):
         The last is especially important for continuous tomographic scans.
         """
         code, reply = self.send_cmd('SetJointVel', p)
+        self.config['joint_velocity'] = p
 
+    @proxycall()
     def get_joint_velocity(self):
         """
         Get joint velocity as a percentage of the maximum speed.

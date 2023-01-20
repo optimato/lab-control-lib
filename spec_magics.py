@@ -221,7 +221,7 @@ def set_lm(line):
 
     # Set limits
     for motor, lowerlim, upperlim in tripletlist:
-        motors[motor].limits = (lowerlim-motors[motor].offset, upperlim-motors[motor].offset)
+        motors[motor].set_lm(lowerlim, upperlim)
 
 
 @register_line_magic
