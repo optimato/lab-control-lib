@@ -66,6 +66,8 @@ File naming uses the following recipe:
 """
 import os
 import json
+import threading
+from queue import SimpleQueue, Empty
 
 from optimatools.io.h5rw import h5write
 
@@ -74,6 +76,7 @@ from .base import DriverBase
 from .util import now, FramePublisher
 from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
+from .util import filewriter
 
 DEFAULT_FILE_FORMAT = 'hdf5'
 DEFAULT_BROADCAST_PORT = 5555
@@ -90,6 +93,8 @@ class CameraBase(DriverBase):
     PIXEL_SIZE = (0, 0)            # Pixel size in um
     SHAPE = (0, 0)            # Native array dimensions (before binning)
     DATATYPE = 'uint16'            # Expected datatype
+    DEFAULT_FPS = 5.
+    MAX_FPS = 5.
 
     def __init__(self, broadcast_port=None):
         super().__init__()
@@ -115,37 +120,191 @@ class CameraBase(DriverBase):
         self.roll_future = None       # Will be replaced with a future when starting rolling acquisition
         self._stop_roll = False       # To interrupt rolling
 
-        # Used for file naming when acquiring sequences
+        # File writing process
+        self.file_writer = filewriter.H5FileWriter.start_process()
 
         # Prepare metadata collection
         aggregate.connect()
+        self.metadata = None
+        self.grab_metadata = threading.Event()
+
+        self.do_acquire = threading.Event()
+        self.acquire_done = threading.Event()
+        self.end_acquisition = False
 
         # Broadcasting
         self.broadcaster = None
         if self.config['do_broadcast']:
             self.live_on()
 
+        # Scan managemnt
+        self._experiment = workflow.getExperiment()
+        self._scan_path = None
+        self.in_scan = False
+
+        self.filename = None
+
+        # Other flags
+        self.loop_future = None
+        self.armed = False
+
+        self.closing = False
+
+        self.auto_armed = False
+
+        self.rolling = False
+
+    def _trigger(self, *args, **kwargs):
+        """
+        The device-specific triggering and acquisition procedure.
+
+        * Blocks until acquisition is done.
+        * Does not return anything.
+        """
+        raise NotImplementedError
+
+    def _readout(self, *args, **kwargs):
+        """
+        The device-specific readout (and possible reset) procedure.
+
+        * Executed after self.trigger returns
+        * returns frame, meta
+        """
+        raise NotImplementedError
+
+    def _arm(self):
+        """
+        The device-specific arming procedure. Sets up everything so that self._trigger()
+        starts an acquisition without delay.
+        """
+        pass
+
+    def _disarm(self):
+        """
+        The device-specific disarming procedure.
+        """
+        pass
+
+    def _rearm(self):
+        """
+        The device-specific rearming procedure (optional)
+        """
+        pass
+
     #
     # INTERNAL METHODS
     #
 
-    def acquire(self, **kwargs):
+    @proxycall(admin=True, block=False)
+    def snap(self, exp_time=None, exp_num=None):
         """
-        Acquisition wrapper, taking care of metadata collection and
-        of frame broadcasting.
+        Capture one or multiple images
 
-        kwargs are most likely to remain empty, but can be used to
-        pass additional parameters to self.grab_frame
-
-        Note: metadata collection is initiated *just before* acquisition.
+        exp_time and exp_num are optional values
+        that change self.exposure_time and self.exposure_number
+        before proceeding with the acquisition. NOTE: the previous
+        values of these parameters are not reset aftwerwards.
         """
-        if self.acquiring:
-            raise RuntimeError('Currently acquiring')
-        self.acq_future = Future(self._acquire_task, kwargs=kwargs)
-        self.logger.debug('Acquisition started')
+        # If the camera is not armed, we arm it and remember that it was done automatically in snap
+        if not self.armed:
+            self.auto_armed = True
+            self.arm(exp_time=exp_time, exp_num=exp_num)
 
-        # BLOCK UNTIL DONE. WHY WAS IT NON-BLOCKING???
-        self.acq_future.join()
+        # Camera is armed
+        # Build filename
+        if self.in_scan:
+            self.filename = self._build_filename(prefix=self._experiment.next_prefix(), path=self._scan_path)
+        else:
+            self.counter += 1
+            self.filename = self._build_filename(prefix=self.file_prefix, path=self.save_path)
+
+        self.logger.info(f'Save path: {self.filename}')
+
+        # Trigger next acquisition now
+        self.do_acquire.set()
+
+        # Wipe previous metadata and start collecting new one immediately
+        self.metadata = None
+        self.grab_metadata.set()
+
+        # Wait for the end of the acquisition
+        self.acquire_done.wait()
+
+        return
+
+        # We are here so the camera was not armed
+
+    def acquisition_loop(self):
+        """
+        Main acquisition loop. Started at the end of the arming procedure
+        and running on a thread.
+        """
+        while True:
+
+            # Wait for the next trigger
+            if not self.do_acquire.wait(1):
+                if self.end_acquisition:
+                    break
+                continue
+            self.do_acquire.clear()
+
+            # trigger acquisition with subclassed method and wait until it is done
+            self._trigger()
+
+            # Flip flag immediately to allow snap to return.
+            self.acquire_done.set()
+
+            # Read out data
+            frame, meta = self._readout()
+
+            # Combine metadata
+            self.localmeta['acquisition_end'] = now()
+            self.localmeta.update(meta)
+            self.metadata[self.name] = self.localmeta
+
+            # Broadcast and store
+            if self.broadcaster:
+                self.logger.debug('Threaded frame acquisition: broadcasting frame')
+                self.broadcaster.pub(frame, self.metadata)
+                self.logger.debug('Threaded frame acquisition: frame broadcast returned')
+
+            if self.rolling:
+                # Ask immediately for another frame
+                self.do_acquire.set()
+                continue
+
+            # Not rolling, so saving
+            self.file_writer.store(filename=self.filename, data=frame, meta=self.metadata)
+
+            # Automatically armed - this is a single shot
+            if self.auto_armed:
+                self.auto_armed = False
+                break
+
+            # Get ready for next acquisition
+            self._rearm()
+
+        # The loop is closed, so we disarm
+        self.disarm()
+
+    def metadata_loop(self):
+        """
+        Running on a thread. Waiting for the "grab_metadata flag to be flipped, then
+        attach most recent metadata to self.metadata
+        """
+        while True:
+            if not self.grab_metadata.wait(1):
+                if self.closing:
+                    return
+                continue
+            self.grab_metadata.clear()
+
+            # Global metadata
+            self.metadata = aggregate.get_all_meta()
+
+            # Local metadata
+            self.localmeta = self.get_local_meta()
+            self.localmeta['acquisition_start'] = now()
 
     def get_local_meta(self):
         """
@@ -158,65 +317,6 @@ class CameraBase(DriverBase):
                 'exposure_time': self.exposure_time,
                 'operation_mode': self.operation_mode}
         return meta
-
-    def _acquire_task(self, **kwargs):
-        """
-        Threaded acquisition task.
-        """
-        self.logger.debug('Threaded frame acquisition: start')
-
-        # Start collecting metadata *before* acquisition
-        metadata = aggregate.get_all_meta()
-
-        # Extract filename if present
-        filename = kwargs.pop('filename', None)
-
-        # Collect local metadata
-        localmeta = self.get_local_meta()
-        localmeta['acquisition_start'] = now()
-
-        self.logger.debug('Threaded frame acquisition: calling grab_frame')
-
-        # Grab frame
-        frame, meta = self.grab_frame(**kwargs)
-
-        self.logger.debug('Threaded frame acquisition: grab_frame returned')
-
-        localmeta['acquisition_end'] = now()
-        localmeta.update(meta)
-
-        # Update metadata with detector metadata
-        metadata[self.name] = localmeta
-
-
-        # Broadcast and store
-        if self.broadcaster:
-            self.logger.debug('Threaded frame acquisition: broadcasting frame')
-            self.broadcaster.pub(frame, metadata)
-            self.logger.debug('Threaded frame acquisition: frame broadcast returned')
-
-        self.logger.debug('Threaded frame acquisition: calling _store')
-        self._store(frame, metadata, filename=filename)
-        self.logger.debug('Threaded frame acquisition: _store returned')
-        self.logger.debug('Threaded frame acquisition: completed, shutting down')
-
-    def _store(self, frame, metadata, filename=None):
-        """
-        Store (if requested) frame and metadata
-        """
-        if not self.config['do_save']:
-            # Nothing to do. At this point the data is discarded!
-            self.logger.debug('Discarding frame because do_save=False')
-            return
-
-        # Build file name and call corresponding saving function
-        filename = filename or self._build_filename(prefix=self.file_prefix, path=self.save_path)
-
-        if filename.endswith('h5'):
-            self._save_h5(filename, frame, metadata)
-        elif filename.endswith('tif'):
-            self._save_tif(filename, frame, metadata)
-        self.logger.info(f'Saved {filename}')
 
     def _build_filename(self, prefix, path) -> str:
         """
@@ -240,43 +340,9 @@ class CameraBase(DriverBase):
             raise RuntimeError(f'Unknown file format: {self.file_format}.')
         return filename
 
-    def _save_h5(self, filename, frame, metadata):
+    def arm(self, exp_time=None, exp_num=None):
         """
-        Save given frame and metadata to filename in h5 format.
-        """
-        self.store_future = Future(self._save_h5_task, (filename, frame, metadata))
-
-    @staticmethod
-    def _save_h5_task(filename, frame, metadata):
-        """
-        Threaded call
-        """
-        metadata['save_time'] = now()
-        # At this point we store metadata, which might not have been completely populated
-        # by the threads running concurrently. This will be visible as empty entries for the
-        # corresponding drivers.
-        h5write(filename, data=frame, meta=metadata)
-        return
-
-    def _save_tif(self, filename, frame, metadata):
-        """
-        Save given frame and metadata to filename in tiff format.
-        """
-        raise RuntimeError('Not implemented')
-
-    #
-    # ACQUISITION
-    #
-
-    @proxycall(admin=True, block=False)
-    def snap(self, exp_time=None, exp_num=None):
-        """
-        Capture one or multiple images
-
-        exp_time and exp_num are optional values
-        that change self.exposure_time and self.exposure_number
-        before proceeding with the acquisition. NOTE: the previous
-        values of these parameters are not reset aftwerwards.
+        Prepare the camera for acquisition.
         """
         if exp_time is not None:
             if exp_time != self.exposure_time:
@@ -288,97 +354,71 @@ class CameraBase(DriverBase):
                 self.exposure_number = exp_num
 
         # Check if this is part of a scan
-        experiment = workflow.getExperiment()
-        scan_path = experiment.scan_path
-        if scan_path:
-            filename = self._build_filename(prefix=experiment.next_prefix(), path=scan_path)
-            self.logger.info(f'Save path: {filename}')
-            self.acquire(filename=filename)
-        else:
-            self.acquire()
-            self.counter += 1
+        if not self._experiment:
+            self._experiment = workflow.getExperiment()
+        scan_path = self._experiment.scan_path
+        self.in_scan = scan_path is not None
+        self._scan_path = scan_path
 
+        # Finish arming with subclassed method
+        self._arm()
+
+        # Start the main acquisition loop
+        self.loop_future = Future(self.acquisition_loop)
+        self.armed = True
+
+    def disarm(self):
+        """
+        Terminate acquisition.
+        """
+        # Terminate acquisition loop
+        self.end_acquisition = True
+
+        # Disarm with subclassed method
+        self._disarm()
+
+        # Reset flags
+        self.in_scan = False
+        self.armed = False
 
     @proxycall(admin=True, block=False)
-    def roll(self, switch=None):
+    def roll(self, fps=None, switch=None):
         """
         Start endless sequence acquisition for live mode.
 
         If switch is None: toggle rolling state, otherwise turn on (True) or off (False)
         """
         # If currently rolling
-        if self.is_rolling:
+        if self.rolling:
             if switch:
                 return
-            self._stop_roll = True
-            self.roll_future.join()
-            self.roll_future = None
+            # Stop rolling and disarm the camera
+            self.rolling = False
+            self.disarm()
             return
 
-        if switch == False:
+        if switch is False:
             return
 
         # Start rolling
         if not self.is_live:
             self.live_on()
-        self._stop_roll = False
-        self.roll_future = Future(self._roll_task)
 
-    @proxycall()
-    @property
-    def is_rolling(self):
-        """
-        Return True if the camera is currently in rolling mode.
-        """
-        return self.roll_future and not self.roll_future.done()
+        self.rolling = True
 
-    def _roll_task(self):
-        """
-        Running on a thread
-        """
-        try:
-            self.init_rolling(fps=self.config['live_fps'])
-            while not self._stop_roll:
-                # For now: do not grap all meta at every frame
-                # metadata = aggregate.get_all_meta()
-                metadata = {}
+        # Adjust exposure time
+        fps = fps or self.DEFAULT_FPS
 
-                # Collect local metadata
-                localmeta = self.get_local_meta()
-                localmeta['acquisition_start'] = now()
+        if fps > self.MAX_FPS:
+            self.logger.warning(f'Requested FPS ({fps}) is higher than the maximum allowed value ({self.MAX_FPS}).')
+            fps = self.MAX_FPS
+        self.exposure_time = 1./fps
 
-                # Grab frame
-                frame, meta = self.grab_rolling_frame()
-
-                localmeta['acquisition_end'] = now()
-                localmeta.update(meta)
-
-                # Update metadata with detector metadata
-                metadata[self.name] = localmeta
-
-                # Broadcast
-                if self.broadcaster:
-                    self.broadcaster.pub(frame, metadata)
-        finally:
-            self.stop_rolling()
-
-    def init_rolling(self, fps):
-        """
-        Camera-specific preparation for rolling mode.
-        """
-        raise NotImplementedError
-
-    def stop_rolling(self):
-        """
-        Camera-specific preparation when exiting rolling mode.
-        """
-        raise NotImplementedError
-
-    def grab_rolling_frame(self):
-        """
-        Camera-specific frame grabbing during rolling mode
-        """
-        raise NotImplementedError
+        # Trigger the first acquisition immediately
+        self.do_acquire.set()
+        # Arm the camera
+        if not self.armed:
+            self.arm()
 
     @proxycall(admin=True)
     def reset_counter(self, value=0):
@@ -386,12 +426,6 @@ class CameraBase(DriverBase):
         Reset internal counter to 0 (or to specified value)
         """
         self.counter = value
-
-    def grab_frame(self, *args, **kwargs):
-        """
-        The device-specific acquisition procedure.
-        """
-        raise NotImplementedError
 
     @proxycall()
     def settings_json(self) -> str:
@@ -634,16 +668,6 @@ class CameraBase(DriverBase):
     @live_fps.setter
     def live_fps(self, value):
         self.config['live_fps'] = int(value)
-
-    @proxycall()
-    @property
-    def acquiring(self) -> bool:
-        return not (self.acq_future is None or self.acq_future.done())
-
-    @proxycall()
-    @property
-    def storing(self) -> bool:
-        return not (self.store_future is None or self.store_future.done())
 
     @proxycall(admin=True)
     def live_on(self):

@@ -78,184 +78,66 @@ class Varex(CameraBase):
         self.detector.set_trigger_source('internal_software')
         self.initialized = True
 
-    def grab_frame(self):
+    def _arm(self):
         """
-        Grab and return frame(s)
-
-        Independent of the number of exposures, the returned array
-        "frame" is a 3D array, with the frame index as the first dimension
+        Prepare the camera for acquisition
         """
-        self.logger.debug('Starting frame grab.')
+        self.logger.debug('Detector going live.')
+        self.detector.go_live()
+        self.count_start = self.detector.get_field_count()
 
+    def _trigger(self):
+        """
+        Acquisition.
+        NOTE: This implementation reads out the data as it is collected. There doesn't seem to be significant
+        overhead with this.
+        """
         det = self.detector
+
         n_exp = self.exposure_number
 
-        self.logger.debug('Detector going live.')
-
-        det.go_live()
-
-        count_start = det.get_field_count()
-        count = count_start + 0
-
-        self.logger.debug(f'Start field count: {count_start}')
-
-        frames = []
-        meta = {}
+        self._det_frames = []
+        self._det_meta = {}
 
         self.logger.debug('Triggering detector.')
         det.software_trigger()
 
         self.logger.debug('Starting acquisition loop.')
-
         while True:
             det.wait_image(10000.)
             count = det.get_field_count()
             i = det.get_captured_buffer()
-            self.logger.debug(f'Acquiring frame {count} from buffer {i}...')
+            self.logger.debug(f'Acquired frame {count} from buffer {i}...')
             f, m = det.read_buffer(i)
-            frames.append(f)
-            meta = m
+            self._det_frames.append(f)
+            self._det_meta = m
             det.check_for_live_error()
 
-            if len(frames) == n_exp:
+            if len(self._det_frames) == n_exp:
                 break
 
-            if (count - count_start - 1) % n_exp == 0:
+            if (count - self.count_start - 1) % n_exp == 0:
                 if det.is_live():
                     det.go_unlive()
                 det.go_live()
                 det.software_trigger()
-                count_start = count
+                self.count_start = count
 
-        if det.is_live():
-            det.go_unlive()
+    def _readout(self):
+        frames = np.array(self._det_frames)
+        meta = self._det_meta
+        self._det_frames = None
+        self._det_meta = None
+        return frames, meta
 
-        self.logger.debug('Detector "unlive". Grab completed.')
+    def _disarm(self):
+        if self.detector.is_live():
+            self.detector.go_unlive()
 
-        return np.array(frames), meta
-
-    def grab_frame_legacy(self):
-        """
-        Grab and return frame(s)
-
-        Independent of the number of exposures, the returned array
-        "frame" is a 3D array, with the frame index as the first dimension
-        """
-        self.logger.debug('Starting frame grab.')
-
-        det = self.detector
-        n_exp = self.exposure_number
-
-        self.logger.debug('Detector going live.')
-
-        det.go_live(0, n_exp - 1, n_exp)
-
-        self.logger.debug('Getting field count.')
-
-        startCount = det.get_field_count()
-        count = startCount + 0
-
-        self.logger.debug('Triggering detector.')
-
-        det.software_trigger()
-
-        self.logger.debug('Starting check loop.')
-
-        while True:
-            count = det.get_field_count()
-            if count > (startCount + n_exp):
-                break
-            det.check_for_live_error()
-            time.sleep(.01)
-
-        self.logger.debug('Acquisition done. Reading out data.')
-
-        frames = []
-        meta = {}
-        for i in range(n_exp):
-            f, m = det.read_buffer(i)
-            frames.append(f)
-            # Overwrite meta - it's all the same.
-            meta = m
-
-        self.logger.debug('Data readout done.')
-
-        if det.is_live():
-            det.go_unlive()
-
-        self.logger.debug('Detector "unlive". Grab completed.')
-
-        return np.array(frames), meta
-
-    def init_rolling(self, fps):
-        """
-        Initialize rolling mode.
-        This sets the exposure time in accordance with the provided fps and starts the infinite acquisition loop.
-        """
-        # Adjust exposure time
-        if fps > self.MAX_FPS:
-            raise RuntimeError(f'Requested FPS ({fps}) is higher than the maximum allowed value ({self.MAX_FPS}).')
-        self.exposure_time = 1./fps
-
-        # Start the background thread.
-        self._stop_continuous_acquisition = False
-        self.cont_acq_future = Future(self._continuous_acquire)
-
-    def _continuous_acquire(self):
-        """
-        Threaded task that grabs frames in the background and makes them available.
-        """
-        det = self.detector
-
-        # Unimportant number of exposures.
-        Nexp = 250
-        det.set_num_of_exposures(Nexp)
-
-        det.go_live()
-        det.software_trigger()
-
-        frame = []
-        meta = []
-
-        count_start = 0
-        try:
-            while not self._stop_continuous_acquisition:
-                det.wait_image(2000.)
-                count = det.get_field_count()
-                i = det.get_captured_buffer()
-                self.cont_buffer.append(det.read_buffer(i))
-                self.cont_flag.set()
-                det.check_for_live_error()
-
-                if (count - count_start - 1) % Nexp == 0:
-                    # Need to trigger again
-                    if det.is_live():
-                        det.go_unlive()
-                    det.go_live()
-                    det.software_trigger()
-                    count_start = count
-        finally:
-            if det.is_live():
-                det.go_unlive()
-
-    def stop_rolling(self):
-        """
-        Exit rolling mode.
-        Stop acquisition loop.
-        """
-        self._stop_continuous_acquisition = True
-        self.cont_acq_future.join()
-
-    def grab_rolling_frame(self):
-        """
-        Wait for latest frame and metadata and return them.
-
-        TODO: implement timeout.
-        """
-        while True:
-            self.cont_flag.wait()
-            self.cont_flag.clear()
-            return self.cont_buffer.pop()
+    def _rearm(self):
+        if self.detector.is_live():
+            self.detector.go_unlive()
+        self.detector.go_live()
 
     def _get_exposure_time(self):
         # Convert from milliseconds to seconds
