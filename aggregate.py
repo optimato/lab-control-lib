@@ -53,7 +53,7 @@ def meta_fetch_task(fct, dct):
     try:
         result = fct()
     except:
-        result = 'failed'
+        result = {'failed': 'failed'}
     dct.update(result)
     return None
 

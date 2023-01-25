@@ -117,7 +117,6 @@ class CameraBase(DriverBase):
 
         self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
-        self.roll_future = None       # Will be replaced with a future when starting rolling acquisition
         self._stop_roll = False       # To interrupt rolling
 
         # File writing process
@@ -125,8 +124,10 @@ class CameraBase(DriverBase):
 
         # Prepare metadata collection
         aggregate.connect()
-        self.metadata = None
+        self.metadata = {}
+        self.localmeta = {}
         self.grab_metadata = threading.Event()
+        self.meta_future = Future(self.metadata_loop)
 
         self.do_acquire = threading.Event()
         self.acquire_done = threading.Event()
@@ -207,6 +208,7 @@ class CameraBase(DriverBase):
         """
         # If the camera is not armed, we arm it and remember that it was done automatically in snap
         if not self.armed:
+            self.logger.debug('Camera was not armed when calling snap. Arming first.')
             self.auto_armed = True
             self.arm(exp_time=exp_time, exp_num=exp_num)
 
@@ -239,6 +241,7 @@ class CameraBase(DriverBase):
         Main acquisition loop. Started at the end of the arming procedure
         and running on a thread.
         """
+        self.logger.debug('Acquisition loop started')
         while True:
 
             # Wait for the next trigger
@@ -286,12 +289,14 @@ class CameraBase(DriverBase):
 
         # The loop is closed, so we disarm
         self.disarm()
+        self.logger.debug('Acquisition loop completed')
 
     def metadata_loop(self):
         """
         Running on a thread. Waiting for the "grab_metadata flag to be flipped, then
         attach most recent metadata to self.metadata
         """
+        self.logger.debug('Metadata loop started')
         while True:
             if not self.grab_metadata.wait(1):
                 if self.closing:
@@ -305,6 +310,7 @@ class CameraBase(DriverBase):
             # Local metadata
             self.localmeta = self.get_local_meta()
             self.localmeta['acquisition_start'] = now()
+        self.logger.debug('Metadata loop completed')
 
     def get_local_meta(self):
         """
@@ -365,6 +371,7 @@ class CameraBase(DriverBase):
 
         # Start the main acquisition loop
         self.loop_future = Future(self.acquisition_loop)
+
         self.armed = True
 
     def disarm(self):
@@ -380,6 +387,7 @@ class CameraBase(DriverBase):
         # Reset flags
         self.in_scan = False
         self.armed = False
+
 
     @proxycall(admin=True, block=False)
     def roll(self, fps=None, switch=None):

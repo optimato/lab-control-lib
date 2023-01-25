@@ -644,7 +644,7 @@ class ClientProxy:
                 raise
         except Exception as e:
             # Connection problems (e.g. the server shut down) are managed here
-            self.logger.warning('Could not send command to server.')
+            self.logger.warning(f'Could not send command to server at {self.full_address}.')
             return {'status': 'error', 'msg': traceback.format_exc()}
 
         ###################
