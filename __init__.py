@@ -44,6 +44,11 @@ import os
 import platform
 import json
 import subprocess
+import multiprocessing
+try:
+    multiprocessing.set_start_method('spawn')
+except RuntimeError:
+    pass
 
 from .network_conf import HOST_IPS
 from . import util
