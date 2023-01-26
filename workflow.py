@@ -102,7 +102,11 @@ class Experiment(DriverBase):
         except Exception as e:
             self.logger.warning('Could not find first available scan number (have experiment and investigation been set?)')
         self.counter = 0
-        
+
+        self.metacalls = {'investigation': lambda: self.investigation,
+                          'experiment': lambda: self.experiment,
+                          'last_scan': lambda: self.next_scan() or None}
+
         # HACK (kind of) here, getExperiement must return the instance, not a client.
         _client.clear()
         _client.append(self)
@@ -169,7 +173,7 @@ class Experiment(DriverBase):
         s = f' * Investigation: {self.investigation}\n'
         s += f' * Experiment: {self.experiment}\n'
         ns = self.next_scan()
-        s += f' * Last scan number: {"[none]" if ns==0 else ns}'
+        s += f' * Last scan number: {"[none]" if ns==0 else ns-1}'
         return s
 
     @proxycall()

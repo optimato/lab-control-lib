@@ -17,6 +17,7 @@ from .util.logs import logging_muted
 from .util.uitools import ask_yes_no
 from .util.proxydevice import ProxyClientError
 from .util.logs import DisplayLogger
+from .util.logs import logger as rootlogger
 from . import drivers, motors
 from . import aerotech
 from . import mclennan
@@ -51,7 +52,7 @@ DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_
 # List of drivers that should run on the current host
 AVAILABLE = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS.get(THIS_HOST, [])]
 
-logger = logging.getLogger("manager")
+logger = rootlogger.getChild("manager")
 
 
 def instantiate_driver(name, admin=True):

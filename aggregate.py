@@ -1,14 +1,16 @@
 """
 Aggregator for metadata.
 """
-import logging
 import time
 
 from . import motors
 from .util import now
+from .util.logs import logger as rootlogger
+from .util.logs import logging_muted
 from .util.future import Future
 from .base import DaemonException
-logger = logging.getLogger(__name__)
+
+logger = rootlogger.getChild(__name__)
 
 # Dictionary of running drivers
 DRIVERS = {}
@@ -39,7 +41,8 @@ def connect(name=None):
 
     # Instantiate the driver
     try:
-        driver = instantiate_driver(name=name, admin=False)
+        with logging_muted():
+            driver = instantiate_driver(name=name, admin=False)
     except DaemonException:
         logger.error(f'Driver {name} could not start.')
         driver = None
@@ -50,11 +53,13 @@ def connect(name=None):
 
 
 def meta_fetch_task(fct, dct):
+    t0 = time.time()
     try:
         result = fct()
     except:
         result = {'failed': 'failed'}
     dct.update(result)
+    dct['fetch_time'] = time.time()-t0
     return None
 
 
@@ -85,29 +90,37 @@ def get_all_meta(block=False):
 
     logger.debug('Creating workers.')
 
-    workers = []
+    workers = {}
     for k in DRIVERS.keys():
         f = Future(target=meta_fetch_task, args=(DRIVERS[k].get_meta, meta[k]))
-        workers.append(f)
+        workers[k + ' [driver]'] = f
 
     for motor_name, motor in motors.items():
         f = Future(target=meta_fetch_task, args=(motor.get_meta, meta['motors'][motor_name]))
-        workers.append(f)
+        workers[motor_name + ' [motor]'] = f
 
     logger.debug('Done creating workers.')
 
     # Thread watcher will add key "collection_end" once done. This is a way
     # to evaluate overall collection time, and whether collection is finished.
-    def watch_futures(workers, d):
-        for w in workers:
+    def watch_futures(workers, d, t0):
+        max_dt = 0.
+        slowest = ''
+        for k, w in workers.items():
+            tt0 = time.time()
             w.join()
+            dtt = time.time()-tt0
+            if dtt > max_dt:
+                max_dt = dtt
+                slowest = k
+        logger.info(f'Slowest fetch was "{slowest}" ({max_dt:0.3f} seconds)')
         d['meta']['collection_end'] = now()
         dt = time.time() - t0
         logger.info(f'Metadata collection completed in {dt*1000:3.2f} ms')
 
     logger.debug('Starting watcher.')
 
-    watcher = Future(target=watch_futures, args=(workers, meta))
+    watcher = Future(target=watch_futures, args=(workers, meta, t0))
     if block:
         logger.debug('Waiting for watcher.')
         watcher.result()

@@ -108,25 +108,32 @@ logger.addHandler(file_handler)
 matplotlib_logger = logging.getLogger('matplotlib')
 matplotlib_logger.setLevel(logging.INFO)
 
-@contextmanager
-def logging_muted(highest_level=logging.CRITICAL):
-    """
-    A context manager that will prevent any logging messages
-    triggered during the body from being processed.
-    :param highest_level: the maximum logging level in use.
-      This would only need to be changed if a custom level greater than CRITICAL
-      is defined.
 
-    (adapted from: https://gist.github.com/simon-weber/7853144)
-    """
-    previous_level = logging.root.manager.disable
+class logging_muted:
+    def __enter__(self):
+        logging.disable(logging.CRITICAL)
 
-    logging.disable(highest_level)
+    def __exit__(self, exit_type, exit_value, exit_traceback):
+        logging.disable(logging.NOTSET)
 
-    try:
-        yield
-    finally:
-        logging.disable(previous_level)
+
+#@contextmanager
+#def logging_muted(highest_level=logging.CRITICAL):
+#    """
+#    A context manager that will prevent any logging messages
+#    triggered during the body from being processed.
+#    :param highest_level: the maximum logging level in use.
+#      This would only need to be changed if a custom level greater than CRITICAL
+#      is defined.
+#
+#    (adapted from: https://gist.github.com/simon-weber/7853144)
+#    """
+#    logger.disabled = True
+#
+#    try:
+#        yield
+#    finally:
+#        logger.disabled = False
 
 
 class LogClient:

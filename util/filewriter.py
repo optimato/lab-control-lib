@@ -138,7 +138,14 @@ class FileWriter(multiprocessing.Process):
             self.times['received'].append(time.time())
 
             # Extract arguments from shared buffer
-            args = json.loads(self.args_buffer.buf.tobytes().decode('utf8'))
+            b = self.args_buffer.buf.tobytes()
+            b = b.strip(b'\0').strip(b' ')
+            s = b.decode('utf8')
+            try:
+                args = json.loads(s)
+            except:
+                print(s)
+                raise
 
             shape = args['shape']
             data = np.ndarray(shape=shape,
@@ -179,7 +186,7 @@ class FileWriter(multiprocessing.Process):
         # Get reply through same buffer
         if not self.reply_flag.wait(2):
             raise RuntimeError('Remote process id not responding.')
-        reply = json.loads(self.args_buffer.buf.tobytes().decode('utf8'))
+        reply = json.loads(self.args_buffer.buf.tobytes().decode('utf8').strip())
         self.logger.debug(f' reply: {reply}')
         self.reply_flag.clear()
         return reply

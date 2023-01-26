@@ -226,15 +226,14 @@ class CameraBase(DriverBase):
         self.do_acquire.set()
 
         # Wipe previous metadata and start collecting new one immediately
-        self.metadata = None
+        self.metadata = {}
         self.grab_metadata.set()
 
         # Wait for the end of the acquisition
         self.acquire_done.wait()
+        self.acquire_done.clear()
 
         return
-
-        # We are here so the camera was not armed
 
     def acquisition_loop(self):
         """
@@ -305,7 +304,7 @@ class CameraBase(DriverBase):
             self.grab_metadata.clear()
 
             # Global metadata
-            self.metadata = aggregate.get_all_meta()
+            self.metadata.update(aggregate.get_all_meta())
 
             # Local metadata
             self.localmeta = self.get_local_meta()
@@ -390,7 +389,7 @@ class CameraBase(DriverBase):
 
 
     @proxycall(admin=True, block=False)
-    def roll(self, fps=None, switch=None):
+    def roll(self, switch=None, fps=None):
         """
         Start endless sequence acquisition for live mode.
 
@@ -448,6 +447,14 @@ class CameraBase(DriverBase):
                     'save_path': self.save_path,
                     'magnification': self.magnification}
         return json.dumps(settings)
+
+    def shutdown(self):
+        # Stop rolling
+        self.roll(switch=False)
+        # Stop file_writer process
+        self.file_writer.stop()
+        # Stop metadata loop
+        self.closing = True
 
     #
     # GETTERS / SETTERS TO IMPLEMENT IN SUBCLASSES

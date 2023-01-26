@@ -555,7 +555,8 @@ class ClientProxy:
         self.API = API
         self.cls_name = cls_name
         self.name = self.__class__.__name__.lower()
-        self.logger = rootlogger.getChild(self.__class__.__name__)
+        # self.logger = rootlogger.getChild(self.__class__.__name__)
+        self.logger = rootlogger.getChild('.'.join([self.cls_name, self.__class__.__name__]))
 
         # Flag for eventual lost connection
         self.connected = False

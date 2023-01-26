@@ -116,6 +116,10 @@ class DriverBase:
         """
         Initialization.
         """
+
+        # register exit functions
+        atexit.register(self.shutdown)
+
         # Get logger if not set in subclass
         if self.logger is None:
             self.logger = rootlogger.getChild(self.__class__.__name__)
@@ -210,6 +214,11 @@ class DriverBase:
         """
         self.logger.setLevel(level)
 
+    def shutdown(self):
+        """
+        Shutdown procedure registered with atexit.
+        """
+        pass
 
 class SocketDriverBase(DriverBase):
     """
@@ -230,9 +239,6 @@ class SocketDriverBase(DriverBase):
         Initialization.
         """
         super().__init__()
-
-        # register exit functions
-        atexit.register(self.shutdown)
 
         # Store device address
         self.device_address = device_address
