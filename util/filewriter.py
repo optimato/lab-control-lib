@@ -104,9 +104,10 @@ class FileWriter(multiprocessing.Process):
             self.write(filename=filename, data=data, meta=meta)
 
             # Store end of processing time
+            n = len(self.times['completed'])
             self.times['completed'].append(time.time())
-            wait_time = self.times['processed'][-1] - self.times['received'][-1]
-            save_time = self.times['completed'][-1] - self.times['processed'][-1]
+            wait_time = self.times['processed'][n] - self.times['received'][n]
+            save_time = self.times['completed'][n] - self.times['processed'][n]
 
             self.logger.debug(f'Done. Time in queue: {wait_time:0.3f} s, Saving duration: {save_time:0.3f} s')
 
@@ -187,7 +188,6 @@ class FileWriter(multiprocessing.Process):
         if not self.reply_flag.wait(2):
             raise RuntimeError('Remote process id not responding.')
         reply = json.loads(self.args_buffer.buf.tobytes().decode('utf8').strip())
-        self.logger.debug(f' reply: {reply}')
         self.reply_flag.clear()
         return reply
 
