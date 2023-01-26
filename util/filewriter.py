@@ -23,8 +23,6 @@ import time
 import json
 import traceback
 
-from optimatools.io import h5write
-
 from .logs import logger as rootlogger
 
 # 100 varex full frames
@@ -72,6 +70,14 @@ class FileWriter(multiprocessing.Process):
         self.stop_flag = multiprocessing.Event()
         self.end_flag = multiprocessing.Event()
 
+        self._array = None
+
+    def process_init(self):
+        """
+        Possibly additional code to run *only on the separate process*.
+        """
+        pass
+
     def run(self):
         """
         This is running on a new process.
@@ -86,6 +92,9 @@ class FileWriter(multiprocessing.Process):
 
         # Start the enqueuing loop
         self._enqueue_future = Future(self._enqueue)
+
+        # Additional preparation step if needed
+        self.process_init()
 
         # Start the file saving loop
         self.logger.debug('Entering main loop.')
@@ -103,7 +112,7 @@ class FileWriter(multiprocessing.Process):
 
             filename, data, meta = item
             self.logger.debug(f'Saving data to {filename} ({self.queue.qsize()} remaining in queue)')
-            self.write(filename=filename, data=data, meta=meta)
+            self.write(filename=filename, meta=meta, data=data)
 
             # Store end of processing time
             n = len(self.times['completed'])
@@ -119,7 +128,7 @@ class FileWriter(multiprocessing.Process):
         self.args_buffer.unlink()
         self.end_flag.set()
 
-    def write(self, filename, data, meta):
+    def write(self, filename, meta, data):
         """
         Actual I/O saving executed by the worker process.
         """
@@ -163,16 +172,30 @@ class FileWriter(multiprocessing.Process):
             self._obj_to_buf(reply)
             self.reply_flag.set()
 
-    def store(self, filename, data, meta):
+    def get_array(self, shape=None, dtype=None):
+        """
+        Return an array whose underlying buffer is the shared buffer.
+        """
+        if (shape is not None) and (dtype is not None):
+            self._array = np.ndarray(shape=shape, dtype=dtype, buffer=self.data_buffer.buf)
+        return self._array
+
+    def store(self, filename, meta, data=None):
         """
         This method is called by the main process to request data to be stored.
-        """
-        shape = data.shape
-        dtype = str(data.dtype)
 
-        # Copy data onto shared memory
-        np.ndarray(shape=shape, dtype=dtype,
-                   buffer=self.data_buffer.buf)[:] = data[:]
+        data=None indicates that the data has already been transferred onto the
+        buffer. The ndarray parameters are those of self._array
+        """
+        if data is None:
+            # Data is already in buffer
+            shape = self._array.shape
+            dtype = str(self._array.dtype)
+        else:
+            # Copy data onto shared memory
+            shape = data.shape
+            dtype = str(data.dtype)
+            self.get_array(shape=shape, dtype=dtype)[:] = data[:]
 
         # Preparing arguments.
         args = {'filename': filename,
@@ -228,11 +251,11 @@ class FileWriter(multiprocessing.Process):
         self.end_flag.wait()
 
     @classmethod
-    def start_process(cls):
+    def start_process(cls, *args, **kwargs):
         """
         A factory method to spawn the process and return the class to the main process for interaction.
         """
-        file_writer_instance = cls()
+        file_writer_instance = cls(*args, **kwargs)
         file_writer_instance.start()
         return file_writer_instance
 
@@ -241,9 +264,17 @@ class H5FileWriter(FileWriter):
     """
     A worker class to save HDF5 files.
     """
-    def write(self, filename, data, meta):
+
+    def process_init(self):
+        """
+        import is needed only here.
+        """
+        from optimatools.io import h5write
+        self.h5write = h5write
+
+    def write(self, filename, meta, data):
         """
         For now: use h5write, but could be done with h5py directly e.g. to follow some NEXUS
         standards, or to add more advanced features (e.g. appending to existing files).
         """
-        h5write(filename=filename, data=data, meta=meta)
+        self.h5write(filename=filename, data=data, meta=meta)

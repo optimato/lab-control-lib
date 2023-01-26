@@ -77,6 +77,7 @@ from .util import now, FramePublisher
 from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
 from .util import filewriter
+from .util import filestreamer
 
 DEFAULT_FILE_FORMAT = 'hdf5'
 DEFAULT_BROADCAST_PORT = 5555
@@ -134,9 +135,9 @@ class CameraBase(DriverBase):
         self.end_acquisition = False
 
         # Broadcasting
-        self.broadcaster = None
+        self.file_streamer = filestreamer.FileStreamer.start_process(self.broadcast_port)
         if self.config['do_broadcast']:
-            self.live_on()
+            self.file_streamer.on()
 
         # Scan managemnt
         self._experiment = workflow.getExperiment()
@@ -265,10 +266,7 @@ class CameraBase(DriverBase):
             self.metadata[self.name] = self.localmeta
 
             # Broadcast and store
-            if self.broadcaster:
-                self.logger.debug('Threaded frame acquisition: broadcasting frame')
-                self.broadcaster.pub(frame, self.metadata)
-                self.logger.debug('Threaded frame acquisition: frame broadcast returned')
+            self.file_streamer.store('', self.metadata, frame)
 
             if self.rolling:
                 # Ask immediately for another frame
@@ -276,7 +274,7 @@ class CameraBase(DriverBase):
                 continue
 
             # Not rolling, so saving
-            self.file_writer.store(filename=self.filename, data=frame, meta=self.metadata)
+            self.file_writer.store(filename=self.filename, meta=self.metadata, data=frame)
 
             # Automatically armed - this is a single shot
             if self.auto_armed:
@@ -699,9 +697,7 @@ class CameraBase(DriverBase):
         """
         Start broadcaster.
         """
-        if self.broadcaster:
-            raise RuntimeError(f'ERROR already broadcasting on port {self.broadcast_port}')
-        self.broadcaster = FramePublisher(port=self.broadcast_port)
+        self.file_streamer.on()
         self.config['do_broadcast'] = True
 
     @proxycall(admin=True)
@@ -709,14 +705,7 @@ class CameraBase(DriverBase):
         """
         Start broadcaster.
         """
-        if not self.broadcaster:
-            raise RuntimeError(f'ERROR: not currently broadcasting.')
-        try:
-            self.broadcaster.close()
-        except BaseException:
-            pass
-        self.broadcaster = None
-        # Remember as default
+        self.file_streamer.off()
         self.config['do_broadcast'] = False
 
     @proxycall()
@@ -725,7 +714,7 @@ class CameraBase(DriverBase):
         """
         Check if camera is live.
         """
-        return self.broadcaster is not None
+        return self.config['do_broadcast']
 
     @proxycall(admin=True)
     @property
