@@ -139,26 +139,23 @@ class FileWriter(multiprocessing.Process):
             self.times['received'].append(time.time())
 
             # Extract arguments from shared buffer
-            b = self.args_buffer.buf.tobytes()
-            b = b.strip(b'\0').strip(b' ')
-            s = b.decode('utf8')
-            try:
-                args = json.loads(s)
-            except:
-                print(s)
-                raise
+            args = self._buf_to_obj()
 
-            shape = args['shape']
-            data = np.ndarray(shape=shape,
-                              dtype=np.dtype(args['dtype']),
-                              buffer=self.data_buffer.buf).copy()
+            if cmd:=args.get('cmd', None):
+                # Execute command!
+                exec(cmd, {}, {'self': self})
+                reply = {'status': 'ok'}
+            else:
+                shape = args['shape']
+                data = np.ndarray(shape=shape,
+                                  dtype=np.dtype(args['dtype']),
+                                  buffer=self.data_buffer.buf).copy()
 
-            self.queue.put((args['filename'], data, args['meta']))
+                self.queue.put((args['filename'], data, args['meta']))
+                reply = {'in_queue': self.queue.qsize()}
 
             # Send information back to main process.
-            self.args_buffer.buf[:] = self.args_buffer.size * b' '
-            s = json.dumps({'in_queue': self.queue.qsize()}).encode()
-            self.args_buffer.buf[:len(s)] = s
+            self._obj_to_buf(reply)
             self.reply_flag.set()
 
     def store(self, filename, data, meta):
@@ -179,17 +176,39 @@ class FileWriter(multiprocessing.Process):
                 'meta': meta}
 
         # Encode arguments in shared buffer
-        self.args_buffer.buf[:] = self.args_buffer.size * b' '
-        s = json.dumps(args).encode()
-        self.args_buffer.buf[:len(s)] = s
+        self._obj_to_buf(args)
         self.write_flag.set()
 
         # Get reply through same buffer
         if not self.reply_flag.wait(2):
             raise RuntimeError('Remote process id not responding.')
-        reply = json.loads(self.args_buffer.buf.tobytes().decode('utf8').strip())
+        reply = self._buf_to_obj()
         self.reply_flag.clear()
         return reply
+
+    def _obj_to_buf(self, obj):
+        """
+        Utility function to write and send an object through the args_buffer
+        """
+        # Wipe buffer
+        self.args_buffer.buf[:] = self.args_buffer.size * b' '
+        s = json.dumps(obj).encode()
+        self.args_buffer.buf[:len(s)] = s
+
+    def _buf_to_obj(self):
+        """
+        Utility function to read args_buffer and unserialize the object.
+        """
+        # Wipe buffer
+        return json.loads(self.args_buffer.buf.tobytes().strip(b'\0 ').decode('utf8').strip())
+
+    def exec(self, cmd):
+        """
+        A crude way to send commands to the process
+        """
+        self._obj_to_buf({'cmd': cmd})
+        self.write_flag.set()
+
 
     def stop(self):
         self.stop_flag.set()
