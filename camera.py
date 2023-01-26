@@ -345,6 +345,7 @@ class CameraBase(DriverBase):
             raise RuntimeError(f'Unknown file format: {self.file_format}.')
         return filename
 
+    @proxycall(admin=True)
     def arm(self, exp_time=None, exp_num=None):
         """
         Prepare the camera for acquisition.
@@ -373,6 +374,7 @@ class CameraBase(DriverBase):
 
         self.armed = True
 
+    @proxycall(admin=True)
     def disarm(self):
         """
         Terminate acquisition.
