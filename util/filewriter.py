@@ -21,6 +21,8 @@ from .future import Future
 import numpy as np
 import time
 import json
+import traceback
+
 from optimatools.io import h5write
 
 from .logs import logger as rootlogger
@@ -85,7 +87,6 @@ class FileWriter(multiprocessing.Process):
         # Start the enqueuing loop
         self._enqueue_future = Future(self._enqueue)
 
-
         # Start the file saving loop
         self.logger.debug('Entering main loop.')
         while True:
@@ -136,17 +137,20 @@ class FileWriter(multiprocessing.Process):
                     continue
             self.write_flag.clear()
 
-            # Store arrival time
-            self.times['received'].append(time.time())
-
             # Extract arguments from shared buffer
             args = self._buf_to_obj()
 
             if cmd:=args.get('cmd', None):
                 # Execute command!
-                exec(cmd, {}, {'self': self})
-                reply = {'status': 'ok'}
+                try:
+                    exec(cmd, {}, {'self': self})
+                    reply = {'status': 'ok'}
+                except:
+                    reply = {'error': traceback.format_exc()}
             else:
+                # Store arrival time
+                self.times['received'].append(time.time())
+
                 shape = args['shape']
                 data = np.ndarray(shape=shape,
                                   dtype=np.dtype(args['dtype']),
@@ -209,7 +213,12 @@ class FileWriter(multiprocessing.Process):
         """
         self._obj_to_buf({'cmd': cmd})
         self.write_flag.set()
-
+        # Get reply through same buffer
+        if not self.reply_flag.wait(2):
+            raise RuntimeError('Remote process id not responding.')
+        reply = self._buf_to_obj()
+        self.reply_flag.clear()
+        return reply
 
     def stop(self):
         self.stop_flag.set()
