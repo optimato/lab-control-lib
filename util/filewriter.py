@@ -77,13 +77,14 @@ class FileWriter(multiprocessing.Process):
         # Create a frame queue
         self.queue = SimpleQueue()
 
-        # Start the enqueuing loop
-        self._enqueue_future = Future(self._enqueue)
-
         # Statistics
         self.times = {'received': [],
                       'processed': [],
                       'completed': []}
+
+        # Start the enqueuing loop
+        self._enqueue_future = Future(self._enqueue)
+
 
         # Start the file saving loop
         self.logger.debug('Entering main loop.')
