@@ -60,7 +60,7 @@ class FileWriter(multiprocessing.Process):
 
         except FileExistsError:
             self.data_buffer = shared_memory.SharedMemory(name='data_buffer')
-            self.ares_buffer = shared_memory.SharedMemory(name='args_buffer')
+            self.args_buffer = shared_memory.SharedMemory(name='args_buffer')
 
         # Flag the arrival of a new dataset to save
         self.write_flag = multiprocessing.Event()
