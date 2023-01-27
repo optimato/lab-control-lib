@@ -99,6 +99,8 @@ class CameraBase(DriverBase):
 
     def __init__(self, broadcast_port=None):
         super().__init__()
+
+        # Broadcast from localhost on given port (see util.imstream)
         if broadcast_port is None:
             self.broadcast_port = self.DEFAULT_BROADCAST_PORT
         else:
@@ -133,8 +135,10 @@ class CameraBase(DriverBase):
         self.do_acquire = threading.Event()
         self.acquire_done = threading.Event()
         self.end_acquisition = False
+        self.frame_queue = SimpleQueue()
+        self.frame_future = Future(self.frame_management_loop)
 
-        # Broadcasting
+        # Broadcasting process
         self.file_streamer = filestreamer.FileStreamer.start_process(self.broadcast_port)
         if self.config['do_broadcast']:
             self.file_streamer.on()
@@ -155,6 +159,10 @@ class CameraBase(DriverBase):
         self.auto_armed = False
 
         self.rolling = False
+
+        # Switch telling if metadata should be grabbed for
+        # every exposure when exposure_number > 1
+        self.metadata_every_exposure = False
 
     def _trigger(self, *args, **kwargs):
         """
@@ -251,30 +259,24 @@ class CameraBase(DriverBase):
                 continue
             self.do_acquire.clear()
 
+            # Prepare next acquisition on the file writing process
+            if not self.rolling:
+                self.file_writer.open(self, filename=self.filename)
+
             # trigger acquisition with subclassed method and wait until it is done
             self._trigger()
 
             # Flip flag immediately to allow snap to return.
             self.acquire_done.set()
 
-            # Read out data
-            frame, meta = self._readout()
-
-            # Combine metadata
-            self.localmeta['acquisition_end'] = now()
-            self.localmeta.update(meta)
-            self.metadata[self.name] = self.localmeta
-
-            # Broadcast and store
-            self.file_streamer.store('', self.metadata, frame)
+            # Finalize saving
+            if not self.rolling:
+                self.file_writer.close()
 
             if self.rolling:
                 # Ask immediately for another frame
                 self.do_acquire.set()
                 continue
-
-            # Not rolling, so saving
-            self.file_writer.store(filename=self.filename, meta=self.metadata, data=frame)
 
             # Automatically armed - this is a single shot
             if self.auto_armed:
@@ -309,6 +311,29 @@ class CameraBase(DriverBase):
             self.localmeta['acquisition_start'] = now()
         self.logger.debug('Metadata loop completed')
 
+    def frame_management_loop(self):
+        """
+        Running on a thread. Watches self.frame_queue and deals with the data as
+        it comes.
+        """
+        while True:
+            try:
+                item = self.frame_queue.get(timeout=1.)
+            except Empty:
+                if self.closing:
+                    break
+                else:
+                    continue
+
+            # Deal with frame
+            data, meta = item
+
+            if not self.rolling:
+                self.file_writer.store(self.filename, meta=meta, data=data)
+
+            if self.config['do_broadcast']:
+                self.file_streamer.store(self.filename, meta=meta, data=data)
+
     def get_local_meta(self):
         """
         Return camera-specific metadata
@@ -320,6 +345,26 @@ class CameraBase(DriverBase):
                 'exposure_time': self.exposure_time,
                 'operation_mode': self.operation_mode}
         return meta
+
+    def enqueue_frame(self, frame_and_meta):
+        """
+        Add frame and meta to the queue. This is meant to be called
+        within _trigger at least once.
+        """
+
+        # Check if global metadata is required with this frame
+        if self.metadata_every_exposure:
+            metadata = aggregate.get_all_meta()
+            localmeta = self.get_local_meta()
+        else:
+            metadata = {}
+            localmeta = {}
+
+        # Update frame metadata and add to queue
+        frame, meta = frame_and_meta
+        localmeta.update(meta)
+        metadata[self.name] = localmeta
+        self.frame_queue.put((frame, metadata))
 
     def _build_filename(self, prefix, path) -> str:
         """

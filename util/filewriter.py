@@ -22,6 +22,7 @@ import numpy as np
 import time
 import json
 import traceback
+import h5py
 
 from .logs import logger as rootlogger
 
@@ -38,29 +39,33 @@ class FileWriter(multiprocessing.Process):
     worker can write.
     """
 
-    def __init__(self):
+    def __init__(self, array_name='data_buffer', args_name='args_buffer'):
         """
         Prepare a Worker process to save data on disk. Shared memory is
         allocated at construction, see BUFFERSIZE.
         """
         super().__init__()
 
+        self.array_name = array_name
+        self.args_name = args_name
+
         self.logger = rootlogger.getChild(self.__class__.__name__)
+
 
         # Allocate buffers if needed
         try:
-            self.data_buffer = shared_memory.SharedMemory(name='data_buffer',
+            self.data_buffer = shared_memory.SharedMemory(name=array_name,
                                                           create=True,
                                                           size=BUFFERSIZE)
-            self.args_buffer = shared_memory.SharedMemory(name='args_buffer',
+            self.args_buffer = shared_memory.SharedMemory(name=args_name,
                                                           create=True,
                                                           size=10000)
 
             self.logger.debug(f'Created shared memory ({BUFFERSIZE * 1e-6:3.1f} MB)')
 
         except FileExistsError:
-            self.data_buffer = shared_memory.SharedMemory(name='data_buffer')
-            self.args_buffer = shared_memory.SharedMemory(name='args_buffer')
+            self.data_buffer = shared_memory.SharedMemory(name=array_name)
+            self.args_buffer = shared_memory.SharedMemory(name=args_name)
 
         # Flag the arrival of a new dataset to save
         self.write_flag = multiprocessing.Event()
@@ -147,29 +152,31 @@ class FileWriter(multiprocessing.Process):
             self.write_flag.clear()
 
             # Extract arguments from shared buffer
-            args = self._buf_to_obj()
+            args = self.args
 
-            if cmd:=args.get('cmd', None):
-                # Execute command!
+            # That's a hack to control the remote process
+            if method:=args.get('method', None):
+                # Execute command! (the reply format is bogus for now)
                 try:
-                    exec(cmd, {}, {'self': self})
-                    reply = {'status': 'ok'}
+                    method = getattr(self, method)
+                    result = method(*args['args'], **args['kwargs'])
+                    reply = {'status': 'ok', 'result': result}
                 except:
-                    reply = {'error': traceback.format_exc()}
+                    reply = {'status': 'error', 'msg': traceback.format_exc()}
             else:
                 # Store arrival time
                 self.times['received'].append(time.time())
 
-                shape = args['shape']
-                data = np.ndarray(shape=shape,
-                                  dtype=np.dtype(args['dtype']),
-                                  buffer=self.data_buffer.buf).copy()
+                # Copy data from buffer
+                data = self.get_array(shape=args['shape'],
+                                  dtype=args['dtype']).copy()
 
+                # Put everything in the queue
                 self.queue.put((args['filename'], data, args['meta']))
                 reply = {'in_queue': self.queue.qsize()}
 
             # Send information back to main process.
-            self._obj_to_buf(reply)
+            self.args = reply
             self.reply_flag.set()
 
     def get_array(self, shape=None, dtype=None):
@@ -204,42 +211,40 @@ class FileWriter(multiprocessing.Process):
                 'meta': meta}
 
         # Encode arguments in shared buffer
-        self._obj_to_buf(args)
+        self.args = args
         self.write_flag.set()
 
         # Get reply through same buffer
         if not self.reply_flag.wait(2):
             raise RuntimeError('Remote process id not responding.')
-        reply = self._buf_to_obj()
+        reply = self.args
         self.reply_flag.clear()
         return reply
 
-    def _obj_to_buf(self, obj):
+    @property
+    def args(self):
         """
-        Utility function to write and send an object through the args_buffer
+        (json-seralizable) object represented by args buffer.
         """
+        return json.loads(self.args_buffer.buf.tobytes().strip(b'\0 ').decode('utf8').strip())
+
+    @args.setter
+    def args(self, obj):
         # Wipe buffer
         self.args_buffer.buf[:] = self.args_buffer.size * b' '
         s = json.dumps(obj).encode()
         self.args_buffer.buf[:len(s)] = s
 
-    def _buf_to_obj(self):
-        """
-        Utility function to read args_buffer and unserialize the object.
-        """
-        # Wipe buffer
-        return json.loads(self.args_buffer.buf.tobytes().strip(b'\0 ').decode('utf8').strip())
-
-    def exec(self, cmd):
+    def exec(self, method, args=(), kwargs={}):
         """
         A crude way to send commands to the process
         """
-        self._obj_to_buf({'cmd': cmd})
+        self.args = {'method': method, 'args': args, 'kwargs': kwargs}
         self.write_flag.set()
         # Get reply through same buffer
-        if not self.reply_flag.wait(2):
+        if not self.reply_flag.wait(20):
             raise RuntimeError('Remote process id not responding.')
-        reply = self._buf_to_obj()
+        reply = self.args
         self.reply_flag.clear()
         return reply
 
@@ -265,16 +270,131 @@ class H5FileWriter(FileWriter):
     A worker class to save HDF5 files.
     """
 
+    def __init__(self, in_ram=True):
+        """
+        When receiving data (with FileWriter.store method), there
+        are two possibilities: 1) frames are accumulated in RAM
+        (default) and saved to disc when self.close is called. 2) frames
+        are appended to disc as they arrive.
+        """
+        super().__init__()
+        self.ready_to_close = multiprocessing.Event()
+        self.in_ram = in_ram
+        self._filename = None
+        self._meta = []
+        self._frames = []
+
+    def _open(self, filename):
+        """
+        (process side) prepare to store in a new file.
+        """
+        self.logger.debug(f'Data will be saved in file {filename}')
+        self._filename = filename
+        if self.in_ram:
+            self._frames = []
+            self._meta = []
+        else:
+            # Open new file
+            self._fd = h5py.File(filename, 'w')
+
+            # Add these attributes to make the format compatible with h5rw
+            self._fd.attrs['h5rw_version'] = '0.1'
+            ctime = time.asctime()
+            self._fd.attrs['ctime'] = ctime
+            self._fd.attrs['mtime'] = ctime
+
+            # Empty dataset
+            self._dset = None
+
+    def _close(self):
+        """
+        (process side) closing of the file saving.
+        """
+        if self.in_ram:
+            self.logger.debug(f'Creating numpy dataset')
+            data = np.array(self._frames)
+            self.logger.debug(f'Saving with h5write')
+            self.h5write(filename=self._filename, meta=self._meta, data=data)
+            self.logger.debug(f'Done')
+        else:
+            # Nothing to do!
+            self.logger.debug(f'Closing hdf5 file')
+            self.ready_to_close.wait()
+            self._fd.close()
+            self.logger.debug(f'Done')
+
+        # Reset everything for next time
+        self._frames = []
+        self._meta = []
+        self._fd = None
+        self._dset = None
+
+        return
+
+    def open(self, filename):
+        """
+        Prepare to store in a new file.
+        """
+        return self.exec('_open', kwargs={'filename': filename})
+
+    def close(self):
+        """
+        Close file.
+        """
+        return self.exec('_close')
+
     def process_init(self):
         """
-        import is needed only here.
+        Import is needed only here.
         """
-        from optimatools.io import h5write
+        from optimatools.io import h5write, h5append
+        self.h5append = h5append
         self.h5write = h5write
 
     def write(self, filename, meta, data):
         """
+        This is called by store each time a frame arrives.
         For now: use h5write, but could be done with h5py directly e.g. to follow some NEXUS
         standards, or to add more advanced features (e.g. appending to existing files).
         """
-        self.h5write(filename=filename, data=data, meta=meta)
+        self._meta.append(meta)
+        if self.in_ram:
+            # Accumulate frame in ram. We'll save everything at the end.
+            self.logger.debug(f'Appending frame in RAM')
+            self._frames.append(np.squeeze(data))
+        else:
+            # Add frame to the open hdf5 file.
+            self.ready_to_close.clear()
+
+            shape = data.shape
+            if len(shape)==2:
+                shape = (1,) + shape
+
+            # If dataset has not been created do it now
+            if not self._dset:
+                self.logger.debug(f'Creating dataset')
+                dtype = str(data.dtype)
+                self._dset = self._fd.create_dataset(name="data",
+                                                     shape=(0,) + shape[-2:],
+                                                     maxshape=(None,) + shape[-2:],
+                                                     dtype=dtype)
+                # Adding this attribute makes the file compatible with h5write
+                self._dset.attrs['type'] = 'array'
+                self.logger.debug(f'Done creating dataset')
+
+            # Size of the current dataset
+            N = self._dset.shape[0]
+
+            # Resize adding the size of the new data
+            self.logger.debug(f'Resizing dataset')
+            self._dset.resize(size=shape[0] + N, axis=0)
+
+            # Store the data
+            self.logger.debug(f'Storing data')
+            self._dset[-shape[0]:] = data
+
+            # Store metadata
+            self.logger.debug(f'Storing metadata')
+            self.h5append(self._fd, meta=self._meta)
+            self.logger.debug(f'Done')
+            self.ready_to_close.set()

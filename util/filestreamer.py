@@ -40,7 +40,7 @@ class FileStreamer(FileWriter):
         """
         Turn on broadcasting (from main process)
         """
-        self.exec('self._on()')
+        self.exec('_on')
 
     def _off(self):
         """
@@ -58,4 +58,4 @@ class FileStreamer(FileWriter):
         """
         Turn off broadcasting (from main process)
         """
-        self.exec('self._off()')
+        self.exec('_off')

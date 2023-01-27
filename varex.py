@@ -103,17 +103,18 @@ class Varex(CameraBase):
         det.software_trigger()
 
         self.logger.debug('Starting acquisition loop.')
+        n = 0
         while True:
             det.wait_image(10000.)
             count = det.get_field_count()
             i = det.get_captured_buffer()
             self.logger.debug(f'Acquired frame {count} from buffer {i}...')
             f, m = det.read_buffer(i)
-            self._det_frames.append(f)
-            self._det_meta = m
+            self.queue_frame(f, m)
+            n += 1
             det.check_for_live_error()
 
-            if len(self._det_frames) == n_exp:
+            if n == n_exp:
                 break
 
             if (count - self.count_start - 1) % n_exp == 0:
@@ -122,13 +123,6 @@ class Varex(CameraBase):
                 det.go_live()
                 det.software_trigger()
                 self.count_start = count
-
-    def _readout(self):
-        frames = np.array(self._det_frames)
-        meta = self._det_meta
-        self._det_frames = None
-        self._det_meta = None
-        return frames, meta
 
     def _disarm(self):
         if self.detector.is_live():
