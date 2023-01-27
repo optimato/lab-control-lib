@@ -39,7 +39,7 @@ class FileWriter(multiprocessing.Process):
     worker can write.
     """
 
-    def __init__(self, array_name='data_buffer', args_name='args_buffer'):
+    def __init__(self, array_name='data_buffer'):
         """
         Prepare a Worker process to save data on disk. Shared memory is
         allocated at construction, see BUFFERSIZE.
@@ -47,29 +47,21 @@ class FileWriter(multiprocessing.Process):
         super().__init__()
 
         self.array_name = array_name
-        self.args_name = args_name
 
         self.logger = rootlogger.getChild(self.__class__.__name__)
 
-
-        # Allocate buffers if needed
+        # Allocate buffer if needed
         try:
             self.data_buffer = shared_memory.SharedMemory(name=array_name,
                                                           create=True,
                                                           size=BUFFERSIZE)
-            self.args_buffer = shared_memory.SharedMemory(name=args_name,
-                                                          create=True,
-                                                          size=10000)
-
             self.logger.debug(f'Created shared memory ({BUFFERSIZE * 1e-6:3.1f} MB)')
 
         except FileExistsError:
             self.data_buffer = shared_memory.SharedMemory(name=array_name)
-            self.args_buffer = shared_memory.SharedMemory(name=args_name)
 
-        # Flag the arrival of a new dataset to save
-        self.write_flag = multiprocessing.Event()
-        self.reply_flag = multiprocessing.Event()
+        # Communication pipe
+        self.p_main, self.p_sub = multiprocessing.Pipe()
 
         # Flag the completion of the writing loop, after exhaustion of the queue
         self.stop_flag = multiprocessing.Event()
@@ -130,7 +122,6 @@ class FileWriter(multiprocessing.Process):
 
         self.logger.debug('Writing loop ended.')
         self.data_buffer.unlink()
-        self.args_buffer.unlink()
         self.end_flag.set()
 
     def write(self, filename, meta, data):
@@ -144,17 +135,13 @@ class FileWriter(multiprocessing.Process):
         A listening thread that queues the frames and metadata to be processed.
         """
         while True:
-            if not self.write_flag.wait(1):
+            if not self.p_main.poll(1.):
                 if self.stop_flag.is_set():
                     break
                 else:
                     continue
-            self.write_flag.clear()
+            args = self.p_main.recv()
 
-            # Extract arguments from shared buffer
-            args = self.args
-            print(args)
-            
             # That's a hack to control the remote process
             if method:=args.get('method', None):
                 # Execute command! (the reply format is bogus for now)
@@ -172,13 +159,12 @@ class FileWriter(multiprocessing.Process):
                 data = self.get_array(shape=args['shape'],
                                   dtype=args['dtype']).copy()
 
-                # Put everything in the queue
+                # Put everything in the frame queue
                 self.queue.put((args['filename'], data, args['meta']))
                 reply = {'in_queue': self.queue.qsize()}
 
             # Send information back to main process.
-            self.args = reply
-            self.reply_flag.set()
+            self.p_sub.send(reply)
 
     def get_array(self, shape=None, dtype=None):
         """
@@ -212,42 +198,25 @@ class FileWriter(multiprocessing.Process):
                 'meta': meta}
 
         # Encode arguments in shared buffer
-        self.args = args
-        self.write_flag.set()
+        self.p_main.send(args)
 
         # Get reply through same buffer
-        if not self.reply_flag.wait(2):
-            raise RuntimeError('Remote process id not responding.')
-        reply = self.args
-        self.reply_flag.clear()
+        if not self.p_sub.poll(2.):
+            raise RuntimeError('Remote process is not responding.')
+        reply = self.p_sub.recv()
         return reply
-
-    @property
-    def args(self):
-        """
-        (json-seralizable) object represented by args buffer.
-        """
-        return json.loads(self.args_buffer.buf.tobytes().strip(b'\0 ').decode('utf8').strip())
-
-    @args.setter
-    def args(self, obj):
-        # Wipe buffer
-        self.args_buffer.buf[:] = self.args_buffer.size * b' '
-        s = json.dumps(obj).encode()
-        self.args_buffer.buf[:len(s)] = s
 
     def exec(self, method, args=(), kwargs=None):
         """
         A crude way to send commands to the process
         """
         kwargs = kwargs or {}
-        self.args = {'method': method, 'args': args, 'kwargs': kwargs}
-        self.write_flag.set()
+        self.p_main.send({'method': method, 'args': args, 'kwargs': kwargs})
+
         # Get reply through same buffer
-        if not self.reply_flag.wait(20):
-            raise RuntimeError('Remote process id not responding.')
-        reply = self.args
-        self.reply_flag.clear()
+        if not self.p_sub.poll(2.):
+            raise RuntimeError('Remote process is not responding.')
+        reply = self.p_sub.recv()
         return reply
 
     def stop(self):
