@@ -102,21 +102,37 @@ class Varex(CameraBase):
         self.logger.debug('Triggering detector.')
         det.software_trigger()
 
+        # Trigger metadata collection
+        self.grab_metadata.set()
+
         self.logger.debug('Starting acquisition loop.')
         n = 0
         while True:
+            # Wait for end of acquisition
             det.wait_image(10000.)
+
+            # Already trigger next metadata collection if needed
+            if self.metadata_every_exposure:
+                self.grab_metadata.set()
+
+            # Find and read out buffer
             count = det.get_field_count()
             i = det.get_captured_buffer()
             self.logger.debug(f'Acquired frame {count} from buffer {i}...')
             f, m = det.read_buffer(i)
-            self.queue_frame(f, m)
+
+            # Add frame to the queue
+            self.enqueue_frame(f, m)
+
+            # increment count
             n += 1
+
             det.check_for_live_error()
 
             if n == n_exp:
                 break
 
+            # For very high number of exposures, we need to reset the loop
             if (count - self.count_start - 1) % n_exp == 0:
                 if det.is_live():
                     det.go_unlive()

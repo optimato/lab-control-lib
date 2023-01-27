@@ -153,7 +153,8 @@ class FileWriter(multiprocessing.Process):
 
             # Extract arguments from shared buffer
             args = self.args
-
+            print(args)
+            
             # That's a hack to control the remote process
             if method:=args.get('method', None):
                 # Execute command! (the reply format is bogus for now)
@@ -235,10 +236,11 @@ class FileWriter(multiprocessing.Process):
         s = json.dumps(obj).encode()
         self.args_buffer.buf[:len(s)] = s
 
-    def exec(self, method, args=(), kwargs={}):
+    def exec(self, method, args=(), kwargs=None):
         """
         A crude way to send commands to the process
         """
+        kwargs = kwargs or {}
         self.args = {'method': method, 'args': args, 'kwargs': kwargs}
         self.write_flag.set()
         # Get reply through same buffer
@@ -335,7 +337,7 @@ class H5FileWriter(FileWriter):
         """
         Prepare to store in a new file.
         """
-        return self.exec('_open', kwargs={'filename': filename})
+        return self.exec('_open', args=(), kwargs={'filename': filename})
 
     def close(self):
         """

@@ -68,8 +68,7 @@ import os
 import json
 import threading
 from queue import SimpleQueue, Empty
-
-from optimatools.io.h5rw import h5write
+import time
 
 from . import workflow, aggregate
 from .base import DriverBase
@@ -261,7 +260,7 @@ class CameraBase(DriverBase):
 
             # Prepare next acquisition on the file writing process
             if not self.rolling:
-                self.file_writer.open(self, filename=self.filename)
+                self.file_writer.open(filename=self.filename)
 
             # trigger acquisition with subclassed method and wait until it is done
             self._trigger()
@@ -295,6 +294,7 @@ class CameraBase(DriverBase):
         Running on a thread. Waiting for the "grab_metadata flag to be flipped, then
         attach most recent metadata to self.metadata
         """
+        time.sleep(.5)
         self.logger.debug('Metadata loop started')
         while True:
             if not self.grab_metadata.wait(1):
@@ -316,6 +316,7 @@ class CameraBase(DriverBase):
         Running on a thread. Watches self.frame_queue and deals with the data as
         it comes.
         """
+        time.sleep(.5)
         while True:
             try:
                 item = self.frame_queue.get(timeout=1.)
@@ -346,22 +347,20 @@ class CameraBase(DriverBase):
                 'operation_mode': self.operation_mode}
         return meta
 
-    def enqueue_frame(self, frame_and_meta):
+    def enqueue_frame(self, frame, meta):
         """
         Add frame and meta to the queue. This is meant to be called
         within _trigger at least once.
         """
-
         # Check if global metadata is required with this frame
         if self.metadata_every_exposure:
-            metadata = aggregate.get_all_meta()
-            localmeta = self.get_local_meta()
+            metadata = self.metadata
+            localmeta = self.localmeta
         else:
             metadata = {}
             localmeta = {}
 
         # Update frame metadata and add to queue
-        frame, meta = frame_and_meta
         localmeta.update(meta)
         metadata[self.name] = localmeta
         self.frame_queue.put((frame, metadata))
