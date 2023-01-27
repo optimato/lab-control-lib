@@ -89,6 +89,11 @@ class ServerBase:
     ADDRESS = None
     API = None
     CLS = None
+    RESULT_TIMEOUT = .2  # Wait time for completion of a blocking task before
+                         # notifying the client that it is still running.
+                         # This should not be too short to avoid rapid-fire
+                         # back and forth, but should not be too long to allow
+                         # for emergency stops to be requested fast enough.
 
     def __init__(self, cls=None, API=None, address=None, instantiate=False, instance_args=None, instance_kwargs=None):
         """
@@ -464,15 +469,15 @@ class ServerBase:
             awaiting_result = self.awaiting_result if self.awaiting_result is not None else self._awaiting_result
             if awaiting_result is None:
                 return {'status': 'error', 'msg': 'No awaiting result found.'}
-            elif not awaiting_result.done():
-                return {'status': 'waiting', 'msg': 'Task is still running'}
-            try:
-                result = awaiting_result.result()
-            except BaseException as error:
-                return {'status': 'error', 'msg': traceback.format_exc()}
-            finally:
-                self.awaiting_result = None
-                self._awaiting_result = None
+            else:
+                try:
+                    result = awaiting_result.result(timeout=self.RESULT_TIMEOUT)
+                except TimeoutError:
+                    return {'status': 'waiting', 'msg': 'Task is still running'}
+                except BaseException as error:
+                    return {'status': 'error', 'msg': traceback.format_exc()}
+            self.awaiting_result = None
+            self._awaiting_result = None
             return {'status': 'ok', 'value': result}
 
         #
@@ -638,15 +643,35 @@ class ClientProxy:
             # 4) Sending otherwise didn't work -> hopefully this won't happen
             self.socket.send_json(cmd_seq)
         except AttributeError:
+            # We are here if self.socket is None
+
             if self.socket is None:
                 # This may happen at shutdown - ignore.
                 return
             else:
+                # This should never happen
                 raise
         except Exception as e:
-            # Connection problems (e.g. the server shut down) are managed here
-            self.logger.warning(f'Could not send command to server at {self.full_address}.')
-            return {'status': 'error', 'msg': traceback.format_exc()}
+            # We are here if the socket cannot send. Probably because we already
+            # send something and we are waiting for the reply.
+
+            if cmd == '^ping':
+                # Most likely no big deal.
+                return {'status': 'ok', 'msg': 'probably waiting for another call.'}
+            elif cmd == '^abort':
+                # Emergency, we need to try harder. We wait for the reply and send
+                # immediately the abort request.
+                self.logger.warning('Abort call: waiting for server to reply.')
+                for i in range(100):
+                    if (self.socket.poll(500) & zmq.POLLIN) != 0:
+                        reply = self.socket.recv_json()
+                        break
+                self.logger.warning('Abort call: server replied. Now sending.')
+                self.socket.send_json(cmd_seq)
+            else:
+                # Connection problems (e.g. the server shut down) are managed here
+                self.logger.warning(f'Could not send command "{cmd_seq}" to server at {self.full_address}.')
+                return {'status': 'error', 'msg': traceback.format_exc()}
 
         ###################
         # Receive reply
@@ -706,19 +731,27 @@ class ClientProxy:
             elif (cmd in self.API) and (not self.API[cmd]['block']):
                 # Wait for non-blocking calls (cmd == '' corresponds to the case where object instantiation
                 # might take a lot of time)
-                try:
-                    while True:
-                        reply = self.send_recv((self.ID, '^result', [], {}), clean=False)
-                        if reply['status'] == 'error':
+                emergency_stop = False
+                while True:
+                    # The flag is set to true if a keyboard interrupt was caught
+                    # during the previous iteration of the loop.
+                    if emergency_stop:
+                        reply = self.send_recv((self.ID, '^abort', [], {}), clean=False)
+                        if reply['status'] != 'ok':
                             raise RuntimeError(reply['msg'])
-                        elif reply['status'] == 'ok':
-                            value = reply.get('value')
-                            return value
-                        time.sleep(.1)
-                except KeyboardInterrupt:
-                    reply = self.send_recv((self.ID, '^abort', [], {}), clean=False)
-                    if reply['status'] != 'ok':
+                        return reply
+                    try:
+                        # The call will return after Server.RESULT_TIMEOUT seconds.
+                        # or before if the result is available.
+                        reply = self.send_recv((self.ID, '^result', [], {}), clean=False)
+                    except KeyboardInterrupt:
+                        emergency_stop = True
+                        continue
+                    if reply['status'] == 'error':
                         raise RuntimeError(reply['msg'])
+                    elif reply['status'] == 'ok':
+                        value = reply.get('value')
+                        return value
             else:
                 value = reply.get('value')
                 return value
@@ -730,10 +763,11 @@ class ClientProxy:
         """
         while not self._stopping:
             try:
-                reply = self.send_recv([self.ID, '^ping', [], {}])
-                self._last_ping = time.time()
+                reply = self.send_recv([self.ID, '^ping', [], {}], clean=False)
+                if reply['status'] == 'ok':
+                    self._last_ping = time.time()
             except BaseException as error:
-                self.logger.error(repr(error))
+                self.logger.exception('Ping error.')
             time.sleep(self.PING_INTERVAL)
 
     def disconnect(self):
