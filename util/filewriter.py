@@ -135,13 +135,12 @@ class FileWriter(multiprocessing.Process):
         A listening thread that queues the frames and metadata to be processed.
         """
         while True:
-            if not self.p_main.poll(1.):
+            if not self.p_sub.poll(timeout=1.):
                 if self.stop_flag.is_set():
                     break
                 else:
                     continue
-            args = self.p_main.recv()
-
+            args = self.p_sub.recv()
             # That's a hack to control the remote process
             if method:=args.get('method', None):
                 # Execute command! (the reply format is bogus for now)
@@ -201,9 +200,9 @@ class FileWriter(multiprocessing.Process):
         self.p_main.send(args)
 
         # Get reply through same buffer
-        if not self.p_sub.poll(2.):
+        if not self.p_main.poll(2.):
             raise RuntimeError('Remote process is not responding.')
-        reply = self.p_sub.recv()
+        reply = self.p_main.recv()
         return reply
 
     def exec(self, method, args=(), kwargs=None):
@@ -214,9 +213,9 @@ class FileWriter(multiprocessing.Process):
         self.p_main.send({'method': method, 'args': args, 'kwargs': kwargs})
 
         # Get reply through same buffer
-        if not self.p_sub.poll(2.):
+        if not self.p_main.poll(2.):
             raise RuntimeError('Remote process is not responding.')
-        reply = self.p_sub.recv()
+        reply = self.p_main.recv()
         return reply
 
     def stop(self):

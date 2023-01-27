@@ -32,9 +32,11 @@ class FileStreamer(FileWriter):
         """
         Turn on broadcasting (in process)
         """
+        self.logger.debug('(sub) Creating FramePublisher for broadcast')
         if self.broadcaster:
             return
         self.broadcaster = self.FramePublisher(port=self.broadcast_port)
+
 
     def on(self):
         """
@@ -46,6 +48,7 @@ class FileStreamer(FileWriter):
         """
         Stop broadcasting (in process)
         """
+        self.logger.debug('(sub) Deleting FramePublisher.')
         if not self.broadcaster:
             return
         try:
