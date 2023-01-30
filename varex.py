@@ -111,7 +111,12 @@ class Varex(CameraBase):
         n = 0
         while True:
             # Wait for end of acquisition
-            det.wait_image(10000.)
+            while True:
+                try:
+                    det.wait_image(50.)
+                    break
+                except TimeoutError:
+                    continue
 
             # Already trigger next metadata collection if needed
             if self.metadata_every_exposure:

@@ -11,6 +11,8 @@ h5w.store(filename, data, meta) # This copies the data to shared memory and flag
 """
 
 import multiprocessing
+import os.path
+
 try:
     multiprocessing.set_start_method('spawn')
 except RuntimeError:
@@ -66,6 +68,9 @@ class FileWriter(multiprocessing.Process):
         # Flag the completion of the writing loop, after exhaustion of the queue
         self.stop_flag = multiprocessing.Event()
         self.end_flag = multiprocessing.Event()
+        self.queue_empty_flag = multiprocessing.Event()
+
+        self.comm_lock = multiprocessing.Lock()
 
         self._array = None
 
@@ -99,10 +104,12 @@ class FileWriter(multiprocessing.Process):
             try:
                 item = self.queue.get(timeout=1.)
             except Empty:
+                self.queue_empty_flag.set()
                 if self.stop_flag.is_set():
                     break
                 else:
                     continue
+            self.logger.debug('Processing one item of the queue.')
 
             # Store beginning of processing time
             self.times['processed'].append(time.time())
@@ -142,7 +149,7 @@ class FileWriter(multiprocessing.Process):
                     continue
             args = self.p_sub.recv()
             # That's a hack to control the remote process
-            if method:=args.get('method', None):
+            if method := args.get('method', None):
                 # Execute command! (the reply format is bogus for now)
                 try:
                     method = getattr(self, method)
@@ -151,6 +158,9 @@ class FileWriter(multiprocessing.Process):
                 except:
                     reply = {'status': 'error', 'msg': traceback.format_exc()}
             else:
+                # Certainly the queue will not be empty
+                self.queue_empty_flag.clear()
+
                 # Store arrival time
                 self.times['received'].append(time.time())
 
@@ -164,6 +174,21 @@ class FileWriter(multiprocessing.Process):
 
             # Send information back to main process.
             self.p_sub.send(reply)
+
+    def _set_log_level(self, level):
+        """
+        Set the log level on the sub-process.
+        """
+        self.logger.setLevel(level)
+        return
+
+    def set_log_level(self, level):
+        """
+        Set the log level on the main and sub-process.
+        """
+        self.logger.setLevel(level)
+        self.exec('_set_log_level', args=(level,))
+        return
 
     def get_array(self, shape=None, dtype=None):
         """
@@ -180,27 +205,29 @@ class FileWriter(multiprocessing.Process):
         data=None indicates that the data has already been transferred onto the
         buffer. The ndarray parameters are those of self._array
         """
-        if data is None:
-            # Data is already in buffer
-            shape = self._array.shape
-            dtype = str(self._array.dtype)
-        else:
-            # Copy data onto shared memory
-            shape = data.shape
-            dtype = str(data.dtype)
-            self.get_array(shape=shape, dtype=dtype)[:] = data[:]
 
-        # Preparing arguments.
-        args = {'filename': filename,
-                'shape': shape,
-                'dtype': dtype,
-                'meta': meta}
+        with self.comm_lock:
+            if data is None:
+                # Data is already in buffer
+                shape = self._array.shape
+                dtype = str(self._array.dtype)
+            else:
+                # Copy data onto shared memory
+                shape = data.shape
+                dtype = str(data.dtype)
+                self.get_array(shape=shape, dtype=dtype)[:] = data[:]
 
-        # Encode arguments in shared buffer
-        self.p_main.send(args)
+            # Preparing arguments.
+            args = {'filename': filename,
+                    'shape': shape,
+                    'dtype': dtype,
+                    'meta': meta}
+
+            # Encode arguments in shared buffer
+            self.p_main.send(args)
 
         # Get reply through same buffer
-        if not self.p_main.poll(2.):
+        if not self.p_main.poll(20.):
             raise RuntimeError('Remote process is not responding.')
         reply = self.p_main.recv()
         return reply
@@ -210,10 +237,11 @@ class FileWriter(multiprocessing.Process):
         A crude way to send commands to the process
         """
         kwargs = kwargs or {}
-        self.p_main.send({'method': method, 'args': args, 'kwargs': kwargs})
+        with self.comm_lock:
+            self.p_main.send({'method': method, 'args': args, 'kwargs': kwargs})
 
         # Get reply through same buffer
-        if not self.p_main.poll(2.):
+        if not self.p_main.poll(20.):
             raise RuntimeError('Remote process is not responding.')
         reply = self.p_main.recv()
         return reply
@@ -248,11 +276,11 @@ class H5FileWriter(FileWriter):
         are appended to disc as they arrive.
         """
         super().__init__()
-        self.ready_to_close = multiprocessing.Event()
         self.in_ram = in_ram
         self._filename = None
         self._meta = []
         self._frames = []
+        self.write_lock = multiprocessing.Lock()
 
     def _open(self, filename):
         """
@@ -260,6 +288,10 @@ class H5FileWriter(FileWriter):
         """
         self.logger.debug(f'Data will be saved in file {filename}')
         self._filename = filename
+
+        b, f = os.path.split(filename)
+        os.makedirs(b, exist_ok=True)
+
         if self.in_ram:
             self._frames = []
             self._meta = []
@@ -280,6 +312,10 @@ class H5FileWriter(FileWriter):
         """
         (process side) closing of the file saving.
         """
+        self.queue_empty_flag.wait()
+        self.logger.debug('Queue empty flag as been set')
+        self.logger.debug(f'Queue size: {self.queue.qsize()}')
+
         if self.in_ram:
             self.logger.debug(f'Creating numpy dataset')
             data = np.array(self._frames)
@@ -289,7 +325,6 @@ class H5FileWriter(FileWriter):
         else:
             # Nothing to do!
             self.logger.debug(f'Closing hdf5 file')
-            self.ready_to_close.wait()
             self._fd.close()
             self.logger.debug(f'Done')
 
@@ -334,10 +369,8 @@ class H5FileWriter(FileWriter):
             self._frames.append(np.squeeze(data))
         else:
             # Add frame to the open hdf5 file.
-            self.ready_to_close.clear()
-
             shape = data.shape
-            if len(shape)==2:
+            if len(shape) == 2:
                 shape = (1,) + shape
 
             # If dataset has not been created do it now
@@ -347,7 +380,9 @@ class H5FileWriter(FileWriter):
                 self._dset = self._fd.create_dataset(name="data",
                                                      shape=(0,) + shape[-2:],
                                                      maxshape=(None,) + shape[-2:],
-                                                     dtype=dtype)
+                                                     dtype=dtype,
+                                                     chunks=(1, 64, 64),
+                                                     compression='gzip')
                 # Adding this attribute makes the file compatible with h5write
                 self._dset.attrs['type'] = 'array'
                 self.logger.debug(f'Done creating dataset')
@@ -367,4 +402,5 @@ class H5FileWriter(FileWriter):
             self.logger.debug(f'Storing metadata')
             self.h5append(self._fd, meta=self._meta)
             self.logger.debug(f'Done')
-            self.ready_to_close.set()
+
+        return
