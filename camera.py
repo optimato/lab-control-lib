@@ -116,13 +116,15 @@ class CameraBase(DriverBase):
             self.magnification = 1.
         if 'counter' not in self.config:
             self.counter = 0
+        if 'save_mode' not in self.config:
+            self.config['save_mode'] = 'append'
 
         self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
         self._stop_roll = False       # To interrupt rolling
 
         # File writing process
-        self.file_writer = filewriter.H5FileWriter.start_process(in_ram=False)
+        self.file_writer = filewriter.H5FileWriter.start_process(mode=self.config['save_mode'])
 
         # Prepare metadata collection
         aggregate.connect()
@@ -405,6 +407,25 @@ class CameraBase(DriverBase):
         else:
             raise RuntimeError(f'Unknown file format: {self.file_format}.')
         return filename
+
+    @proxycall(admin=True)
+    @property
+    def save_mode(self):
+        """
+        Saving mode. `save_mode` has to be one of the three following options:
+        1) 'ram': all frames are accumulated in RAM and saved to disk at the end in a single file
+        2) 'append': frames are appended gradually in a single file
+        3) 'single': frames are saved individually (a number suffix is inserted at the end of the file name)
+        """
+        return self.config['save_mode']
+    
+    @save_mode.setter
+    def save_mode(self, mode):
+        mode = mode.lower()
+        if mode not in ['ram', 'append', 'single']:
+            raise RuntimeError(f'Unknown saving mode "{mode}"')
+        self.config['save_mode'] = mode
+        self.file_writer.set_mode(mode)
 
     @proxycall(admin=True)
     def arm(self, exp_time=None, exp_num=None):
