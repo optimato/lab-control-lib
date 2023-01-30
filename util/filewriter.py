@@ -268,19 +268,30 @@ class H5FileWriter(FileWriter):
     A worker class to save HDF5 files.
     """
 
-    def __init__(self, in_ram=True):
+    def __init__(self, mode=None):
         """
-        When receiving data (with FileWriter.store method), there
-        are two possibilities: 1) frames are accumulated in RAM
-        (default) and saved to disc when self.close is called. 2) frames
-        are appended to disc as they arrive.
+        When receiving data (with FileWriter.store method),
+        there are three possibilities depending on `mode`:
+        1) mode = "ram": frames are accumulated in RAM and saved to disk when self.close is called.
+        2) mode = "append" (default): frames are appended to disk as they arrive.
+        3) mode = "single": frames are stored in individual files.
         """
         super().__init__()
-        self.in_ram = in_ram
+        self.mode = mode or 'append'
         self._filename = None
         self._meta = []
         self._frames = []
         self.write_lock = multiprocessing.Lock()
+
+    def set_mode(self, mode):
+        """
+        Set saving mode in the main and sub processes.
+        """
+        self.mode = mode
+        return self.exec('_set_mode', args=(mode,))
+
+    def _set_mode(self, mode):
+        self.mode = mode
 
     def _open(self, filename):
         """
@@ -292,9 +303,10 @@ class H5FileWriter(FileWriter):
         b, f = os.path.split(filename)
         os.makedirs(b, exist_ok=True)
 
-        if self.in_ram:
+        if self.mode in ['ram', 'single']:
             self._frames = []
             self._meta = []
+            self._single_counter = 0
         else:
             # Open new file
             self._fd = h5py.File(filename, 'w')
@@ -316,23 +328,23 @@ class H5FileWriter(FileWriter):
         self.logger.debug('Queue empty flag as been set')
         self.logger.debug(f'Queue size: {self.queue.qsize()}')
 
-        if self.in_ram:
+        if self.mode == 'ram':
             self.logger.debug(f'Creating numpy dataset')
             data = np.array(self._frames)
             self.logger.debug(f'Saving with h5write')
             self.h5write(filename=self._filename, meta=self._meta, data=data)
-            self.logger.debug(f'Done')
-        else:
+        elif self.mode == 'append':
             # Nothing to do!
             self.logger.debug(f'Closing hdf5 file')
             self._fd.close()
-            self.logger.debug(f'Done')
+        self.logger.debug(f'Done')
 
         # Reset everything for next time
         self._frames = []
         self._meta = []
         self._fd = None
         self._dset = None
+        self._single_counter = 0
 
         return
 
@@ -363,10 +375,15 @@ class H5FileWriter(FileWriter):
         standards, or to add more advanced features (e.g. appending to existing files).
         """
         self._meta.append(meta)
-        if self.in_ram:
+        if self.mode == 'ram':
             # Accumulate frame in ram. We'll save everything at the end.
             self.logger.debug(f'Appending frame in RAM')
             self._frames.append(np.squeeze(data))
+        elif self.mode == 'single':
+            filename = self._filename.replace ('.h5', f'_{self._single_counter:06d}.h5')
+            self.h5write(filename=filename, meta=self._meta, data=np.squeeze(data))
+            self.logger.debug(f'Frame saved to file {filename}')
+            self._single_counter += 1
         else:
             # Add frame to the open hdf5 file.
             shape = data.shape

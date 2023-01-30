@@ -97,6 +97,7 @@ class Varex(CameraBase):
         det = self.detector
 
         n_exp = self.exposure_number
+        exp_time = self.exposure_time
 
         self._det_frames = []
         self._det_meta = {}
@@ -111,6 +112,8 @@ class Varex(CameraBase):
         n = 0
         while True:
             # Wait for end of acquisition
+            # det.wait_image is a busy wait! So we sleep for exposure_time - 50 ms, and only then we wait
+            time.sleep(exp_time - .05)
             while True:
                 try:
                     det.wait_image(50.)
