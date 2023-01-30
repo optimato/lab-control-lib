@@ -95,6 +95,7 @@ and subsequently calling the relative movement function.
 import time
 import json
 
+from . import register_proxy_client
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .util.uitools import ask_yes_no
 from .util.proxydevice import proxydevice, proxycall
@@ -600,6 +601,7 @@ class McLennan(SocketDriverBase):
         self.config['limits'] = limits
 
 
+@register_proxy_client
 @proxydevice(address=NETWORK_CONF['mclennan1']['control'])
 class McLennan1(McLennan):
     """
@@ -613,6 +615,7 @@ class McLennan1(McLennan):
         super().__init__(device_address=NETWORK_CONF[self.name]['device'], name=self.name)
 
 
+@register_proxy_client
 @proxydevice(address=NETWORK_CONF['mclennan2']['control'])
 class McLennan2(McLennan):
     """
@@ -626,6 +629,7 @@ class McLennan2(McLennan):
         super().__init__(device_address=NETWORK_CONF[self.name]['device'], name=self.name)
 
 
+@register_proxy_client
 @proxydevice(address=NETWORK_CONF['mclennan3']['control'])
 class McLennan3(McLennan):
     """

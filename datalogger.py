@@ -1,4 +1,4 @@
-from . import workflow
+from . import manager
 from .util import datalogger as dl
 from .network_conf import DATALOGGER as NET_INFO
 from . import config, THIS_HOST
@@ -23,15 +23,15 @@ class DataLogger(dl.DataLogger):
         """
         Add tags related to current scan
         """
-        from . import workflow
-        experiment = workflow.getExperiment()
+        from . import manager
+        man = manager.getManager()
 
-        if experiment is None:
+        if man is None:
             tags = {'host': THIS_HOST}
         else:
-            tags = {'investigation': experiment.investigation or 'undefined',
-                    'experiment': experiment.experiment or 'undefined',
-                    'scan_name': experiment.scan_name or 'undefined',
+            tags = {'investigation': man.investigation or 'undefined',
+                    'experiment': man.experiment or 'undefined',
+                    'scan_name': man.scan_name or 'undefined',
                     'host': THIS_HOST}
         return tags
 

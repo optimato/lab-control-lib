@@ -4,17 +4,16 @@ User interface (CLI)
 To be imported only by the interactive controlling process.
 """
 
-import logging
 import inspect
 import os
 
-from . import drivers, motors, data_path, config, conf_path
+from . import drivers, motors, data_path, client_or_None
 from .util import uitools
 from .util.uitools import ask, ask_yes_no, user_prompt
-from .manager import instantiate_driver, DRIVER_DATA
-from . import workflow
+from .util.logs import logger as rootlogger
+from . import manager
 
-logger = logging.getLogger(__name__)
+logger = rootlogger.getChild(__name__)
 
 INVESTIGATIONS = None
 
@@ -30,22 +29,21 @@ def init(yes=None):
         uitools.user_interactive = False
 
     # Experiment management
-    experiment = workflow.getExperiment()
-    print(experiment.status())
+    man = manager.getManager()
+    print(man.status())
     load_past_investigations()
 
     # Excillum
     if ask_yes_no("Connect to Excillum?"):
-        driver = instantiate_driver(name='excillum')
-        drivers['excillum'] = driver
+        if driver:=client_or_None('excillum'):
+            drivers['excillum'] = driver
 
     # Smaract
     if ask_yes_no('Initialise smaracts?',
                   help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
-        driver = instantiate_driver(name='smaract')
-        drivers['smaract'] = driver
-        if driver is not None:
-            import smaract
+        if driver:=client_or_None('smaract'):
+            drivers['smaract'] = driver
+            from . import smaract
             motors['sx'] = smaract.Motor('sx', driver, axis=0)
             motors['sy'] = smaract.Motor('sy', driver, axis=2)
             motors['sz'] = smaract.Motor('sz', driver, axis=1)
@@ -53,51 +51,66 @@ def init(yes=None):
     # Coarse stages
     if ask_yes_no('Initialise short branch coarse stages?'):
         # McLennan 1 (sample coarse x translation)
-        driver = instantiate_driver(name='mclennan1')
-        drivers['mclennan_sample'] = driver
-        if driver is not None:
-            import mclennan
+        if driver:=client_or_None('mclennan1'):
+            drivers['mclennan1'] = driver
+            from . import mclennan
             motors['ssx'] = mclennan.Motor('ssx', driver)
 
-        # McLennan 2 (detector coarse x translation)
-        driver = instantiate_driver(name='mclennan2')
-        drivers['mclennan_detector'] = driver
-        if driver is not None:
-            import mclennan
+        # McLennan 2 (short branch detector coarse x translation)
+        if driver:=client_or_None('mclennan2'):
+            drivers['mclennan2'] = driver
+            from . import mclennan
+            motors['dsx'] = mclennan.Motor('dsx', driver)
+
+        # McLennan 3 (long branch detector coarse x translation)
+        if driver:=client_or_None('mclennan3'):
+            drivers['mclennan3'] = driver
+            from . import mclennan
             motors['dsx'] = mclennan.Motor('dsx', driver)
 
     if ask_yes_no('Initialise Varex detector?'):
-        driver = instantiate_driver(name='varex')
-        drivers['varex'] = driver
+        if driver := client_or_None('varex'):
+            drivers['varex'] = driver
 
-    if ask_yes_no('Initialise PCO camera?'):
-        print('TODO')
+    #if ask_yes_no('Initialise PCO camera?'):
+    #    pass
 
-    if ask_yes_no('Initialise Andor camera?'):
-        print('TODO')
+    #if ask_yes_no('Initialise Andor camera?'):
+    #    pass
 
-    if ask_yes_no('Initialise microscope?'):
-        print('TODO')
+    #if ask_yes_no('Initialise microscope?'):
+    #    pass
 
     if ask_yes_no('Initialise rotation stage?'):
-        driver = instantiate_driver(name='aerotech')
-        drivers['aerotech'] = driver
-        if driver is not None:
+        if driver := client_or_None('aerotech'):
+            drivers['aerotech'] = driver
             from . import aerotech
             motors['rot'] = aerotech.Motor('rot', driver)
 
     if ask_yes_no('Initialise Newport XPS motors?'):
-        print('TODO')
+        if driver := client_or_None('xps1'):
+            drivers['xps1'] = driver
+            from . import xps
+            motors['xps1'] = xps.Motor('xps1', driver)
+
+        if driver := client_or_None('xps2'):
+            drivers['xps2'] = driver
+            from . import xps
+            motors['xps2'] = xps.Motor('xps2', driver)
+
+        if driver := client_or_None('xps3'):
+            drivers['xps3'] = driver
+            from . import xps
+            motors['xps3'] = xps.Motor('xps3', driver)
 
     if ask_yes_no('Initialize mecademic robot?'):
-        driver = instantiate_driver(name='mecademic')
-        drivers['mecademic'] = driver
-        if driver is not None:
+        if driver := client_or_None('mecademic'):
+            drivers['mecademic'] = driver
             from . import mecademic
             motors.update(mecademic.create_motors(driver))
 
-    if ask_yes_no('Initialise stage pseudomotors?'):
-        print('TODO')
+    #if ask_yes_no('Initialise stage pseudomotors?'):
+    #    print('TODO')
         # motors['sxl'] = labframe.Motor(
         #    'sxl', motors['sx'], motors['sz'], motors['rot'], axis=0)
         # motors['szl'] = labframe.Motor(
@@ -111,6 +124,9 @@ def init(yes=None):
                 s[0].f_globals.update(drivers)
                 break
 
+    if yes:
+        uitools.user_interactive = True
+
     return
 
 
@@ -123,8 +139,8 @@ def init_dummy(yes=None):
         uitools.user_interactive = False
 
     if ask_yes_no("Start dummy driver?"):
-        driver = instantiate_driver(name='dummy')
-        drivers['dummy'] = driver
+        if driver := client_or_None('dummy'):
+            drivers['dummy'] = driver
 
 
 # Get data directly from file directory structure
@@ -178,7 +194,7 @@ def choose_investigation(name=None):
                 INVESTIGATIONS[inv] = {}
             else:
                 inv = invkeys[ichoice-1]
-    workflow.getExperiment().investigation = inv
+    manager.getManager().investigation = inv
     return inv
 
 
@@ -194,7 +210,7 @@ def choose_experiment(inv=None, name=None):
 
     # Use global investigation name if none was provided
     if inv is None:
-        inv = workflow.getExperiment().investigation
+        inv = manager.getManager().investigation
 
     # This will break if inv is not a key of investigations
     # So be it. Create one first.
@@ -218,5 +234,5 @@ def choose_experiment(inv=None, name=None):
     exp_path = os.path.join(os.path.join(data_path, inv), exp)
     print(f'Experiment: {exp} at {exp_path}')
     os.makedirs(exp_path, exist_ok=True)
-    workflow.getExperiment().experiment = exp
+    manager.getManager().experiment = exp
     return exp

@@ -1,4 +1,5 @@
 
+from . import register_proxy_client
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .network_conf import NETWORK_CONF
 from .util.proxydevice import proxydevice, proxycall
@@ -141,6 +142,7 @@ class XPS(SocketDriverBase):
         """
         return self.send_cmd(f'GroupMoveRelative({self.axis}, {disp})')
 
+@register_proxy_client
 @proxydevice(address=NETWORK_CONF['xps1']['control'])
 class XPS1(XPS):
     """
@@ -151,6 +153,7 @@ class XPS1(XPS):
     def __init__(self, device_address=None):
         super().__init__(name='xps1', axis='Group1.Pos')
 
+@register_proxy_client
 @proxydevice(address=NETWORK_CONF['xps2']['control'])
 class XPS2(XPS):
     """
@@ -161,6 +164,7 @@ class XPS2(XPS):
     def __init__(self, device_address=None):
         super().__init__(name='xps2', axis='Group2.Pos')
 
+@register_proxy_client
 @proxydevice(address=NETWORK_CONF['xps3']['control'])
 class XPS3(XPS):
     """

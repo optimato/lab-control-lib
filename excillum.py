@@ -7,6 +7,7 @@ Current version Pierre 2022
 """
 import time
 
+from . import register_proxy_client
 from .base import SocketDriverBase
 from .network_conf import EXCILLUM as NET_INFO
 from .util.uitools import ask_yes_no
@@ -41,6 +42,7 @@ def float_or_None(value):
         return None
 
 
+@register_proxy_client
 @proxydevice(address=NET_INFO['control'])
 class Excillum(SocketDriverBase):
     """

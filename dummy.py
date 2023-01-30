@@ -9,6 +9,7 @@ Dummy controller for testing purposes.
 import time
 import socket
 
+from . import register_proxy_client
 from .base import MotorBase, SocketDriverBase, emergency_stop, _recv_all
 from .network_conf import DUMMY as NET_INFO
 from .datalogger import datalogger
@@ -16,7 +17,7 @@ from .util.proxydevice import proxydevice, proxycall
 
 __all__ = ['Dummy', 'Motor']
 
-
+@register_proxy_client
 @proxydevice(address=NET_INFO['control'])
 class Dummy(SocketDriverBase):
     """

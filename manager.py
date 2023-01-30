@@ -1,288 +1,427 @@
 """
-Manage driver and daemon creation.
+Management of experiment data, labeling, metadata, etc.
+
+Suggested structure similar to Elettra's
+ - Investigation : highest category (e.g. speckle_long_branch)
+ - Experiment : Typically an experiment run (over days, possibly in multiple parts)
+ - Scan : (instead of Elettra's "dataset") a numbered (and possibly labeled) dataset
 """
-
-import subprocess
-import time
-
 import logging
-import sys
-import inspect
-import click
+import os
+from datetime import datetime
+import time
+import threading
 
-from . import THIS_HOST, LOCAL_HOSTNAME
-from .network_conf import NETWORK_CONF, HOST_IPS
+from . import data_path, register_proxy_client, Classes, client_or_None
+from .network_conf import NETWORK_CONF, MANAGER as NET_INFO
+from .util.uitools import ask, user_prompt
+from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
-from .util.logs import logging_muted
-from .util.uitools import ask_yes_no
-from .util.proxydevice import ProxyClientError
-from .util.logs import DisplayLogger
-from .util.logs import logger as rootlogger
-from . import drivers, motors
-from . import aerotech
-from . import mclennan
-from . import mecademic
-from . import dummy
-from . import workflow
-#from . import microscope
-from . import smaract
-from . import excillum
-from . import varex
-from . import xps
-from . import xspectrum
+from .base import DriverBase
+from .datalogger import datalogger
 
-DRIVER_DATA = {'mecademic': {'driver': mecademic.Mecademic, 'net_info': NETWORK_CONF['mecademic']},
-               'smaract': {'driver': smaract.Smaract, 'net_info': NETWORK_CONF['smaract']},
-               'aerotech': {'driver': aerotech.Aerotech, 'net_info': NETWORK_CONF['aerotech']},
-               'mclennan1': {'driver': mclennan.McLennan1, 'net_info': NETWORK_CONF['mclennan1']},
-               'mclennan2': {'driver': mclennan.McLennan2, 'net_info': NETWORK_CONF['mclennan2']},
-               'mclennan3': {'driver': mclennan.McLennan3, 'net_info': NETWORK_CONF['mclennan3']},
-               'excillum': {'driver': excillum.Excillum, 'net_info': NETWORK_CONF['excillum']},
-               'dummy': {'driver': dummy.Dummy, 'net_info': NETWORK_CONF['dummy']},
-               'varex': {'driver': varex.Varex, 'net_info': NETWORK_CONF['varex']},
-               'xspectrum': {'driver': xspectrum.XSpectrum, 'net_info': NETWORK_CONF['xspectrum']},
-               'experiment': {'driver': workflow.Experiment, 'net_info': NETWORK_CONF['experiment']},
-               'xps1': {'driver': xps.XPS1, 'net_info': NETWORK_CONF['xps1']},
-               'xps2': {'driver': xps.XPS2, 'net_info': NETWORK_CONF['xps2']},
-               'xps3': {'driver': xps.XPS3, 'net_info': NETWORK_CONF['xps3']},
-               # 'pco': {},
-              #'xspectrum': {'driver': xspectrum.XSpectrum},
-               }
+logtags = {'type': 'manager',
+           'branch': 'both'
+           }
 
-# List of drivers that should run on the current host
-AVAILABLE = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS.get(THIS_HOST, [])]
-
-logger = rootlogger.getChild("manager")
+_client = []
 
 
-def instantiate_driver(name, admin=True):
+def getManager():
     """
-    Helper function to instantiate a driver (client).
-
-    name: driver name - a key of DRIVER_DATA.
-    admin: If True, request admin rights
+    A convenience function to return the current client (or a new one) for the Manager daemon.
     """
-    driver_data = DRIVER_DATA[name]
-    driver = driver_data['driver']
-    net_info = driver_data['net_info']
-
-    try:
-        d = driver.Client(address=net_info['control'],
-                          admin=admin,
-                          name=name)
-        # temporize slightly
-        time.sleep(.5)
-        
-        return d
-    except ProxyClientError:
-        logger.warning(f'The proxy server for driver {name} is unreachable')
-        return None
+    if _client and _client[0]:
+        return _client[0]
+    d = client_or_None('manager', admin=False)
+    _client.clear()
+    _client.append(d)
+    return d
 
 
+class Scan:
+    """
+    Scan context manager
+    """
+
+    def __init__(self, label=None):
+        self.label = label
+        self.logger = None
+
+    def __enter__(self):
+        """
+        Prepare for scan
+        """
+        manager = getManager()
+
+        # New scan
+        self.scan_data = manager.start_scan(label=self.label)
+
+        self.name = self.scan_data['scan_name']
+        self.scan_path = self.scan_data['path']
+
+        self.logger = logging.getLogger(self.name)
+        self.logger.info(f'Starting scan {self.name}')
+        self.logger.info(f'Files will be saved in {self.scan_path}')
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        """
+        Exit scan context
+
+        TODO: manage exceptions
+        """
+        getManager().end_scan()
+        self.logger.info(f'Scan {self.name} complete.')
 
 
-# Command Line Interface
+@register_proxy_client
+@proxydevice(address=NET_INFO['control'])
+class Manager(DriverBase):
+    """
+    Management of experiment structures and metadata.
+    """
 
-@click.group(help='Labcontrol proxy driver management')
-def cli():
-    pass
+    # Allowed characters for experiment and investigation names
+    _VALID_CHAR = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:'
+    # Interval at which attempts are made at connecting clients
+    CLIENT_LOOP_INTERVAL = 20.
+
+    def __init__(self):
+        """
+        Metadata manager for investigations, experiments and scans.
+        """
+        super().__init__()
+
+        if not self.config.get('experiment'):
+            self.config['experiment'] = None
+        if not self.config.get('investigation'):
+            self.config['investigation'] = None
+
+        # Set initial parameters
+        self._running = False
+        self._scan_name = None
+        self._label = None
+        self._base_file_name = None
+
+        try:
+            self._scan_number = self.next_scan()
+        except Exception as e:
+            self.logger.warning('Could not find first available scan number (have experiment and investigation been set?)')
+        self.counter = 0
+
+        self.metacalls = {'investigation': lambda: self.investigation,
+                          'experiment': lambda: self.experiment,
+                          'last_scan': lambda: self.next_scan() or None}
+
+        self.metadata = {}
+        self.meta_futures = {}
+        self.meta_grab_done_dct = {}
+        self.meta_grab_done = False
+        self.stop_flag = False
+        self.clients = {}
+        self.grab_meta_flag = threading.Event()
+        self.continue_flag = threading.Event()
+
+        self.clients_loop_future = Future(self.clients_loop)
+
+        # HACK (kind of): On the process where this class is instantiated, getManager must return this instance, not a client.
+        _client.clear()
+        _client.append(self)
+
+    @proxycall()
+    @property
+    def meta_to_save(self):
+        """
+        A dictionary of all metadata that will be fetched and saved in files.
+        """
+        return self.config['meta_to_save']
+
+    @meta_to_save.setter
+    def meta_to_save(self, dct):
+        self.config['meta_to_save'] = dct
 
 
-@cli.command(help='List proxy drivers that can be spawned on the current host')
-def list():
-    available_drivers = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
-    click.echo('Available drivers:\n\n * ' + '\n * '.join(available_drivers))
+    def clients_loop(self):
+        """
+        A loop running on a thread monitoring the health of the driver connections
+        """
+        while True:
+            if self.stop_flag:
+                return
 
+            # Loop through all registered driver classes
+            for name in Classes.keys():
+                if name not in self.clients:
+                    # Attempt client instantiation
+                    client = client_or_None(name, admin=False)
+                    if client:
+                        # Store client
+                        self.logger.info('Client "{name}" is connected')
+                        self.clients[name] = client
 
-@cli.command(help='List running proxy drivers')
-def running():
-    click.echo('Running drivers:\n\n')
-    with logging_muted():
-        for name in DRIVER_DATA.keys():
-            click.echo(f' * {name+":":<20}', nl=False)
-            d = instantiate_driver(name)
-            if d is not None:
-                click.secho('YES', fg='green')
+                        # Start the meta collection loop
+                        self.meta_futures[name] = Future(self.meta_loop, args=(name,))
+
+            if self.stop_flag:
+                return
+
+            time.sleep(self.CLIENT_LOOP_INTERVAL)
+
+    def meta_loop(self, name):
+        """
+        Running on a thread, one per client. Grab metadata when a signal is received,
+        and put it right into self.metadata
+        """
+        self.logger.info(f'Starting metadata collection loop for {name}.')
+        while True:
+            if not self.grab_meta_flag.wait(timeout=.5):
+                # The loop will stay here until the flag is set.
+                if self.stop_flag:
+                    return
+                continue
+
+            if client := self.clients.get(name, None):
+                t0 = time.time()
+                meta = client.get_meta()
+                dt = time.time() - t0
+                self.logger.debug(f'{name} : metadata collection completed in {dt * 1000:3.2f} ms')
+                self.metadata[name] = meta
+                self.meta_grab_done_dct[name] = dt
+                if not any(self.meta_grab_done_dct.values()):
+                    self.meta_grab_done = True
+                    self.logger.info(f'Metadata collection completed.')
+
+            if not self.continue_flag.wait(timeout=.5):
+                # Wait here until told to continue
+                if self.stop_flag:
+                    return
+                continue
+
+    @proxycall()
+    def request_meta(self):
+        """
+        Start grabbing all the metadata corresponding to the keys in self.meta_to_save.
+
+        This method returns immediately. The metadata itself will be obtained when calling return_meta.
+        """
+        # Clear metadata dict
+        self.metadata = {}
+
+        # A dict that gathers information about who is done grabbing the metadata
+        self.meta_grab_done_dct = {name:None for name in self.clients.keys()}
+
+        # Make sure everyone will stop after their meta collection
+        self.continue_flag.clear()
+
+        # Flag everyone to get going
+        self.grab_meta_flag.set()
+        return
+
+    @proxycall()
+    def return_meta(self):
+        """
+        Return the metadata that has been accumulated since the last call to request_meta.
+        """
+        if not self.meta_grab_done:
+            not_done = [name for name, v in self.meta_grab_done_dct.items() if v is None]
+            self.logger.warning(f'Metadata not completed at the time it is returned ({not_done})')
+
+        # Reset everything for next time
+        self.grab_meta_flag.clear()
+        self.continue_flag.set()
+
+        return self.metadata
+
+    @proxycall()
+    @datalogger.meta(field_name='scan_start', tags=logtags)
+    def start_scan(self, label=None):
+        """
+        Start a new scan.
+        """
+        if self._running:
+            raise RuntimeError(f'Scan {self.scan_name} already running')
+
+        # Get new scan number
+        self._scan_number = self.next_scan()
+
+        # Create scan name
+        today = datetime.now().strftime('%y-%m-%d')
+
+        scan_name = f'{self._scan_number:06d}_{today}'
+        if label is not None:
+            scan_name += f'_{label}'
+
+        self._scan_name = scan_name
+        self._base_file_name = scan_name + '_{0:06d}'
+
+        self._running = True
+        self._label = label
+        self.counter = 0
+
+        # Create path (ok even if on control host)
+        os.makedirs(os.path.join(data_path, self.path, scan_name), exist_ok=True)
+
+        scan_info = {'scan_number': self._scan_number,
+                'scan_name': scan_name,
+                'investigation': self.investigation,
+                'experiment': self.experiment,
+                'path': self.path}
+
+        return scan_info
+
+    @proxycall()
+    @datalogger.meta(field_name='scan_stop', tags=logtags)
+    def end_scan(self):
+        """
+        Finalize the scan
+        """
+        if not self._running:
+            raise RuntimeError(f'No scan currently running')
+        self._running = False
+        return {'scan_number': self._scan_number,
+                'scan_name': self._scan_name,
+                'investigation': self.investigation,
+                'experiment': self.experiment,
+                'path': self.path,
+                'count': self.counter
+                 }
+
+    @proxycall()
+    def status(self):
+        """
+        Summary of current configuration.
+        """
+        s = f' * Investigation: {self.investigation}\n'
+        s += f' * Experiment: {self.experiment}\n'
+        ns = self.next_scan()
+        s += f' * Last scan number: {"[none]" if ns==0 else ns-1}'
+        return s
+
+    @proxycall()
+    def next_prefix(self):
+        """
+        Return full prefix identifier and increment counter.
+        """
+        if not self._running:
+            raise RuntimeError(f'No scan currently running')
+        prefix = self._base_file_name.format(self.counter)
+        self.counter += 1
+        return prefix
+
+    @proxycall()
+    def next_scan(self):
+        """
+        Return the next available scan number based on the analysis of the
+        experiment path.
+        """
+        try:
+            exp_path = os.path.join(data_path, self.path)
+        except RuntimeError as e:
+            return None
+        scan_numbers = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
+        return max(scan_numbers, default=-1) + 1
+
+    def _check_path(self):
+        """
+        If the current investigation / experiment values are set, check if path exists.
+        """
+        try:
+            full_path = os.path.join(data_path, self.path)
+            if os.path.exists(full_path):
+                self.logger.info(f'Path {full_path} selected (exists).')
             else:
-                click.secho('NO', fg='red')
+                os.makedirs(full_path, exist_ok=True)
+                self.logger.info(f'Created path {full_path}.')
+        except RuntimeError as e:
+            self.logger.warning(str(e))
 
+    def _valid_name(self, s):
+        """
+        Confirm that the given string can be used as part of a path
+        """
+        return all(c in self._VALID_CHAR for c in s)
 
-@cli.command(help='Start the server proxy of driver [name]. Does not return.')
-@click.argument('name', nargs=-1)
-def start(name):
-    available_drivers = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
+    @proxycall()
+    @property
+    def scan_name(self):
+        """
+        Return the full scan name - none if no scan is running.
+        """
+        if not self._running:
+            return None
+        return self._scan_name
 
-    # Without driver name: list available drivers on current host
-    if not name:
-        click.echo('Available drivers on this host:\n * ' + '\n * '.join(available_drivers))
-        return
+    @proxycall()
+    @property
+    def investigation(self):
+        """
+        The current investigation name.
 
-    if len(name) > 1:
-        click.echo('Warning, only supporting one driver at a time for the moment.')
+        *** Setting the investigation makes experiment None.
+        """
+        return self.config.get('investigation')
 
-    name = name[0]
+    @investigation.setter
+    def investigation(self, v):
+        if self._running:
+            raise RuntimeError(f'Investigation cannot be modified while a scan is running.')
+        if not self._valid_name(v):
+            raise RuntimeError(f'Invalid investigation name: {v}')
+        self.config['investigation'] = v
+        self.config['experiment'] = None
 
-    if name not in available_drivers:
-        raise click.BadParameter(f'Driver {name} cannot be launched from host {THIS_HOST} ({LOCAL_HOSTNAME}).')
+    @proxycall()
+    @property
+    def experiment(self):
+        """
+        The current experiment name.
+        """
+        return self.config['experiment']
 
-    # Get driver info
-    try:
-        driver_data = DRIVER_DATA[name]
-        net_info = NETWORK_CONF[name]
-    except KeyError:
-        raise click.BadParameter(f'No driver named {name}')
+    @experiment.setter
+    def experiment(self, v):
+        if self._running:
+            raise RuntimeError(f'Experiment cannot be modified while a scan is running.')
+        if self.investigation is None:
+            raise RuntimeError(f'Investigation is not set.')
+        if not self._valid_name(v):
+            raise RuntimeError(f'Invalid experiment name: {v}')
+        self.config['experiment'] = v
+        self._check_path()
 
-    click.echo(f'{name+":":<15}', nl=False)
+    @proxycall()
+    @property
+    def scanning(self):
+        """
+        True if a scan is currently running
+        """
+        return self._running
 
-    # Check if already running
-    with logging_muted():
-        d = instantiate_driver(name)
-    if d is not None:
-        click.secho('ALREADY RUNNING', fg='yellow')
-        return
+    @property
+    def path(self):
+        """
+        Return experiment path
+        """
+        if self.experiment is None or self.investigation is None:
+            RuntimeError('Experiment or Investigation not set.')
+        return os.path.join(self.investigation, self.experiment)
 
-    # Get driver class and instantiation arguments
-    driver_cls = driver_data['driver']
-    instance_args = driver_data.get('instance_args', ())
-    instance_kwargs = driver_data.get('instance_kwargs', {})
+    @proxycall()
+    @property
+    def scan_path(self):
+        """
+        Return scan path - None if no scan is running.
+        """
+        if not self._running:
+            return None
+        return os.path.join(self.path, self.scan_name)
 
-    # Start the server
-    with logging_muted():
-        s = driver_cls.Server(address=net_info['control'],
-                          instantiate=True,
-                          instance_args=instance_args,
-                          instance_kwargs=instance_kwargs)
-
-    # Wait for completion, then exit.
-    click.secho('RUNNING', fg='green')
-    s.wait()
-    sys.exit(0)
-
-
-@cli.command(help='Kill the server proxy of driver [name] if running.')
-@click.argument('name', nargs=-1)
-def kill(name):
-    d = instantiate_driver(name[0])
-    if d:
-        time.sleep(.2)
-        d.ask_admin(True, True)
-        time.sleep(.2)
-        d._proxy.kill()
-
-
-@cli.command(help='Kill all running server proxy.')
-def killall():
-    futures = []
-    for name in DRIVER_DATA.keys():
-        futures.append(Future(kill, ((name,),)))
-    for f in futures:
-        f.join()
-
-
-@cli.command(help='Start Display real-time logs of all running drivers')
-def logall():
-    dl = DisplayLogger()
-    for name, data in DRIVER_DATA.items():
-        if addr:= data['net_info'].get('logging', None):
-            dl.sub(name, addr)
-    dl.show()
-
-@cli.command(help='Start frame viewer')
-@click.argument('name', nargs=1)
-@click.option('--type', '-t', 'vtype', default='napari', show_default=True, help='Viewer type: "napari" or "cv".')
-@click.option('--maxfps', '-m', default=10, show_default=True, help='Maximum refresh rate (FPS).')
-def viewer(name, vtype, maxfps):
-    from .util import viewers
-    viewer_addr = {'varex': (DRIVER_DATA['varex']['net_info']['control'][0],
-                             DRIVER_DATA['varex']['net_info']['broadcast_port']),
-                   'xspectrum': (DRIVER_DATA['xspectrum']['net_info']['control'][0],
-                             DRIVER_DATA['xspectrum']['net_info']['broadcast_port'])
-                   }
-    addr = viewer_addr.get(name.lower(), None)
-    if not addr:
-        click.echo(f'Unknown detector: {name}')
-        sys.exit(0)
-    if vtype.lower() == 'napari':
-        Vclass = viewers.NapariViewer
-    elif vtype.lower() == 'cv':
-        Vclass = viewers.CvViewer
-    else:
-        click.echo(f'Unknown viewer type: {vtype}')
-        sys.exit(0)
-
-    if maxfps > 25:
-        click.echo(f'Frame rate cannot be higher than 25.')
-        sys.exit(0)
-    if maxfps < 0:
-        click.echo(f'Invalid FPS')
-        sys.exit(0)
-
-    v = Vclass(address=addr, max_fps=maxfps)
-    v.start()
-    sys.exit(0)
-
-@cli.command(help='Start all proxy drivers on separate processes.')
-def startall():
-
-    monitor_time = 10
-
-    available_drivers = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
-
-    processes = {}
-    for name in available_drivers:
-        processes[name] = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
-                             start_new_session=True,
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.PIPE)
-
-    # Monitor for failure
-    time.sleep(.5)
-    t0 = time.time()
-    failed = []
-    while time.time() < (t0 + monitor_time):
-        for name, p in processes.items():
-            err = p.stderr.read().decode()
-            if ('Traceback ' in err) or (p.poll() is not None):
-                # Process exited
-                logger.warning(f'Driver proxy spawning for {name} failed!')
-                print(err)
-                failed.append(name)
-        for f in failed:
-            processes.pop(f, None)
-        if not processes:
-            break
-        time.sleep(.1)
-
-
-def boot(monitor_time=10):
-    """
-    Initialize all proxy servers that should run on this host.
-    Wait for monitor_time to check and report errors.
-    """
-    # Start a new process for all proxy servers
-    processes = {}
-    for name in AVAILABLE:
-        processes[name] = subprocess.Popen([sys.executable, '-m', 'labcontrol', 'start', f'{name}'],
-                             start_new_session=True,
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.PIPE)
-        logger.info(f'Spawning proxy server process for driver {name}...')
-
-    # Monitor for failure
-    time.sleep(.5)
-    t0 = time.time()
-    failed = []
-    while time.time() < (t0 + monitor_time):
-        for name, p in processes.items():
-            err = p.stderr.read().decode()
-            if ('Traceback ' in err) or (p.poll() is not None):
-                # Process exited
-                logger.warning(f'Driver proxy spawning for {name} failed!')
-                print(err)
-                failed.append(name)
-        for f in failed:
-            processes.pop(f, None)
-        if not processes:
-            break
-        time.sleep(.1)
-    return len(failed)
+    @proxycall()
+    @property
+    def scan_number(self):
+        """
+        Return scan name - None if no scan is running.
+        """
+        if not self._running:
+            return None
+        return self._scan_number

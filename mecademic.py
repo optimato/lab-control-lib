@@ -17,6 +17,7 @@ import socket
 import os
 import threading
 
+from . import register_proxy_client
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException, _recv_all
 from .network_conf import MECADEMIC as NET_INFO, MECADEMIC_MONITOR
 from .util.uitools import ask_yes_no
@@ -184,6 +185,7 @@ class MecademicMonitorLog(MecademicMonitor):
             f.write(f'{g[2230]}, {g[2026]}\n')
 
 
+@register_proxy_client
 @proxydevice(address=NET_INFO['control'])
 class Mecademic(SocketDriverBase):
     """

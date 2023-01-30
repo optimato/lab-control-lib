@@ -117,17 +117,44 @@ print('\n'.join(['*{:^64s}*'.format(f"OptImaTo Lab Control"),
 class ControllerRunningError(RuntimeError):
     pass
 
+# Dictionary for driver classes (populated when drivers module load)
+Classes = {}
+
+
+def register_proxy_client(cls):
+    """
+    A simple decorator to store all proxydriver clients in the `Clients` dictrionary. Then
+    Starting a clients can be done based on names, e.g. Clients['varex']()
+    """
+    Classes[cls.__name__.lower()] = cls
+    return cls
+
+
+def client_or_None(name, admin=True):
+    """
+    Client creation.
+    """
+    from .util.proxydevice import ProxyClientError
+    d = None
+    try:
+        d = Classes[name].Client(admin=admin)
+    except ProxyClientError as e:
+        logs.logger.info(str(e))
+    return d
+
+
 # dictionary for driver instances
 drivers = {}
 
 # dictionary of motor instances
 motors = {}
 
-from . import workflow
+
+from . import manager
 
 # Import ui
 from .ui import init, load_past_investigations, choose_investigation, choose_experiment
-from .workflow import Scan
+from .manager import Scan
 
 # Import all driver submodules
 #from . import aerotech

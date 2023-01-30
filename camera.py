@@ -59,7 +59,7 @@ File naming uses the following recipe:
   file_prefix is either CameraBase.file_prefix or CameraBase.file_prefix.format(self.counter)
   extension depends on CameraBase.file_format
 
-** Within a SCAN (see experiment.Scan object)
+** Within a SCAN (see manager.Scan object)
 
 
 
@@ -70,7 +70,7 @@ import threading
 from queue import SimpleQueue, Empty
 import time
 
-from . import workflow, aggregate
+from . import manager
 from .base import DriverBase
 from .util import now, FramePublisher
 from .util.proxydevice import proxydevice, proxycall
@@ -125,7 +125,6 @@ class CameraBase(DriverBase):
         self.file_writer = filewriter.H5FileWriter.start_process()
 
         # Prepare metadata collection
-        aggregate.connect()
         self.metadata = {}
         self.localmeta = {}
         self.grab_metadata = threading.Event()
@@ -143,7 +142,7 @@ class CameraBase(DriverBase):
             self.file_streamer.on()
 
         # Scan managemnt
-        self._experiment = workflow.getExperiment()
+        self._manager = manager.getManager()
         self._scan_path = None
         self.in_scan = False
 
@@ -223,7 +222,7 @@ class CameraBase(DriverBase):
         # Camera is armed
         # Build filename
         if self.in_scan:
-            self.filename = self._build_filename(prefix=self._experiment.next_prefix(), path=self._scan_path)
+            self.filename = self._build_filename(prefix=self._manager.next_prefix(), path=self._scan_path)
         else:
             self.counter += 1
             self.filename = self._build_filename(prefix=self.file_prefix, path=self.save_path)
@@ -303,8 +302,8 @@ class CameraBase(DriverBase):
                 continue
             self.grab_metadata.clear()
 
-            # Global metadata
-            self.metadata.update(aggregate.get_all_meta())
+            # Request global metadata
+            self._manager.request_meta()
 
             # Local metadata
             self.localmeta = self.get_local_meta()
@@ -340,7 +339,7 @@ class CameraBase(DriverBase):
         Return camera-specific metadata
         """
         meta = {'detector': self.name,
-                'scan_name': workflow.getExperiment().scan_name,
+                'scan_name': manager.getManager().scan_name,
                 'psize': self.psize,
                 'epsize': self.epsize,
                 'exposure_time': self.exposure_time,
@@ -402,9 +401,9 @@ class CameraBase(DriverBase):
                 self.exposure_number = exp_num
 
         # Check if this is part of a scan
-        if not self._experiment:
-            self._experiment = workflow.getExperiment()
-        scan_path = self._experiment.scan_path
+        if not self._manager:
+            self._manager = manager.getManager()
+        scan_path = self._manager.scan_path
         self.in_scan = scan_path is not None
         self._scan_path = scan_path
 

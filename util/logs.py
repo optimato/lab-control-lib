@@ -12,9 +12,9 @@ import threading
 import time
 import datetime
 
-from .. import LOG_FILE
 from .future import Future
 
+from .. import LOG_FILE
 
 # This adds another debug level but it is not well managed by
 # zmq.logs.PubHandler so for now not used.

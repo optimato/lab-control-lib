@@ -8,6 +8,7 @@ import logging
 import numpy as np
 from threading import Event
 
+from . import register_proxy_client
 from .camera import CameraBase
 from .network_conf import VAREX as NET_INFO
 from .util.proxydevice import proxydevice
@@ -30,6 +31,7 @@ else:
 __all__ = ['Varex']
 
 
+@register_proxy_client
 @proxydevice(address=NET_INFO['control'])
 class Varex(CameraBase):
     """

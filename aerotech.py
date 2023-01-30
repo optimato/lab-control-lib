@@ -42,6 +42,7 @@ Initial Version: Hans Deyhle
 
 import time
 
+from . import register_proxy_client
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .network_conf import AEROTECH as NET_INFO
 from .util.proxydevice import proxydevice, proxycall
@@ -49,7 +50,7 @@ from .util.uitools import ask_yes_no
 
 __all__ = ['Aerotech', 'Motor']
 
-
+@register_proxy_client
 @proxydevice(address=NET_INFO['control'])
 class Aerotech(SocketDriverBase):
     """

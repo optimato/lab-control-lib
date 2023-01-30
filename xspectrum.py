@@ -8,6 +8,7 @@ import importlib.util
 import logging
 import numpy as np
 
+from . import register_proxy_client
 from .camera import CameraBase
 from .network_conf import XSPECTRUM as NET_INFO
 from .util.proxydevice import proxycall, proxydevice
@@ -30,6 +31,7 @@ else:
 __all__ = ['XSpectrum']
 
 
+@register_proxy_client
 @proxydevice(address=NET_INFO['control'])
 class XSpectrum(CameraBase):
     """

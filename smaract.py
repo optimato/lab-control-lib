@@ -55,6 +55,7 @@ METHODS LIST
 
 import time
 
+from . import register_proxy_client
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .network_conf import SMARACT as NET_INFO
 from .util.uitools import ask_yes_no
@@ -69,6 +70,7 @@ SENSOR_MODES = {0: 'disabled', 1: 'enabled', 2: 'power save'}
 EOL = b'\n'
 
 
+@register_proxy_client
 @proxydevice(address=NET_INFO['control'])
 class Smaract(SocketDriverBase):
     """
