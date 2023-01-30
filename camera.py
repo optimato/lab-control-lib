@@ -236,10 +236,6 @@ class CameraBase(DriverBase):
         # Trigger next acquisition now
         self.do_acquire.set()
 
-        # Wipe previous metadata and start collecting new one immediately
-        # self.metadata = {}
-        # self.grab_metadata.set()
-
         # Wait for the end of the acquisition
         self.acquire_done.wait()
         self.acquire_done.clear()

@@ -121,6 +121,9 @@ class Varex(CameraBase):
                 except TimeoutError:
                     continue
 
+            # Get metadata
+            self.metadata = self._manager.return_meta()
+
             # Already trigger next metadata collection if needed
             if self.metadata_every_exposure:
                 self.grab_metadata.set()
