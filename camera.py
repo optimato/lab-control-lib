@@ -122,7 +122,7 @@ class CameraBase(DriverBase):
         self._stop_roll = False       # To interrupt rolling
 
         # File writing process
-        self.file_writer = filewriter.H5FileWriter.start_process()
+        self.file_writer = filewriter.H5FileWriter.start_process(in_ram=False)
 
         # Prepare metadata collection
         aggregate.connect()
@@ -133,6 +133,8 @@ class CameraBase(DriverBase):
 
         self.do_acquire = threading.Event()
         self.acquire_done = threading.Event()
+        self.frame_queue_empty_flag = threading.Event()
+
         self.end_acquisition = False
         self.frame_queue = SimpleQueue()
         self.frame_future = Future(self.frame_management_loop)
@@ -234,8 +236,8 @@ class CameraBase(DriverBase):
         self.do_acquire.set()
 
         # Wipe previous metadata and start collecting new one immediately
-        self.metadata = {}
-        self.grab_metadata.set()
+        # self.metadata = {}
+        # self.grab_metadata.set()
 
         # Wait for the end of the acquisition
         self.acquire_done.wait()
@@ -257,19 +259,25 @@ class CameraBase(DriverBase):
                     break
                 continue
             self.do_acquire.clear()
+            self.logger.debug('Received acquisition request (do_acquire flag).')
 
             # Prepare next acquisition on the file writing process
             if not self.rolling:
                 self.file_writer.open(filename=self.filename)
 
             # trigger acquisition with subclassed method and wait until it is done
+            self.logger.debug('Calling the subclass trigger.')
             self._trigger()
+            self.logger.debug('Done calling the subclass trigger.')
 
             # Flip flag immediately to allow snap to return.
+            self.logger.debug('Setting acquire_done flag.')
             self.acquire_done.set()
 
             # Finalize saving
             if not self.rolling:
+                self.frame_queue_empty_flag.wait()
+                self.logger.debug('Calling file_writer.close()')
                 self.file_writer.close()
 
             if self.rolling:
@@ -302,6 +310,7 @@ class CameraBase(DriverBase):
                     return
                 continue
             self.grab_metadata.clear()
+            self.logger.debug('Metadata collection requested (grab_metadata flag)')
 
             # Global metadata
             self.metadata.update(aggregate.get_all_meta())
@@ -321,19 +330,26 @@ class CameraBase(DriverBase):
             try:
                 item = self.frame_queue.get(timeout=1.)
             except Empty:
+                self.frame_queue_empty_flag.set()
                 if self.closing:
                     break
                 else:
                     continue
+            self.logger.debug('New frame arrived in queue')
 
             # Deal with frame
             data, meta = item
 
             if not self.rolling:
+                self.logger.debug('Calling store() with frame')
                 self.file_writer.store(self.filename, meta=meta, data=data)
+                self.logger.debug('Store() returned')
 
             if self.config['do_broadcast']:
                 self.file_streamer.store(self.filename, meta=meta, data=data)
+
+            if self.frame_queue.qsize() == 0:
+                self.frame_queue_empty_flag.set()
 
     def get_local_meta(self):
         """
@@ -352,6 +368,8 @@ class CameraBase(DriverBase):
         Add frame and meta to the queue. This is meant to be called
         within _trigger at least once.
         """
+        self.logger.debug('Frame arrived in enqueue_frame')
+        self.frame_queue_empty_flag.clear()
         # Check if global metadata is required with this frame
         if self.metadata_every_exposure:
             metadata = self.metadata
@@ -364,6 +382,7 @@ class CameraBase(DriverBase):
         localmeta.update(meta)
         metadata[self.name] = localmeta
         self.frame_queue.put((frame, metadata))
+        self.logger.debug('Frame added to queue.')
 
     def _build_filename(self, prefix, path) -> str:
         """
@@ -505,6 +524,8 @@ class CameraBase(DriverBase):
         self.roll(switch=False)
         # Stop file_writer process
         self.file_writer.stop()
+        # Stop file_streamer process
+        self.file_streamer.stop()
         # Stop metadata loop
         self.closing = True
 
