@@ -104,12 +104,16 @@ def kill(name):
 
 @cli.command(help='Kill all running server proxy.')
 def killall():
-    futures = []
-    for name in NETWORK_CONF.keys():
-        futures.append(Future(kill, ((name,),)))
-    for f in futures:
-        f.join()
+    # First ask manager to kill all other servers
+    d = client_or_None('manager')
+    if not d:
+        click.Abort('Could not connect to manager!')
+    time.sleep(.5)
+    d.ask_admin(True, True)
+    d.killall()
 
+    # Then kill manager
+    d._proxy.kill()
 
 @cli.command(help='Start Display real-time logs of all running drivers')
 def logall():

@@ -171,6 +171,7 @@ class ServerBase:
         """
         Stop the server. This signals both listening and ping threads to terminate.
         """
+        del self.instance
         self._stopping = True
 
     def _run(self):
@@ -713,6 +714,7 @@ class ClientProxy:
 
             retries += 1
             self.logger.info(f"Trying to reconnect to server (attempt {retries})")
+            self.logger.debug(f"Full address: {self.full_address}, client ID {self.ID}")
 
             # Reconnect and send again
             self.socket = self.context.socket(zmq.REQ)

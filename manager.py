@@ -19,6 +19,7 @@ from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
 from .base import DriverBase
 from .datalogger import datalogger
+from .util.logs import logging_muted
 
 logtags = {'type': 'manager',
            'branch': 'both'
@@ -84,7 +85,7 @@ class Manager(DriverBase):
     # Allowed characters for experiment and investigation names
     _VALID_CHAR = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:'
     # Interval at which attempts are made at connecting clients
-    CLIENT_LOOP_INTERVAL = 20.
+    CLIENT_LOOP_INTERVAL = 5.
 
     def __init__(self):
         """
@@ -140,32 +141,35 @@ class Manager(DriverBase):
     def meta_to_save(self, dct):
         self.config['meta_to_save'] = dct
 
-
     def clients_loop(self):
         """
         A loop running on a thread monitoring the health of the driver connections
         """
         while True:
             if self.stop_flag:
-                return
+                break
 
             # Loop through all registered driver classes
             for name in Classes.keys():
                 if name not in self.clients:
                     # Attempt client instantiation
-                    client = client_or_None(name, admin=False)
+                    with logging_muted():
+                        client = client_or_None(name, admin=False)
                     if client:
                         # Store client
-                        self.logger.info('Client "{name}" is connected')
+                        self.logger.info(f'Client "{name}" is connected')
                         self.clients[name] = client
 
                         # Start the meta collection loop
                         self.meta_futures[name] = Future(self.meta_loop, args=(name,))
 
+            for i in range(10):
+                time.sleep(self.CLIENT_LOOP_INTERVAL/10)
+                if self.stop_flag:
+                    break
             if self.stop_flag:
-                return
-
-            time.sleep(self.CLIENT_LOOP_INTERVAL)
+                break
+        self.logger.info('Exiting client connection loop.')
 
     def meta_loop(self, name):
         """
@@ -175,8 +179,8 @@ class Manager(DriverBase):
         self.logger.info(f'Starting metadata collection loop for {name}.')
         while True:
             if not self.grab_meta_flag.wait(timeout=.5):
-                # The loop will stay here until the flag is set.
-                if self.stop_flag:
+                # The loop will stay here until the flag is set or the client is removed from the dict
+                if self.stop_flag or name not in self.clients:
                     return
                 continue
 
@@ -187,7 +191,7 @@ class Manager(DriverBase):
                 self.logger.debug(f'{name} : metadata collection completed in {dt * 1000:3.2f} ms')
                 self.metadata[name] = meta
                 self.meta_grab_done_dct[name] = dt
-                if not any(self.meta_grab_done_dct.values()):
+                if any(not x for x in self.meta_grab_done_dct.values()):
                     self.meta_grab_done = True
                     self.logger.info(f'Metadata collection completed.')
 
@@ -196,6 +200,7 @@ class Manager(DriverBase):
                 if self.stop_flag:
                     return
                 continue
+        self.logger.info(f'Metadata collection loop for {name} ended.')
 
     @proxycall()
     def request_meta(self):
@@ -231,6 +236,33 @@ class Manager(DriverBase):
         self.continue_flag.set()
 
         return self.metadata
+
+    @proxycall(admin=True)
+    def killall(self):
+        """
+        Kill all servers.
+        """
+        self.stop_flag = True
+        while self.clients:
+            name, c = self.clients.popitem()
+            if name == 'manager':
+                # We don't kill ourselves
+                del c
+                continue
+            c.ask_admin(True, True)
+            c._proxy.kill()
+            time.sleep(.5)
+            del c
+            self.logger.info(f'{name} killed.')
+
+    def shutdown(self):
+        """
+        Clean up
+        """
+        self.stop_flag = True
+        if m := getManager():
+            del m
+        self.clients_loop_future.join()
 
     @proxycall()
     @datalogger.meta(field_name='scan_start', tags=logtags)
