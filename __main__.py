@@ -1,12 +1,12 @@
 import time
 import sys
 import click
+import logging
 
 from . import THIS_HOST, LOCAL_HOSTNAME, client_or_None, Classes
 from .network_conf import NETWORK_CONF, HOST_IPS
 from .util.future import Future
-from .util.logs import logging_muted
-from .util.logs import DisplayLogger
+from .util.logs import logging_muted, DisplayLogger, logger as rootlogger
 
 
 AVAILABLE = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS.get(THIS_HOST, [])]
@@ -38,7 +38,8 @@ def running():
 
 @cli.command(help='Start the server proxy of driver [name]. Does not return.')
 @click.argument('name', nargs=-1)
-def start(name):
+@click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
+def start(name, loglevel):
     available_drivers = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
 
     # Without driver name: list available drivers on current host
@@ -69,13 +70,24 @@ def start(name):
         click.secho('ALREADY RUNNING', fg='yellow')
         return
 
+    try:
+        ll = int(loglevel)
+    except ValueError:
+        try:
+            ll = logging._nameToLevel[loglevel]
+        except KeyError:
+            raise click.BadParameter(f'Unknown log level: {loglevel}')
+
+    rootlogger.setLevel(ll)
+
     # Start the server
     with logging_muted():
         s = Classes[name].Server(address=net_info['control'], instantiate=True)
 
+    click.secho('RUNNING', fg='green')
+
     # Wait for completion, then exit.
     s.wait()
-    click.secho('RUNNING', fg='green')
     sys.exit(0)
 
 
