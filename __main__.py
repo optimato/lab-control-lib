@@ -78,13 +78,13 @@ def start(name, loglevel):
         except KeyError:
             raise click.BadParameter(f'Unknown log level: {loglevel}')
 
-    rootlogger.setLevel(ll)
-
     # Start the server
-    with logging_muted():
-        s = Classes[name].Server(address=net_info['control'], instantiate=True)
+    # with logging_muted():
+    s = Classes[name].Server(address=net_info['control'], instantiate=True)
 
     click.secho('RUNNING', fg='green')
+
+    s.instance.set_log_level(ll)
 
     # Wait for completion, then exit.
     s.wait()
