@@ -225,7 +225,7 @@ class Mecademic(SocketDriverBase):
                                'status': self.get_status})
 
         self.periodic_calls.update({'status': (self.get_status, 10)})
-        
+
         self.last_error = None
         self.motion_paused = False
 

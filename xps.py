@@ -30,7 +30,7 @@ class XPS(SocketDriverBase):
         # TODO
         self.metacalls.update({})
 
-    def init_device(self):
+    def init_device(self):  # not "@proxycall"?
         """
         Device initialization.
         """
@@ -150,6 +150,7 @@ class XPS1(XPS):
     """
     DEFAULT_DEVICE_ADDRESS = NETWORK_CONF['xps1']['device']
     DEFAULT_LOGGING_ADDRESS = NETWORK_CONF['xps1']['logging']
+
     def __init__(self, device_address=None):
         super().__init__(name='xps1', axis='Group1.Pos')
 
@@ -161,6 +162,7 @@ class XPS2(XPS):
     """
     DEFAULT_DEVICE_ADDRESS = NETWORK_CONF['xps2']['device']
     DEFAULT_LOGGING_ADDRESS = NETWORK_CONF['xps2']['logging']
+
     def __init__(self, device_address=None):
         super().__init__(name='xps2', axis='Group2.Pos')
 
@@ -172,8 +174,10 @@ class XPS3(XPS):
     """
     DEFAULT_DEVICE_ADDRESS = NETWORK_CONF['xps3']['device']
     DEFAULT_LOGGING_ADDRESS = NETWORK_CONF['xps3']['logging']
+
     def __init__(self, device_address=None):
         super().__init__(name='xps3', axis='Group3.Pos')
+
 
 class XPSMonitor(SocketDriverBase):
     """
@@ -210,29 +214,29 @@ class XPSMonitor(SocketDriverBase):
         reply = self.send_cmd(command)
         return float(reply)
 
+
 class Motor(MotorBase):
 
-    def __init__(self, name, driver, axis):
+    def __init__(self, name, driver):  # removed axis parameter
         """
         Newport Motor. axis is the driver's channel
         """
         super(Motor, self).__init__(name, driver)
-        self.axis = axis
 
-    def _get_pos(self):
+    def _get_pos(self):  # does this need to refer to XPSMonitor instead of XPS?
         """
         Return position in mm
         """
-        return self.driver.get_pos(self.axis)
+        return self.driver.get_pos()
 
     def _set_abs_pos(self, x):
         """
         Set absolute dial position
         """
-        return self.driver.move_abs(self.axis, x)
+        return self.driver.move_abs(x)
 
     def _set_rel_pos(self, x):
         """
         Set absolute position
         """
-        return self.driver.move_rel(self.axis, x)
+        return self.driver.move_rel(x)
