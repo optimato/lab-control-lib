@@ -737,8 +737,8 @@ class ClientProxy:
         ###################
 
         if ((clean is not None) and clean) or ((clean is None) and self.clean):
-            # In clean mode, we reproduce the behaviour of the remote class
             if reply['status'] == 'error':
+            # In clean mode, we reproduce the behaviour of the remote class
                 # Raise error if there was one
                 raise RuntimeError(f'Server error: {reply["msg"]}')
             elif (cmd in self.API) and (not self.API[cmd]['block']):
