@@ -103,6 +103,23 @@ def init(yes=None):
         # motors['szl'] = labframe.Motor(
         #    'szl', motors['sx'], motors['sz'], motors['rot'], axis=1)
 
+    if ask_yes_no('Initialise XPS motors?'):
+        driver1 = instantiate_driver(name='xps1')
+        driver2 = instantiate_driver(name='xps2')
+        driver3 = instantiate_driver(name='xps3')
+        drivers['xps1'] = driver1
+        drivers['xps2'] = driver2
+        drivers['xps3'] = driver3
+        if driver1 or driver2 or driver3:
+            from . import xps
+        if driver1:
+            motors['xps1'] = xps.Motor('xps1', driver1)  # remove "axis" parameter, get it from driver parameter
+        if driver2:
+            motors['xps2'] = xps.Motor('xps2', driver2)
+        if driver3:
+            motors['xps3'] = xps.Motor('xps3', driver3)
+
+
     if ask_yes_no('Dump motors and drivers in global namespace?'):
         # This is a bit of black magic
         for s in inspect.stack():
@@ -110,7 +127,8 @@ def init(yes=None):
                 s[0].f_globals.update(motors)
                 s[0].f_globals.update(drivers)
                 break
-
+    if yes:
+        uitools.user_interactive = True
     return
 
 
