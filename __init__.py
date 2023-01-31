@@ -149,7 +149,6 @@ drivers = {}
 # dictionary of motor instances
 motors = {}
 
-
 from . import manager
 
 # Import ui
@@ -157,19 +156,14 @@ from .ui import init, load_past_investigations, choose_investigation, choose_exp
 from .manager import Scan
 
 # Import all driver submodules
-#from . import aerotech
-#from . import dummy
-#from . import mclennan
-#from . import mecademic
+from . import excillum
+from . import aerotech
+from . import dummy
+from . import mclennan
+from . import mecademic
 #from . import microscope
 #from . import smaract
-#from . import varex
+from . import varex
 #from . import pco
-#from . import xspectrum
-#from . import xps
-
-#from . import mtffun_hans
-#from . import pcofun_hans
-#from . import xpsfun_ronan
-
-#from .ui import *
+from . import xspectrum
+from . import xps
