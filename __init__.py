@@ -139,6 +139,7 @@ def client_or_None(name, admin=True, inexistent_ok=True):
     if name not in Classes:
         if inexistent_ok:
             logs.logger.info(f'{name}: not imported so ignored')
+            return d
         else:
             raise RuntimeError(f'Could not find class {name}. Has the corresponding module been imported?')
     try:
