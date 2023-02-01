@@ -222,3 +222,7 @@ def boot(monitor_time=10):
             break
         time.sleep(.1)
     return len(failed)
+
+
+if __name__ == "__main__":
+    cli()
