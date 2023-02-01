@@ -126,6 +126,9 @@ class FileWriter(multiprocessing.Process):
 
             self.logger.debug(f'Done. Time in queue: {wait_time:0.3f} s, Saving duration: {save_time:0.3f} s')
 
+            if self.queue.qsize() == 0:
+                self.queue_empty_flag.set()
+
 
         self.logger.debug('Writing loop ended.')
         self.data_buffer.unlink()
@@ -153,10 +156,14 @@ class FileWriter(multiprocessing.Process):
                 # Execute command! (the reply format is bogus for now)
                 try:
                     method = getattr(self, method)
+                    reply = {'status': 'ok'}
+                    # Send reply to main process before execution
+                    self.p_sub.send(reply)
                     result = method(*args['args'], **args['kwargs'])
-                    reply = {'status': 'ok', 'result': result}
                 except:
                     reply = {'status': 'error', 'msg': traceback.format_exc()}
+                    self.p_sub.send(reply)
+
             else:
                 # Certainly the queue will not be empty
                 self.queue_empty_flag.clear()
@@ -172,8 +179,8 @@ class FileWriter(multiprocessing.Process):
                 self.queue.put((args['filename'], data, args['meta']))
                 reply = {'in_queue': self.queue.qsize()}
 
-            # Send information back to main process.
-            self.p_sub.send(reply)
+                # Send information back to main process.
+                self.p_sub.send(reply)
 
     def _set_log_level(self, level):
         """
@@ -324,6 +331,15 @@ class H5FileWriter(FileWriter):
         """
         (process side) closing of the file saving.
         """
+        Future(self.__close)
+        return
+
+    def __close(self):
+        """
+        (process side) do the actual closing on its own thread.
+        """
+        # We extract the filename immediately because it will change in the future.
+        filename = self._filename
         self.queue_empty_flag.wait()
         self.logger.debug('Queue empty flag as been set')
         self.logger.debug(f'Queue size: {self.queue.qsize()}')
@@ -332,7 +348,7 @@ class H5FileWriter(FileWriter):
             self.logger.debug(f'Creating numpy dataset')
             data = np.array(self._frames)
             self.logger.debug(f'Saving with h5write')
-            self.h5write(filename=self._filename, meta=self._meta, data=data)
+            self.h5write(filename=filename, meta=self._meta, data=data)
         elif self.mode == 'append':
             # Nothing to do!
             self.logger.debug(f'Closing hdf5 file')
@@ -399,7 +415,8 @@ class H5FileWriter(FileWriter):
                                                      maxshape=(None,) + shape[-2:],
                                                      dtype=dtype,
                                                      chunks=(1, 64, 64),
-                                                     compression='gzip')
+                                                     # compression='gzip'
+                                                     )
                 # Adding this attribute makes the file compatible with h5write
                 self._dset.attrs['type'] = 'array'
                 self.logger.debug(f'Done creating dataset')

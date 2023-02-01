@@ -148,7 +148,6 @@ class CameraBase(DriverBase):
         # Scan managemnt
         self._manager = manager.getManager()
         self._scan_path = None
-        self.in_scan = False
 
         self.filename = None
 
@@ -164,7 +163,7 @@ class CameraBase(DriverBase):
 
         # Switch telling if metadata should be grabbed for
         # every exposure when exposure_number > 1
-        self.metadata_every_exposure = False
+        self.metadata_every_exposure = True
 
     def _trigger(self, *args, **kwargs):
         """
@@ -226,7 +225,13 @@ class CameraBase(DriverBase):
         # Camera is armed
         # Build filename
         if self.in_scan:
-            self.filename = self._build_filename(prefix=self._manager.next_prefix(), path=self._scan_path)
+            while True:
+                prefix = self._manager.next_prefix()
+                if type(prefix) == str:
+                    break
+                # This should not be happening anymore...
+                self.logger.warning('Could not obtain prefix! Trying again.')
+            self.filename = self._build_filename(prefix=prefix, path=self._scan_path)
         else:
             self.counter += 1
             self.filename = self._build_filename(prefix=self.file_prefix, path=self.save_path)
@@ -332,7 +337,8 @@ class CameraBase(DriverBase):
                     break
                 else:
                     continue
-            self.logger.debug('New frame arrived in queue')
+
+            self.logger.debug(f'New frame arrived in queue (remaining: {self.frame_queue.qsize()})')
 
             # Deal with frame
             data, meta = item
@@ -346,6 +352,7 @@ class CameraBase(DriverBase):
                 self.file_streamer.store(self.filename, meta=meta, data=data)
 
             if self.frame_queue.qsize() == 0:
+                self.logger.debug('Setting frame queue empty flag.')
                 self.frame_queue_empty_flag.set()
 
     def get_local_meta(self):
@@ -374,6 +381,7 @@ class CameraBase(DriverBase):
         else:
             metadata = {}
             localmeta = {}
+
 
         # Update frame metadata and add to queue
         localmeta.update(meta)
@@ -439,9 +447,7 @@ class CameraBase(DriverBase):
         # Check if this is part of a scan
         if not self._manager:
             self._manager = manager.getManager()
-        scan_path = self._manager.scan_path
-        self.in_scan = scan_path is not None
-        self._scan_path = scan_path
+        self._scan_path = self._manager.scan_path
 
         # Finish arming with subclassed method
         self._arm()
@@ -450,6 +456,13 @@ class CameraBase(DriverBase):
         self.loop_future = Future(self.acquisition_loop)
 
         self.armed = True
+
+    @property
+    def in_scan(self):
+        """
+        True if within a scan context.
+        """
+        return self._manager.scan_path is not None
 
     @proxycall(admin=True)
     def disarm(self):
@@ -463,7 +476,6 @@ class CameraBase(DriverBase):
         self._disarm()
 
         # Reset flags
-        self.in_scan = False
         self.armed = False
 
 
