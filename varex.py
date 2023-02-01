@@ -124,9 +124,8 @@ class Varex(CameraBase):
             # Get metadata
             self.metadata = self._manager.return_meta()
 
-            # Already trigger next metadata collection if needed
-            if self.metadata_every_exposure:
-                self.grab_metadata.set()
+            # Already trigger next metadata collection
+            self.grab_metadata.set()
 
             # Find and read out buffer
             count = det.get_field_count()

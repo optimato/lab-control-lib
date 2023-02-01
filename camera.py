@@ -161,10 +161,6 @@ class CameraBase(DriverBase):
 
         self.rolling = False
 
-        # Switch telling if metadata should be grabbed for
-        # every exposure when exposure_number > 1
-        self.metadata_every_exposure = True
-
     def _trigger(self, *args, **kwargs):
         """
         The device-specific triggering and acquisition procedure.
@@ -374,18 +370,17 @@ class CameraBase(DriverBase):
         """
         self.logger.debug('Frame arrived in enqueue_frame')
         self.frame_queue_empty_flag.clear()
-        # Check if global metadata is required with this frame
-        if self.metadata_every_exposure:
-            metadata = self.metadata
-            localmeta = self.localmeta
-        else:
-            metadata = {}
-            localmeta = {}
 
+        metadata = self.metadata
+        localmeta = self.localmeta
+
+        self.metadata = {}
+        self.localmeta = {}
 
         # Update frame metadata and add to queue
         localmeta.update(meta)
         metadata[self.name] = localmeta
+
         self.frame_queue.put((frame, metadata))
         self.logger.debug('Frame added to queue.')
 

@@ -350,7 +350,10 @@ class H5FileWriter(FileWriter):
             self.logger.debug(f'Saving with h5write')
             self.h5write(filename=filename, meta=self._meta, data=data)
         elif self.mode == 'append':
-            # Nothing to do!
+            # Store metadata
+            self.logger.debug(f'Storing metadata')
+            self.h5append(self._fd, meta=self._meta)
+
             self.logger.debug(f'Closing hdf5 file')
             self._fd.close()
         self.logger.debug(f'Done')
@@ -397,7 +400,7 @@ class H5FileWriter(FileWriter):
             self._frames.append(np.squeeze(data))
         elif self.mode == 'single':
             filename = self._filename.replace ('.h5', f'_{self._single_counter:06d}.h5')
-            self.h5write(filename=filename, meta=self._meta, data=np.squeeze(data))
+            self.h5write(filename=filename, meta=meta, data=np.squeeze(data))
             self.logger.debug(f'Frame saved to file {filename}')
             self._single_counter += 1
         else:
@@ -431,10 +434,6 @@ class H5FileWriter(FileWriter):
             # Store the data
             self.logger.debug(f'Storing data')
             self._dset[-shape[0]:] = data
-
-            # Store metadata
-            self.logger.debug(f'Storing metadata')
-            self.h5append(self._fd, meta=self._meta)
             self.logger.debug(f'Done')
 
         return
