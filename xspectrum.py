@@ -106,25 +106,41 @@ class XSpectrum(CameraBase):
         self.logger.debug('Ram allocated and voltage settled.')
         self.initialized = True
 
-    def grab_frame(self):
+    def _arm(self):
         """
-        Grab and return frame(s)
+        Arming X Spectrum detector: nothing to do apparently.
+        """
+        pass
+
+    def _trigger(self):
+        """
+        Trigger the acquisition and manage frames.
         """
         num_frames = self.exposure_number
         exp_time = self.exposure_time
         rec = self.rec
+
+        # Start acquiring
+        self.logger.debug('Starting acquisition.')
         self.det.start_acquisition()
 
-        dual = (self.counter_mode == 'dual')
+        # Trigger metadata collection
+        self.grab_metadata.set()
 
+        # Manage dual mode
+        dual = (self.counter_mode == 'dual')
         if dual:
             frames = [[], []]
         else:
             frames = []
             fsub = frames
-        for n in range(num_frames):
 
-            # Get frame
+        pair = []
+
+        n = 0
+        while True:
+
+            # Wait for frame
             frame = rec.get_frame(2000*exp_time)
             if not frame:
                 self.det.stop_acquisition()
@@ -137,27 +153,44 @@ class XSpectrum(CameraBase):
             if frame.status_code != pyxsp.FrameStatusCode.FRAME_OK:
                 raise RuntimeError(f'Error reading frame: {frame.status_code.name}')
 
-            # Select list for subframe
             if dual:
-                fsub = frames[frame.subframe - 1]
+                if frame.subframe == 0:
+                    self.logger.debug(f'Acquired frame {n}[0].')
+                    pair = [np.array(frame.data)]
+                    continue
+                else:
+                    self.logger.debug(f'Acquired frame {n}[1].')
+                    pair.append(np.array(frame.data))
+                    f = np.array(pair)
+            else:
+                self.logger.debug(f'Acquired frame {n}.')
+                f = np.array(frame.data)
 
-            # Append data
-            fsub.append(np.array(frame.data))
+            # Get metadata
+            self.metadata = self._manager.return_meta()
 
-        # Create metadata
-        meta = {'shape': (rec.frame_height, rec.frame_width),
-                'dtype': fsub[-1].dtype.name}
+            # Already trigger next metadata collection if needed
+            if self.metadata_every_exposure:
+                self.grab_metadata.set()
 
-        # Do something with metadata etc.
-        return np.array(frames), meta
+            # Create metadata
+            m = {'shape': (rec.frame_height, rec.frame_width),
+                 'dtype': str(frame.dtype)}
 
-    def roll(self, switch=None):
+            # Add frame to the queue
+            self.enqueue_frame(f, m)
+
+            # increment count
+            n += 1
+
+            if n == num_frames:
+                break
+
+    def _disarm(self):
         """
-        Toggle rolling mode.
-
-        TODO
+        Nothing to do on Lambda.
         """
-        raise NotImplementedError
+        pass
 
     def _get_exposure_time(self):
         # Convert to seconds
