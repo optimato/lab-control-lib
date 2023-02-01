@@ -643,94 +643,94 @@ class ClientProxy:
         ###################
         # Send command
         ###################
-        # with self.send_recv_lock:
+        with self.send_recv_lock:
 
-        if not self.connecting and not self.connected:
-            raise ProxyClientError('Client is not connected.')
-        try:
-            # Many things can happen here:
-            # 1) Sending worked and reply (below) also -> fine
-            # 2) Sending "worked" but there won't be a reply -> the while loop will take over
-            # 3) The socket doesn't even exist: we're probably shutting down
-            # 4) Sending otherwise didn't work -> hopefully this won't happen
-            self.socket.send_json(cmd_seq)
-        except AttributeError:
-            # We are here if self.socket is None
-
-            if self.socket is None:
-                # This may happen at shutdown - ignore.
-                return
-            else:
-                # This should never happen
-                raise
-        except Exception as e:
-            # We are here if the socket cannot send. Probably because we already
-            # send something and we are waiting for the reply.
-
-            if cmd == '^ping':
-                # Most likely no big deal.
-                return {'status': 'ok', 'msg': 'probably waiting for another call.'}
-            elif cmd == '^abort':
-                # Emergency, we need to try harder. We wait for the reply and send
-                # immediately the abort request.
-                self.logger.warning('Abort call: waiting for server to reply.')
-                for i in range(100):
-                    if (self.socket.poll(500) & zmq.POLLIN) != 0:
-                        reply = self.socket.recv_json()
-                        break
-                self.logger.warning('Abort call: server replied. Now sending.')
+            if not self.connecting and not self.connected:
+                raise ProxyClientError('Client is not connected.')
+            try:
+                # Many things can happen here:
+                # 1) Sending worked and reply (below) also -> fine
+                # 2) Sending "worked" but there won't be a reply -> the while loop will take over
+                # 3) The socket doesn't even exist: we're probably shutting down
+                # 4) Sending otherwise didn't work -> hopefully this won't happen
                 self.socket.send_json(cmd_seq)
-            else:
-                # Connection problems (e.g. the server shut down) are managed here
-                self.logger.warning(f'Could not send command "{cmd_seq}" to server at {self.full_address}.')
-                return {'status': 'error', 'msg': traceback.format_exc()}
+            except AttributeError:
+                # We are here if self.socket is None
 
-        ###################
-        # Receive reply
-        ###################
+                if self.socket is None:
+                    # This may happen at shutdown - ignore.
+                    return
+                else:
+                    # This should never happen
+                    raise
+            except Exception as e:
+                # We are here if the socket cannot send. Probably because we already
+                # send something and we are waiting for the reply.
 
-        retries = 0
-        poll_timeout = 1000 * self.REQUEST_TIMEOUT
+                if cmd == '^ping':
+                    # Most likely no big deal.
+                    return {'status': 'ok', 'msg': 'probably waiting for another call.'}
+                elif cmd == '^abort':
+                    # Emergency, we need to try harder. We wait for the reply and send
+                    # immediately the abort request.
+                    self.logger.warning('Abort call: waiting for server to reply.')
+                    for i in range(100):
+                        if (self.socket.poll(500) & zmq.POLLIN) != 0:
+                            reply = self.socket.recv_json()
+                            break
+                    self.logger.warning('Abort call: server replied. Now sending.')
+                    self.socket.send_json(cmd_seq)
+                else:
+                    # Connection problems (e.g. the server shut down) are managed here
+                    self.logger.exception(f'Could not send command "{cmd_seq}" to server at {self.full_address}.')
+                    return {'status': 'error', 'msg': traceback.format_exc()}
 
-        # Poll faster for the first connection attempt
-        if not self.connected:
-            poll_timeout /= 10
+            ###################
+            # Receive reply
+            ###################
 
-        while True:
+            retries = 0
+            poll_timeout = 1000 * self.REQUEST_TIMEOUT
 
-            # Ideal case: there's a reply
-            if (self.socket.poll(poll_timeout) & zmq.POLLIN) != 0:
-                reply = self.socket.recv_json()
-                if retries > 0:
-                    retries = 0
-                    self.logger.info(f"Reconnected to server")
-                break
-
-            # We get here because polling failed.
-
-            # If not even connected - give up
+            # Poll faster for the first connection attempt
             if not self.connected:
+                poll_timeout /= 10
+
+            while True:
+
+                # Ideal case: there's a reply
+                if (self.socket.poll(poll_timeout) & zmq.POLLIN) != 0:
+                    reply = self.socket.recv_json()
+                    if retries > 0:
+                        retries = 0
+                        self.logger.info(f"Reconnected to server")
+                    break
+
+                # We get here because polling failed.
+
+                # If not even connected - give up
+                if not self.connected:
+                    self.socket.setsockopt(zmq.LINGER, 0)
+                    self.socket.close()
+                    self.connecting = False
+                    raise ProxyClientError(f'Could not connect to server at {self.full_address}')
+
+                # We were connected but there was no reply. We need to keep trying
                 self.socket.setsockopt(zmq.LINGER, 0)
                 self.socket.close()
-                self.connecting = False
-                raise ProxyClientError(f'Could not connect to server at {self.full_address}')
+                if retries == self.NUM_RECONNECT:
+                    self.logger.error("Server seems to be offline.")
+                    self.shutdown()
+                    raise ProxyClientError(f'Could not connect to server at {self.full_address}')
 
-            # We were connected but there was no reply. We need to keep trying
-            self.socket.setsockopt(zmq.LINGER, 0)
-            self.socket.close()
-            if retries == self.NUM_RECONNECT:
-                self.logger.error("Server seems to be offline.")
-                self.shutdown()
-                raise ProxyClientError(f'Could not connect to server at {self.full_address}')
+                retries += 1
+                self.logger.info(f"Trying to reconnect to server (attempt {retries})")
+                self.logger.debug(f"Full address: {self.full_address}, client ID {self.ID}")
 
-            retries += 1
-            self.logger.info(f"Trying to reconnect to server (attempt {retries})")
-            self.logger.debug(f"Full address: {self.full_address}, client ID {self.ID}")
-
-            # Reconnect and send again
-            self.socket = self.context.socket(zmq.REQ)
-            self.socket.connect(self.full_address)
-            self.socket.send_json(cmd_seq)
+                # Reconnect and send again
+                self.socket = self.context.socket(zmq.REQ)
+                self.socket.connect(self.full_address)
+                self.socket.send_json(cmd_seq)
 
         ###################
         # Manage reply
