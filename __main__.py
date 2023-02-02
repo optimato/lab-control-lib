@@ -119,8 +119,11 @@ def killall():
 def logall():
     dl = DisplayLogger()
     for name, data in NETWORK_CONF.items():
-        if addr:= data['net_info'].get('logging', None):
-            dl.sub(name, addr)
+        if addr:= data.get('logging', None):
+            try:
+                dl.sub(name, addr)
+            except:
+                click.echo(f'Error with driver {name} (address {addr})')
     dl.show()
 
 @cli.command(help='Start frame viewer')

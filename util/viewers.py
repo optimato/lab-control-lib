@@ -176,10 +176,12 @@ class NapariViewer(ViewerBase):
         frame, metadata = frame_and_meta
         if frame is None:
             return
+        self.logger.debug('New frame received.')
         epsize = None
         for v in metadata.values():
             epsize = v.get('epsize')
             if epsize:
+                self.logger.debug('Effective pixel size: {epsize:0.2} μm')
                 break
         self.update_layer(frame, metadata)
         self.update_scalebar(epsize)
