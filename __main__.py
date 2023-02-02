@@ -128,9 +128,10 @@ def logall():
 
 @cli.command(help='Start frame viewer')
 @click.argument('name', nargs=1)
+@click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
 @click.option('--type', '-t', 'vtype', default='napari', show_default=True, help='Viewer type: "napari" or "cv".')
 @click.option('--maxfps', '-m', default=10, show_default=True, help='Maximum refresh rate (FPS).')
-def viewer(name, vtype, maxfps):
+def viewer(name, loglevel, vtype, maxfps):
     from .util import viewers
     viewer_addr = {'varex': (NETWORK_CONF['varex']['control'][0],
                              NETWORK_CONF['varex']['broadcast_port']),
@@ -156,7 +157,16 @@ def viewer(name, vtype, maxfps):
         click.echo(f'Invalid FPS')
         sys.exit(0)
 
+    try:
+        ll = int(loglevel)
+    except ValueError:
+        try:
+            ll = logging._nameToLevel[loglevel]
+        except KeyError:
+            raise click.BadParameter(f'Unknown log level: {loglevel}')
+
     v = Vclass(address=addr, max_fps=maxfps)
+    v.logger.setLevel(loglevel)
     v.start()
     sys.exit(0)
 

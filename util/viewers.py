@@ -273,8 +273,17 @@ class NapariViewer(ViewerBase):
         """
         if epsize == self.epsize:
             return
+        if np.isnan(epsize):
+            self.logger.error('epsize is Nan???')
+            return
         self.epsize = epsize
-        self.v.layers[self.LIVEVIEW_LABEL].scale = [self.epsize, self.epsize]
+        layer = self.v.layers[self.LIVEVIEW_LABEL]
+        if len(layer.data.shape) == 2:
+            scale = [self.epsize, self.epsize]
+        else:
+            scale = [1, self.epsize, self.epsize]
+
+        layer.scale = scale
         self.v.scale_bar.visible = True
         self.v.scale_bar.unit = 'um'
         self.v.reset_view()
