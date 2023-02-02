@@ -542,7 +542,8 @@ class CameraBase(DriverBase):
         Set logging level - also for the filewriter process.
         """
         super().set_log_level(level)
-        self.file_writer.exec(f'self.logger.setLevel({level})')
+        self.file_writer.exec('set_log_level', (level,))
+        self.file_streamer.exec('set_log_level', (level,))
 
     def shutdown(self):
         # Stop rolling

@@ -30,6 +30,11 @@ class FileStreamer(FileWriter):
             self.broadcaster.pub(data, meta)
             self.logger.debug('Done publishing new frame')
 
+    def _set_log_level(self, level):
+        super()._set_log_level(level)
+        if self.broadcaster:
+            self.broadcaster.logger.setLevel(level)
+
     def _on(self):
         """
         Turn on broadcasting (in process)
