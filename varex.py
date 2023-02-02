@@ -40,7 +40,7 @@ class Varex(CameraBase):
 
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
     PIXEL_SIZE = 74.8  # Physical pixel pitch in micrometers
-    SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal)
+    SHAPE = (1944, 1536)  # Native array shape (vertical, horizontal - after 90 degree cc rotation)
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     MAX_FPS = 5           # The real max FPS is higher (especially in binning mode) but this seems sufficient.
@@ -133,6 +133,9 @@ class Varex(CameraBase):
             self.logger.debug(f'Acquired frame {count} from buffer {i}...')
             f, m = det.read_buffer(i)
 
+            # Rotate frame
+            f = np.rot90(f)
+
             # Add frame to the queue
             self.enqueue_frame(f, m)
 
@@ -168,6 +171,8 @@ class Varex(CameraBase):
     def _set_exposure_time(self, value):
         # From seconds to milliseconds
         etime = int(value*1000)
+        if self.detector.is_live():
+            raise RuntimeError('Cannot set exposure time while the detector is armed.')
         self.detector.set_exposure_time(etime)
         self.config['exposure_time'] = value
 
@@ -175,6 +180,8 @@ class Varex(CameraBase):
         return self.config['exposure_number']  # self.detector.get_num_of_exposures()
 
     def _set_exposure_number(self, value):
+        if self.detector.is_live():
+            raise RuntimeError('Cannot set exposure number while the detector is armed.')
         self.detector.set_num_of_exposures(value)
         self.config['exposure_number'] = value
 
@@ -194,6 +201,9 @@ class Varex(CameraBase):
         * readout_mode: 'ContinuousReadout', 'IdleMode'
             NOTE: only 'ContinuousReadout is supported
         """
+        if self.detector.is_live():
+            raise RuntimeError('Cannot set operation mode while the detector is armed.')
+
         if (exposure_mode is not None) and exposure_mode.lower() != 'sequence_exposure':
             raise RuntimeError('exposure_mode cannot be changed in the current implementation.')
         if (readout_mode is not None) and readout_mode.lower() != 'continuousreadout':
@@ -213,6 +223,8 @@ class Varex(CameraBase):
         return self.config['binning']  # self.detector.get_binning_mode()
 
     def _set_binning(self, value):
+        if self.detector.is_live():
+            raise RuntimeError('Cannot change binning while the detector is armed.')
         self.detector.set_binning_mode(value)
         self.config['binning'] = value
 
