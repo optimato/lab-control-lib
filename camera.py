@@ -340,12 +340,14 @@ class CameraBase(DriverBase):
             data, meta = item
 
             if not self.rolling:
-                self.logger.debug('Calling store() with frame')
+                self.logger.debug('Calling file_writer.store() with frame')
                 self.file_writer.store(self.filename, meta=meta, data=data)
-                self.logger.debug('Store() returned')
+                self.logger.debug('file_writer.store() returned')
 
             if self.config['do_broadcast']:
+                self.logger.debug('Calling file_streamer.store() with frame')
                 self.file_streamer.store(self.filename, meta=meta, data=data)
+                self.logger.debug('file_streamer.store() returned')
 
             if self.frame_queue.qsize() == 0:
                 self.logger.debug('Setting frame queue empty flag.')

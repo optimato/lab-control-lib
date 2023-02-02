@@ -47,6 +47,7 @@ class FramePublisher:
 
         self._stop_heartbeat = False
         self.heartbeat_future = Future(self._heartbeat)
+        self.pub_future = None
 
     def pub(self, data, metadata=None):
         """
@@ -54,6 +55,16 @@ class FramePublisher:
         Arguments:
           data: numpy array or buffer (or None)
           metadata: any json-serializable object (probably dictionary).
+        """
+        if not self.pub_future or self.pub_future.done():
+            self.pub_future = Future(self._pub, args=(data, metadata))
+        else:
+            print('Still publishing previous frame. Dropping this one.')
+        return
+    
+    def _pub(self, data, metadata=None):
+        """
+        Do the actual publishing on a thread.
         """
         if not data.flags['C_CONTIGUOUS']:
             data = np.ascontiguousarray(data)

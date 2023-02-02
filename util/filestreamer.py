@@ -26,7 +26,9 @@ class FileStreamer(FileWriter):
         We don't write the data but instead send it!
         """
         if self.broadcaster:
+            self.logger.debug('Publishing new frame')
             self.broadcaster.pub(data, meta)
+            self.logger.debug('Done publishing new frame')
 
     def _on(self):
         """
