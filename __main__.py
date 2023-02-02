@@ -166,7 +166,7 @@ def viewer(name, loglevel, vtype, maxfps):
             raise click.BadParameter(f'Unknown log level: {loglevel}')
 
     v = Vclass(address=addr, max_fps=maxfps)
-    v.logger.setLevel(loglevel)
+    v.logger.setLevel(ll)
     v.start()
     sys.exit(0)
 

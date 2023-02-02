@@ -32,7 +32,27 @@ from . import mclennan
 from . import aerotech
 from . import labframe
 from . import motors, drivers
+from .util.filedict import FileDict
 from IPython.core.magic import register_line_magic
+
+"""
+To implement
+Viewer:
+ - flat, dark correction
+ - progress bar (?)
+ - display more information
+ - (bug when changing binning)
+ 
+Varex:
+ - image rotation 90 counterclockwise
+
+Spec
+ - general status
+ - save / goto positions
+ 
+"""
+
+#config = FileDict()
 
 
 magic_list = {}
@@ -99,6 +119,36 @@ def mvr(line):
     # tlist contains a list of threads responsible for all movements.
     for t in tlist:
         t.join()
+
+
+# status -> general summary investigation, experiment, scan number, motor positions, source parameters
+# snap
+
+# @register_line_magic
+# @collect_magic_info
+# def sp(line):
+#     """
+#     Save current position of the listed motors (see gp to go to these positions)
+#     Syntax: sp <number> <component> [<component> ...]
+#     """
+#
+#     if not line:
+#         print('Syntax: sp number motor1 [motor2] [...]')
+#         return
+#
+#     args = line.split()
+#
+#     try:
+#         position_number = int(args.pop(0))
+#         motor_list = args
+#     except:
+#         print('sp: Syntax error.')
+#         return
+#
+#     # Save (dial) positions of the given motors
+#     positions = {mname : motors[mname]._get_pos() for mname in args}
+
+
 
 
 @register_line_magic
