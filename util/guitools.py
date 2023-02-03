@@ -293,7 +293,8 @@ class FrameCorrection(QWidget):
         """
         Dark set button
         """
-        if data := self._copy_current_layer_data():
+        data = self._copy_current_layer_data()
+        if data is not None:
             # We have a valid flat frame
             self.flat = data
             # Notify
