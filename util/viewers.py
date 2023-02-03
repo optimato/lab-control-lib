@@ -1,15 +1,17 @@
 
 import threading
+import re
 
 import napari
 from napari.qt.threading import create_worker
+import napari.utils.notifications
 import numpy as np
 import time
 import logging
 
 from .imstream import FrameSubscriber
 from .logs import logger as rootlogger
-from .guitools import LiveView
+from .guitools import LiveView, FrameCorrection
 
 class ViewerBase:
 
@@ -70,11 +72,13 @@ class ViewerBase:
         t0 = time.time()
         while True:
             try:
-                frame, metadata = self.frame_subscriber.receive(1)
+                frame, metadata = self.frame_subscriber.receive(5)
             except TimeoutError:
-                if self.yield_timeout and self.yield_timeout < time.time() - t0:
+                if self.yield_timeout and (self.yield_timeout < (time.time() - t0)):
                     self.logger.info('Timed out.')
+                    t0 = time.time()
                     yield
+
                     continue
                 elif self._stop_yielding:
                     self.logger.info('Exiting frame yielding loop.')
@@ -132,6 +136,8 @@ class NapariViewer(ViewerBase):
         self.v = None
         self.worker = None
         self.epsize = None
+        self.buffer = None
+        self.metadata = None
         self.buffer_size = 1
         super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
 
@@ -151,8 +157,13 @@ class NapariViewer(ViewerBase):
         self.live_view.liveModePause.connect(self.worker.pause)
         self.live_view.liveModePlay.connect(self.worker.resume)
         self.live_view.bufferSizeChange.connect(self.set_buffer_size)
+        self.live_view.averageRequest.connect(self.generate_average_layer)
 
-        self.v.window.add_dock_widget(self.live_view, area='right')
+        self.frame_correction = FrameCorrection(self.v)
+        self.frame_correction.apply.connect(self.update_layer)
+
+        self.v.window.add_dock_widget(self.live_view, name='Viewer status', area='right')
+        self.v.window.add_dock_widget(self.frame_correction, name='Correction', area='right')
 
     def start_viewer(self):
         """
@@ -176,38 +187,40 @@ class NapariViewer(ViewerBase):
         frame, metadata = frame_and_meta
         if frame is None:
             return
+
         self.logger.debug('New frame received.')
         epsize = None
         for v in metadata.values():
             epsize = v.get('epsize')
             if epsize:
-                self.logger.debug('Effective pixel size: {epsize:0.2} μm')
+                self.logger.debug(f'Effective pixel size: {epsize:0.2} μm')
                 break
-        self.update_layer(frame, metadata)
+
+        # Update buffer and metadata list, and update viewer
+        self.append_buffer(frame, metadata)
         self.update_scalebar(epsize)
 
-    def update_layer(self, frame, metadata):
+    def append_buffer(self, frame, metadata):
         """
-        Update the data in the live view layer.
-
-        Not so simple because of (1) managing the ring buffer and
-        (2) the possibility that frame is already an image stack.
+        Append frame to the internal buffer and update viewer
         """
-        try:
-            current_buffer = self.v.layers[self.LIVEVIEW_LABEL].data
-        except KeyError:
+        if self.buffer is None:
             # First time.
+            self.logger.debug('Creating internal buffer')
             if frame.ndim == 2:
                 frame = frame[np.newaxis, :]
             bs = frame.shape[0]
             self.set_buffer_size(bs)
-            self.v.add_image(frame, name=self.LIVEVIEW_LABEL)
-            return
-
-        if frame.ndim == 2 or frame.shape[0] == 1:
-            new_buffer = np.roll(current_buffer, 1, axis=0)
-            new_buffer[0] = frame
+            self.buffer = frame
+            self.metadata = [metadata]
+        elif frame.ndim == 2 or frame.shape[0] == 1:
+            self.logger.debug('Appending frame to buffer')
+            self.buffer = np.roll(self.buffer, 1, axis=0)
+            self.buffer[0] = frame
+            self.metadata = [metadata] + self.metadata[:-1]
         else:
+            # Not supported for now
+            """
             # Dealing with 3d incoming frame.
             N = len(frame)
             if N == self._buffer_size:
@@ -221,8 +234,39 @@ class NapariViewer(ViewerBase):
                 # Smaller than current buffer: prepend
                 new_buffer = np.roll(current_buffer, N, axis=0)
                 new_buffer[:N] = frame
-        self.v.layers[self.LIVEVIEW_LABEL].data = new_buffer
-        self.v.layers[self.LIVEVIEW_LABEL].refresh()
+            """
+            napari.utils.notifications.show_error("3D frames are not currently supported.")
+
+        self.update_layer()
+        return
+
+    def update_layer(self):
+        """
+        Update the data in the live view layer.
+
+        Not so simple because of (1) managing the ring buffer and
+        (2) the possibility that frame is already an image stack.
+        """
+        # Apply correction if needed
+        if self.frame_correction:
+            self.logger.debug('Applying correction to internal buffer')
+            corrected_data = self.frame_correction.correct(self.buffer)
+        else:
+            corrected_data = self.buffer
+
+        # Update image
+        try:
+            self.logger.debug('Updating viewer')
+            live_view_layer = self.v.layers[self.LIVEVIEW_LABEL]
+            live_view_layer.data = corrected_data
+            live_view_layer.metadata['meta'] = self.metadata
+            live_view_layer.refresh()
+        except KeyError:
+            # First time.
+            self.logger.debug('Creating new layer')
+            self.v.add_image(corrected_data, name=self.LIVEVIEW_LABEL)
+            self.v.layers[self.LIVEVIEW_LABEL].metadata['meta'] = self.metadata
+            self.v.layers[self.LIVEVIEW_LABEL].refresh()
         return
 
     def set_buffer_size(self, size: int):
@@ -233,39 +277,31 @@ class NapariViewer(ViewerBase):
 
     def update_buffer(self):
         """
-        Reshape the napari buffer
+        Reshape the internal buffer and update viewer
         """
-        bs = self._buffer_size
-        try:
-            current_buffer = self.v.layers[self.LIVEVIEW_LABEL].data
-        except KeyError:
+        if self.buffer is None:
             # No buffer yet, we can't do much
             return
-        sh = current_buffer.shape
 
-        if len(sh) == 2:
-            # Current buffer is 2D
-            if bs == 1:
-                # Buffer size is 1 -> nothing to do
-                return
-            else:
-                # New buffer
-                new_buffer = np.zeros_like(current_buffer, shape=(bs,) + sh)
-                new_buffer[0] = current_buffer
-        elif sh[0] == bs:
+        bs = self._buffer_size
+        sh = self.buffer.shape
+
+        if sh[0] == bs:
             # Current buffer has the right size -> nothing to do
             return
         elif sh[0] < bs:
             # Current buffer is smaller -> expand
-            new_buffer = np.zeros_like(current_buffer, shape=(bs,) + sh[1:])
-            new_buffer[:sh[0]] = current_buffer
+            self.logger.debug(f'Expanding internal buffer ({sh[0]} -> {bs})')
+            new_buffer = np.zeros_like(self.buffer, shape=(bs,) + sh[1:])
+            new_buffer[:sh[0]] = self.buffer
+            self.buffer = new_buffer
+            self.metadata.extend((bs-sh[0])*[None])
         else:
             # Current buffer is larger -> cut
-            new_buffer = current_buffer[:bs].copy()
-
-        # Replace buffer
-        self.v.layers[self.LIVEVIEW_LABEL].data = new_buffer
-        self.v.layers[self.LIVEVIEW_LABEL].refresh()
+            self.logger.debug(f'Reducing internal buffer ({sh[0]} -> {bs})')
+            self.buffer = self.buffer[:bs].copy()
+            self.metadata = self.metadata[:bs]
+        self.update_layer()
 
     def update_scalebar(self, epsize):
         """
@@ -287,6 +323,34 @@ class NapariViewer(ViewerBase):
         self.v.scale_bar.visible = True
         self.v.scale_bar.unit = 'um'
         self.v.reset_view()
+
+    def generate_average_layer(self):
+        """
+        Generate the average of the buffer stack and create a new layer.
+        """
+        try:
+            current_buffer = self.v.layers[self.LIVEVIEW_LABEL].data
+        except KeyError:
+            # No buffer yet, we can't do much
+            return
+
+        # Compute average
+        if current_buffer.ndim == 2:
+            average = current_buffer.astype('float64')
+        else:
+            average = current_buffer.mean(axis=0)
+
+        # Create new layer
+        c = re.compile("Stack average ([0-9]*)")
+        already_there = []
+        for l in self.v.layers:
+            already_there.extend([int(x) for x in c.findall(l.name)])
+        if already_there:
+            n = np.max(already_there) + 1
+        else:
+            n = 0
+        layer_name = f'Stack average {n}'
+        self.v.add_image(average, name=layer_name)
 
     def data_received(self):
         """
