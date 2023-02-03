@@ -309,8 +309,10 @@ class NapariViewer(ViewerBase):
         """
         if epsize == self.epsize:
             return
-        if np.isnan(epsize):
-            self.logger.error('epsize is Nan???')
+        try:
+            epsize = float(epsize)
+        except:
+            self.logger.error(f'epsize is what??? ({epsize})')
             return
         self.epsize = epsize
         layer = self.v.layers[self.LIVEVIEW_LABEL]
@@ -349,7 +351,7 @@ class NapariViewer(ViewerBase):
             n = 0
         layer_name = f'Stack average {n}'
         live_view_layer = self.v.layers[self.LIVEVIEW_LABEL]
-        self.v.add_image(average, name=layer_name, scale=live_view_layer.scale)
+        self.v.add_image(average, name=layer_name, scale=live_view_layer.scale[-2:])
 
     def data_received(self):
         """

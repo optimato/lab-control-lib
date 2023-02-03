@@ -254,7 +254,10 @@ class FrameCorrection(QWidget):
         else:
             return data
         if self.flat_apply_button.isChecked() and (self.flat is not None):
-            out /= self.flat
+            f = self.flat - self.dark
+            good = (f > 0)
+            out[:, good] /= f[good]
+            out[:, ~good] = 1.
         return out
 
     def dark_set_button_clicked(self):
