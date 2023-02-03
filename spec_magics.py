@@ -38,13 +38,9 @@ from IPython.core.magic import register_line_magic
 """
 To implement
 Viewer:
- - flat, dark correction
  - progress bar (?)
  - display more information
  - (bug when changing binning)
- 
-Varex:
- - image rotation 90 counterclockwise
 
 Spec
  - general status

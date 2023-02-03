@@ -348,7 +348,8 @@ class NapariViewer(ViewerBase):
         else:
             n = 0
         layer_name = f'Stack average {n}'
-        self.v.add_image(average, name=layer_name)
+        live_view_layer = self.v.layers[self.LIVEVIEW_LABEL]
+        self.v.add_image(average, name=layer_name, scale=live_view_layer.scale)
 
     def data_received(self):
         """

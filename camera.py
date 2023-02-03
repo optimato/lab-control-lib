@@ -221,12 +221,7 @@ class CameraBase(DriverBase):
         # Camera is armed
         # Build filename
         if self.in_scan:
-            while True:
-                prefix = self._manager.next_prefix()
-                if type(prefix) == str:
-                    break
-                # This should not be happening anymore...
-                self.logger.warning('Could not obtain prefix! Trying again.')
+            prefix = self._manager.next_prefix()
             self.filename = self._build_filename(prefix=prefix, path=self._scan_path)
         else:
             self.counter += 1
@@ -363,6 +358,11 @@ class CameraBase(DriverBase):
                 'epsize': self.epsize,
                 'exposure_time': self.exposure_time,
                 'operation_mode': self.operation_mode}
+        if self.in_scan:
+            meta['counter'] = manager.getManager().get_counter()
+        else:
+            meta['counter'] = self.counter
+
         return meta
 
     def enqueue_frame(self, frame, meta):
@@ -381,7 +381,7 @@ class CameraBase(DriverBase):
 
         # Update frame metadata and add to queue
         localmeta.update(meta)
-        metadata[self.name] = localmeta
+        metadata[self.name.lower()] = localmeta
 
         self.frame_queue.put((frame, metadata))
         self.logger.debug('Frame added to queue.')

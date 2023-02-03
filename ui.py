@@ -6,6 +6,7 @@ To be imported only by the interactive controlling process.
 
 import inspect
 import os
+import logging
 
 from . import drivers, motors, data_path, client_or_None
 from .util import uitools
@@ -15,8 +16,10 @@ from . import manager
 
 logger = rootlogger.getChild(__name__)
 
+_current_detector = []
 INVESTIGATIONS = None
 
+__all__ = ['init', 'Scan', 'choose_experiment', 'choose_investigation', 'set_current_detector']
 
 def init(yes=None):
     """
@@ -127,6 +130,48 @@ def init(yes=None):
         uitools.user_interactive = None
 
     return
+
+def set_current_detector(name):
+    """
+    Useful to automate arm/disarm
+    """
+    if name.lower() not in ['varex', 'xspectrum', 'pco']:
+        print(f'"{name}" is not a known detector name.')
+    _current_detector[0] = name
+
+class Scan:
+    """
+    Scan context manager
+    """
+
+    def __init__(self, label=None):
+        self.label = label
+        self.logger = None
+
+    def __enter__(self):
+        """
+        Prepare for scan
+        """
+        man = manager.getManager()
+
+        # New scan
+        self.scan_data = man.start_scan(label=self.label)
+
+        self.name = self.scan_data['scan_name']
+        self.scan_path = self.scan_data['path']
+
+        self.logger = logging.getLogger(self.name)
+        self.logger.info(f'Starting scan {self.name}')
+        self.logger.info(f'Files will be saved in {self.scan_path}')
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        """
+        Exit scan context
+
+        TODO: manage exceptions
+        """
+        manager.getManager().end_scan()
+        self.logger.info(f'Scan {self.name} complete.')
 
 
 def init_dummy(yes=None):

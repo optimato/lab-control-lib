@@ -158,8 +158,10 @@ motors = {}
 from . import manager
 
 # Import ui
-from .ui import init, load_past_investigations, choose_investigation, choose_experiment
-from .manager import Scan
+from .ui import (init,
+                 choose_investigation,
+                 choose_experiment,
+                 Scan)
 
 # Import all driver submodules
 from . import excillum
