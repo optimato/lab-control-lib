@@ -653,6 +653,7 @@ class ClientProxy:
                 # 2) Sending "worked" but there won't be a reply -> the while loop will take over
                 # 3) The socket doesn't even exist: we're probably shutting down
                 # 4) Sending otherwise didn't work -> hopefully this won't happen
+                self.logger.debug(f'Sending command {cmd_seq}')
                 self.socket.send_json(cmd_seq)
             except AttributeError:
                 # We are here if self.socket is None
@@ -666,6 +667,8 @@ class ClientProxy:
             except Exception as e:
                 # We are here if the socket cannot send. Probably because we already
                 # send something and we are waiting for the reply.
+
+                self.logger.debug(f'Exception (socket state)')
 
                 if cmd == '^ping':
                     # Most likely no big deal.
@@ -701,6 +704,7 @@ class ClientProxy:
                 # Ideal case: there's a reply
                 if (self.socket.poll(poll_timeout) & zmq.POLLIN) != 0:
                     reply = self.socket.recv_json()
+                    self.logger.debug(f'Received reply {reply}')
                     if retries > 0:
                         retries = 0
                         self.logger.info(f"Reconnected to server")
@@ -737,6 +741,7 @@ class ClientProxy:
         ###################
 
         if ((clean is not None) and clean) or ((clean is None) and self.clean):
+            self.logger.debug(f'Managing reply in clean mode.')
             if reply['status'] == 'error':
             # In clean mode, we reproduce the behaviour of the remote class
                 # Raise error if there was one
@@ -745,6 +750,7 @@ class ClientProxy:
                 # Wait for non-blocking calls (cmd == '' corresponds to the case where object instantiation
                 # might take a lot of time)
                 emergency_stop = False
+                self.logger.debug(f'Managing blocking command.')
                 while True:
                     # The flag is set to true if a keyboard interrupt was caught
                     # during the previous iteration of the loop.
@@ -756,7 +762,9 @@ class ClientProxy:
                     try:
                         # The call will return after Server.RESULT_TIMEOUT seconds.
                         # or before if the result is available.
+                        self.logger.debug(f'Sending result request.')
                         reply = self.send_recv((self.ID, '^result', [], {}), clean=False)
+                        self.logger.debug(f'Result is {reply}')
                     except KeyboardInterrupt:
                         emergency_stop = True
                         continue
@@ -764,6 +772,7 @@ class ClientProxy:
                         raise RuntimeError(reply['msg'])
                     elif reply['status'] == 'ok':
                         value = reply.get('value')
+                        self.logger.debug(f'We are out of blocking loop')
                         return value
             else:
                 value = reply.get('value')
