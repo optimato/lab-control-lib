@@ -10,6 +10,8 @@ import napari
 import napari.utils.notifications
 from napari_tools_menu import register_dock_widget
 
+CAMERA_NAMES = ['varex', 'xspectrum', 'pco']
+
 
 class BlinkLabel(QLabel):
 
@@ -264,10 +266,12 @@ class FrameCorrection(QWidget):
         """
         Dark set button
         """
-        data = self._copy_current_layer_data()
-        if data is not None:
+        layer, data = self._get_current_layer()
+        if layer is not None:
             # We have a valid dark frame
             self.dark = data
+            layer.name = 'dark'
+
             # Notify
             self.darkSet.emit()
 
@@ -296,14 +300,15 @@ class FrameCorrection(QWidget):
         """
         Dark set button
         """
-        data = self._copy_current_layer_data()
+        layer, data = self._get_current_layer()
         if data is not None:
             # We have a valid flat frame
             self.flat = data
+            layer.name = 'flat'
             # Notify
             self.flatSet.emit()
 
-    def _copy_current_layer_data(self):
+    def _get_current_layer(self):
         """
         Get the data from current layer if it is 2d.
         """
@@ -315,11 +320,156 @@ class FrameCorrection(QWidget):
                 data = l.data[0].copy()
             else:
                 napari.utils.notifications.show_error("Selected layer is not 2D.")
-                return
+                return None, None
         else:
             # We don't know what to do with multiple layers selected
             napari.utils.notifications.show_error("Select one layer.")
+            return None, None
+
+        return l, data
+
+class StatusBar(QWidget):
+
+    SCAN_COLOR = '#109010'
+    SNAP_COLOR = '#101090'
+    ROLL_COLOR = '#d06000'
+    NONE_COLOR = '#000000'
+
+    SCAN_TYPE_COLORS = {'SCAN': '#109010',
+                        'SNAP': '#101090',
+                        'ROLL': '#d06000',
+                        '---': '#000000'}
+
+    def __init__(self, napari_viewer):
+        """
+        """
+        super().__init__()
+        self.viewer = napari_viewer
+
+        # Overall horizontal layout
+        self.setLayout(QHBoxLayout())
+
+        self.scan_type_label = QLabel('SCAN')
+        self.scan_type_label.setObjectName('scan_type')
+        self.scan_type_style_format = "QLabel#scan_type {{border: 0px white;\
+                                                      border-style: outset;\
+                                                      border-radius: 12px;\
+                                                      background-color: {color};\
+                                                      color: white;\
+                                                      font: bold 16pt;}}"
+        self.setStyleSheet(
+                self.scan_type_style_format.format(color=self.SCAN_COLOR))
+        self.scan_type_label.setFixedWidth(100)
+        self.scan_type_label.setFixedHeight(45)
+        self.scan_type_label.setAlignment(Qt.AlignCenter)
+        self.layout().addWidget(self.scan_type_label, stretch=0)
+
+        self.identifier_group = QGroupBox('identifier')
+        self.identifier_group.setLayout(QVBoxLayout())
+        self.identifier_label = QLabel('investigation/experiment/scan')
+        self.identifier_group.layout().addWidget(self.identifier_label)
+        self.layout().addWidget(self.identifier_group, stretch=2)
+
+        """
+        self.counter_group = QGroupBox('counter')
+        self.counter_group.setLayout(QVBoxLayout())
+        self.counter_label = QLabel('Number 54')
+        self.counter_group.layout().addWidget(self.counter_label, stretch=1)
+        self.layout().addWidget(self.counter_group)
+        """
+        self.exposure_group = QGroupBox('exposure')
+        self.exposure_group.setLayout(QVBoxLayout())
+        self.exposure_label = QLabel('0.5 s   (1/5)')
+        self.exposure_label.setAlignment(Qt.AlignCenter)
+        self.exposure_group.setFixedWidth(120)
+        self.exposure_group.layout().addWidget(self.exposure_label)
+        self.layout().addWidget(self.exposure_group, stretch=1)
+
+        self.date_group = QGroupBox('date')
+        self.date_group.setLayout(QVBoxLayout())
+        self.date_label = QLabel('2023-02-04 22:38:28.807287')
+        self.date_group.layout().addWidget(self.date_label, stretch=1)
+        self.layout().addWidget(self.date_group)
+
+        self.correction_group = QGroupBox('correction')
+        self.correction_group.setLayout(QVBoxLayout())
+        self.correction_label = QLabel('dark/flat')
+        self.correction_label.setAlignment(Qt.AlignCenter)
+        self.correction_group.setFixedWidth(100)
+        self.correction_group.layout().addWidget(self.correction_label)
+        self.layout().addWidget(self.correction_group, stretch=1)
+
+    def update(self):
+        """
+        Update info based on image metadata.
+        """
+        l = self.viewer.layers.selection.active
+        if l is None:
+            # No layer or multiple layers selected -
+            self.wipe()
             return
 
-        return data
+        i = 0 if self.viewer.dims.ndim == 2 else self.viewer.dims.point[0]
+        try:
+            meta = l.metadata['meta'][i]
+        except:
+            self.wipe()
+            return
+
+        # Build labels from metadata
+        cam_meta = None
+        for cam_name in CAMERA_NAMES:
+            cam_meta = cam_meta or meta.get(cam_name)
+        if not cam_meta:
+            # Something is not right
+            self.wipe()
+            return
+
+        identifier = "{investigation}/{experiment}".format(**meta['manager'])
+        if scan_name := cam_meta.get('scan_name'):
+            scan_type = 'SCAN'
+            identifier += '/' + scan_name
+        elif filename := cam_meta.get('filename'):
+            scan_type = 'SNAP'
+            identifier += '/{counter}'.format(**cam_meta)
+        else:
+            scan_type = 'ROLL'
+
+        date = cam_meta['acquisition_start']
+
+        exposure_time = cam_meta['exposure_time']
+        exposure_number = cam_meta['exposure_number']
+        exposure = f"{exposure_time:3.2f}   ({i+1}/{exposure_number}"
+
+        self.set_labels(scan_type=scan_type,
+                        identifier=identifier,
+                        date=date,
+                        exposure=exposure)
+
+    def set_labels(self, scan_type='---',
+                         date='---',
+                         identifier='---/---',
+                         exposure='-- s  (-/-)',
+                         correction='---'):
+
+        # Scan type
+        self.scan_type_label.setText(scan_type)
+        color = self.SCAN_TYPE_COLORS.get(scan_type, '#000000')
+        self.setStyleSheet(
+            self.scan_type_style_format.format(color=color))
+
+        # identifier
+        self.identifier_label.setText(identifier)
+
+        # date
+        self.date_label.setText(date)
+
+        # exposure
+        self.exposure_label.setText(exposure)
+
+        # correction
+        self.correction_label.setText(correction)
+
+    def wipe(self):
+        self.set_labels()
 
