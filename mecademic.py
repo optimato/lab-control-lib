@@ -239,8 +239,6 @@ class Mecademic(SocketDriverBase):
         """
         # ask for firmware version to see if connection works
         version = self.device_cmd(b'GetFwVersion' + self.EOL)
-        #version = self.send_cmd('GetFwVersion')
-        #print(f'{version}')
         version = version.decode('ascii').strip()
         self.logger.debug(f'Firmware version is {version}')
         self.initialized = True
@@ -290,6 +288,10 @@ class Mecademic(SocketDriverBase):
             else:
                 self.logger.warning('Robot not homed after driver initialization.')
                 return
+        if status['paused']:
+            self.logger.info('Motion is paused. Clearing.')
+            self.clear_motion()
+            self.resume_motion()
 
         # Set joint velocity
         jv = self.config.get('joint_velocity') or DEFAULT_VELOCITY
@@ -502,6 +504,30 @@ class Mecademic(SocketDriverBase):
             self.logger.warning(reply)
         else:
             self.logger.info(reply)
+        return
+
+    @proxycall(admin=True)
+    def clear_motion(self):
+        """
+        Clear motion
+        """
+        code, reply = self.send_cmd('ClearMotion')
+        if code == 2044:
+            self.logger.info(reply)
+        else:
+            self.logger.warning(reply)
+        return
+
+    @proxycall(admin=True)
+    def resume_motion(self):
+        """
+        Resume motion
+        """
+        code, reply = self.send_cmd('ResumeMotion')
+        if code == 2043:
+            self.logger.info(reply)
+        else:
+            self.logger.warning(reply)
         return
 
     @proxycall(admin=True)
