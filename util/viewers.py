@@ -11,7 +11,8 @@ import logging
 
 from .imstream import FrameSubscriber
 from .logs import logger as rootlogger
-from .guitools import LiveView, FrameCorrection, StatusBar
+from .guitools import LiveView, FrameCorrection, StatusBar, Signal
+
 
 class ViewerBase:
 
@@ -131,6 +132,7 @@ class NapariViewer(ViewerBase):
 
     MAX_BUFFER_SIZE = 50
     LIVEVIEW_LABEL = 'Live View'
+    data_arrived = Signal()
 
     def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=2):
         self.v = None
@@ -166,6 +168,7 @@ class NapariViewer(ViewerBase):
         self.v.dims.events.current_step.connect(self.status_bar.update)
         self.v.layers.events.changed.connect(self.status_bar.update)
         self.v.layers.events.inserted.connect(self.status_bar.update)
+
         self.v.window.add_dock_widget(self.live_view, name='Viewer status', area='right')
         self.v.window.add_dock_widget(self.frame_correction, name='Correction', area='right')
         self.v.window.add_dock_widget(self.status_bar, name='Status', area='bottom')
@@ -204,6 +207,7 @@ class NapariViewer(ViewerBase):
         # Update buffer and metadata list, and update viewer
         self.append_buffer(frame, metadata)
         self.update_scalebar(epsize)
+        self.status_bar.update()
 
     def append_buffer(self, frame, metadata):
         """
@@ -312,6 +316,8 @@ class NapariViewer(ViewerBase):
         """
         Update or add scale bar if needed.
         """
+        if not epsize:
+            return
         if epsize == self.epsize:
             return
         try:

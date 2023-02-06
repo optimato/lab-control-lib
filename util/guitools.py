@@ -446,11 +446,14 @@ class StatusBar(QWidget):
         else:
             scan_type = 'ROLL'
 
-        date = cam_meta['acquisition_start']
+        date = cam_meta.get('acquisition_start', '????-??-?? ??:??:??.???')
 
         exposure_time = cam_meta.get('exposure_time', 0.0)
         exposure_number = cam_meta.get('exposure_number', 0)
-        exposure = f"{exposure_time:3.2f}   ({i+1}/{exposure_number}"
+        if scan_type == 'ROLL':
+            exposure = f'FPS: {1/exposure_time:3.1f}'
+        else:
+            exposure = f"{exposure_time:3.2f}   ({i+1}/{exposure_number})"
 
         self.set_labels(scan_type=scan_type,
                         identifier=identifier,
