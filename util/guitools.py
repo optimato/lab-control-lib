@@ -344,7 +344,8 @@ class StatusBar(QWidget):
         """
         """
         super().__init__()
-        self.viewer = napari_viewer
+        self.viewer = napari_viewer.v
+        self.logger = napari_viewer.logger
 
         # Overall horizontal layout
         self.setLayout(QHBoxLayout())
@@ -399,20 +400,29 @@ class StatusBar(QWidget):
         self.correction_group.layout().addWidget(self.correction_label)
         self.layout().addWidget(self.correction_group, stretch=1)
 
-    def update(self):
+    def update(self, *args, **kwargs):
         """
         Update info based on image metadata.
         """
         l = self.viewer.layers.selection.active
         if l is None:
             # No layer or multiple layers selected -
+            self.logger.debug('Could not find active layer')
             self.wipe()
             return
 
-        i = 0 if self.viewer.dims.ndim == 2 else self.viewer.dims.point[0]
         try:
-            meta = l.metadata['meta'][i]
-        except:
+            all_meta = l.metadata['meta']
+        except KeyError:
+            self.logger.debug('No metadata could be found.')
+            self.wipe()
+            return
+
+        i = 0 if self.viewer.dims.ndim == 2 else int(self.viewer.dims.point[0])
+        try:
+            meta = all_meta[i]
+        except IndexError:
+            self.logger.debug(f'Error fetching metadata index {i}')
             self.wipe()
             return
 
@@ -422,6 +432,7 @@ class StatusBar(QWidget):
             cam_meta = cam_meta or meta.get(cam_name)
         if not cam_meta:
             # Something is not right
+            self.logger.debug(f'No camera entry has been found.')
             self.wipe()
             return
 
@@ -437,8 +448,8 @@ class StatusBar(QWidget):
 
         date = cam_meta['acquisition_start']
 
-        exposure_time = cam_meta['exposure_time']
-        exposure_number = cam_meta['exposure_number']
+        exposure_time = cam_meta.get('exposure_time', 0.0)
+        exposure_number = cam_meta.get('exposure_number', 0)
         exposure = f"{exposure_time:3.2f}   ({i+1}/{exposure_number}"
 
         self.set_labels(scan_type=scan_type,

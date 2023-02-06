@@ -11,7 +11,7 @@ import logging
 
 from .imstream import FrameSubscriber
 from .logs import logger as rootlogger
-from .guitools import LiveView, FrameCorrection
+from .guitools import LiveView, FrameCorrection, StatusBar
 
 class ViewerBase:
 
@@ -162,8 +162,12 @@ class NapariViewer(ViewerBase):
         self.frame_correction = FrameCorrection(self.v)
         self.frame_correction.apply.connect(self.update_layer)
 
+        self.status_bar = StatusBar(self)
+        self.v.dims.events.current_step.connect(self.status_bar.update)
+        self.v.layers.events.changed.connect(self.status_bar.update)
         self.v.window.add_dock_widget(self.live_view, name='Viewer status', area='right')
         self.v.window.add_dock_widget(self.frame_correction, name='Correction', area='right')
+        self.v.window.add_dock_widget(self.status_bar, name='Status', area='bottom')
 
     def start_viewer(self):
         """
