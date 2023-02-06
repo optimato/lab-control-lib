@@ -479,7 +479,7 @@ class CameraBase(DriverBase):
         # Reset flags
         self.armed = False
 
-    @proxycall(admin=True, block=False)
+    @proxycall(admin=True)
     def roll_on(self, fps=None):
         """
         Start endless sequence acquisition for live mode.
@@ -522,6 +522,7 @@ class CameraBase(DriverBase):
         if not self.armed:
             self.arm()
 
+    @proxycall(admin=True)
     def roll_off(self):
         """
         Stop rolling acquisition.
