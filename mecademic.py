@@ -215,6 +215,9 @@ class Mecademic(SocketDriverBase):
     # Adding some time to make sure that we capture all the replies
     REPLY_WAIT_TIME = .01
 
+    # Raise error if there is no reply (e.g. because of a call that doesn't give a reply is not managed well)
+    REPLY_TIMEOUT = 5.
+
     def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS

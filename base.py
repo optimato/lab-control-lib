@@ -232,7 +232,8 @@ class SocketDriverBase(DriverBase):
                                         # fdm: it's "tries", not "retries", so it mustn't be set to 0!
     KEEPALIVE_INTERVAL = 10.            # Default Polling (keep-alive) interval
     logger = None
-    REPLY_WAIT_TIME = 0.
+    REPLY_WAIT_TIME = 0.                # Time before reading reply (needed for asynchronous connections)
+    REPLY_TIMEOUT = 60.                  # Maximum time allowed for the reception of a reply
 
     def __init__(self, device_address):
         """
@@ -333,7 +334,8 @@ class SocketDriverBase(DriverBase):
 
         # Wait for reply
         time.sleep(self.REPLY_WAIT_TIME)
-        self.recv_flag.wait()
+        if not self.recv_flag.wait(timeout=self.REPLY_TIMEOUT):
+            raise RuntimeError('Device reply timed out.')
 
         # Concatenate replies
         reply += self.get_recv_buffer()
