@@ -30,7 +30,11 @@ class XPS(SocketDriverBase):
         # TODO
         self.metacalls.update({})
 
-    def init_device(self):  # not "@proxycall"?
+        # Start periodic calls
+        # self.periodic_calls.update({'status': (self.controller_status, 20)})
+        # self.start_periodic_calls()
+
+    def init_device(self):
         """
         Device initialization.
         """
@@ -39,11 +43,12 @@ class XPS(SocketDriverBase):
         self.initialized = True
         return
 
-    def wait_call(self):
+    @proxycall()
+    def controller_status(self):
         """
-        Keep-alive call
+        Controller status (not tested)
         """
-        self.send_cmd('TODO')
+        self.send_cmd('ControllerStatusGet()')
 
     def send_cmd(self, cmd, parse_error=True):
         """

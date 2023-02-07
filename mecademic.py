@@ -236,6 +236,10 @@ class Mecademic(SocketDriverBase):
 
         self.initialize()
 
+        # Start periodic calls
+        self.periodic_calls.update({'status': (self.get_status, 20)})
+        self.start_periodic_calls()
+
     def init_device(self):
         """
         Device initialization.
@@ -246,14 +250,6 @@ class Mecademic(SocketDriverBase):
         self.logger.debug(f'Firmware version is {version}')
         self.initialized = True
         return
-
-    def wait_call(self):
-        """
-        Keep-alive call
-        """
-        r = self.device_cmd(b'GetStatusRobot' + self.EOL)
-        if not r:
-            raise DeviceException
 
     def initialize(self):
         """
