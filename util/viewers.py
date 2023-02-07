@@ -199,7 +199,10 @@ class NapariViewer(ViewerBase):
         self.logger.debug('New frame received.')
         epsize = None
         for v in metadata.values():
-            epsize = v.get('epsize')
+            try:
+                epsize = v.get('epsize')
+            except AttributeError:
+                continue
             if epsize:
                 self.logger.debug(f'Effective pixel size: {epsize:0.2} μm')
                 break
