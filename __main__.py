@@ -39,7 +39,18 @@ def running():
 @cli.command(help='Start the server proxy of driver [name]. Does not return.')
 @click.argument('name', nargs=-1)
 @click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
-def start(name, loglevel):
+@click.option('--log-global', '-L', 'loglevel_global', default='INFO', show_default=True, help='Log level for all components')
+def start(name, loglevel, loglevel_global):
+
+    try:
+        llg = int(loglevel_global)
+    except ValueError:
+        try:
+            llg = logging._nameToLevel[loglevel_global]
+        except KeyError:
+            raise click.BadParameter(f'Unknown log level: {loglevel_global}')
+    rootlogger.setLevel(llg)
+
     available_drivers = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS[THIS_HOST]]
 
     # Without driver name: list available drivers on current host

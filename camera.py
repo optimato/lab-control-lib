@@ -123,6 +123,19 @@ class CameraBase(DriverBase):
         self.store_future = None      # Will be replaced with a future when starting to store.
         self._stop_roll = False       # To interrupt rolling
 
+        # Other flags
+        self.loop_future = None
+        self.armed = False
+        self.closing = False
+        self.rolling = False
+        self.auto_armed = False
+        self.filename = None
+        self.end_acquisition = False
+        self._scan_path = None
+
+        # Scan managemnt
+        self._manager = manager.getManager()
+
         # File writing process
         self.file_writer = filewriter.H5FileWriter.start_process(mode=self.config['save_mode'])
 
@@ -136,7 +149,6 @@ class CameraBase(DriverBase):
         self.acquire_done = threading.Event()
         self.frame_queue_empty_flag = threading.Event()
 
-        self.end_acquisition = False
         self.frame_queue = SimpleQueue()
         self.frame_future = Future(self.frame_management_loop)
 
@@ -147,21 +159,6 @@ class CameraBase(DriverBase):
 
         self._exposure_time_before_roll = self.exposure_time
 
-        # Scan managemnt
-        self._manager = manager.getManager()
-        self._scan_path = None
-
-        self.filename = None
-
-        # Other flags
-        self.loop_future = None
-        self.armed = False
-
-        self.closing = False
-
-        self.auto_armed = False
-
-        self.rolling = False
 
     def _trigger(self, *args, **kwargs):
         """
@@ -572,7 +569,7 @@ class CameraBase(DriverBase):
 
     def shutdown(self):
         # Stop rolling
-        self.roll(switch=False)
+        self.roll_off()
         # Stop file_writer process
         self.file_writer.stop()
         # Stop file_streamer process
