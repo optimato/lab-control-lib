@@ -50,7 +50,7 @@ class Manager(DriverBase):
     # Allowed characters for experiment and investigation names
     _VALID_CHAR = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:'
     # Interval at which attempts are made at connecting clients
-    CLIENT_LOOP_INTERVAL = 5.
+    CLIENT_LOOP_INTERVAL = 20.
 
     def __init__(self):
         """
@@ -83,16 +83,21 @@ class Manager(DriverBase):
         self.meta_futures = {}
         self.meta_grab_done_dct = {}
         self.meta_grab_done = False
-        self.stop_flag = False
+        self.stop_flag = threading.Event()
         self.clients = {}
         self.grab_meta_flag = threading.Event()
         self.continue_flag = threading.Event()
 
-        self.clients_loop_future = Future(self.clients_loop)
-
         # HACK (kind of): On the process where this class is instantiated, getManager must return this instance, not a client.
         _client.clear()
         _client.append(self)
+
+        # self also instead of "client to self"
+        self.clients['manager'] = self
+        self.meta_futures['manager'] = Future(self.meta_loop, args=('manager',))
+
+
+        self.clients_loop_future = Future(self.clients_loop)
 
     @proxycall()
     @property
@@ -111,7 +116,7 @@ class Manager(DriverBase):
         A loop running on a thread monitoring the health of the driver connections
         """
         while True:
-            if self.stop_flag:
+            if self.stop_flag.is_set():
                 break
 
             # Loop through all registered driver classes
@@ -128,11 +133,8 @@ class Manager(DriverBase):
                         # Start the meta collection loop
                         self.meta_futures[name] = Future(self.meta_loop, args=(name,))
 
-            for i in range(10):
-                time.sleep(self.CLIENT_LOOP_INTERVAL/10)
-                if self.stop_flag:
-                    break
-            if self.stop_flag:
+            # Wait a bit before retrying
+            if self.stop_flag.wait(self.CLIENT_LOOP_INTERVAL):
                 break
         self.logger.info('Exiting client connection loop.')
 
@@ -143,9 +145,9 @@ class Manager(DriverBase):
         """
         self.logger.info(f'Starting metadata collection loop for {name}.')
         while True:
-            if not self.grab_meta_flag.wait(timeout=.5):
+            if not self.grab_meta_flag.wait(timeout=1.):
                 # The loop will stay here until the flag is set or the client is removed from the dict
-                if self.stop_flag or name not in self.clients:
+                if self.stop_flag.is_set() or name not in self.clients:
                     return
                 continue
 
@@ -156,13 +158,13 @@ class Manager(DriverBase):
                 self.logger.debug(f'{name} : metadata collection completed in {dt * 1000:3.2f} ms')
                 self.metadata[name] = meta
                 self.meta_grab_done_dct[name] = dt
-                if any(not x for x in self.meta_grab_done_dct.values()):
+                if all(self.meta_grab_done_dct.values()):
                     self.meta_grab_done = True
                     self.logger.info(f'Metadata collection completed.')
 
-            if not self.continue_flag.wait(timeout=.5):
+            while not self.continue_flag.wait(timeout=.5):
                 # Wait here until told to continue
-                if self.stop_flag:
+                if self.stop_flag.is_set():
                     return
                 continue
         self.logger.info(f'Metadata collection loop for {name} ended.')
@@ -174,11 +176,19 @@ class Manager(DriverBase):
 
         This method returns immediately. The metadata itself will be obtained when calling return_meta.
         """
+        # Nothing to do if already requested
+        if self.grab_meta_flag.is_set():
+            return
+
         # Clear metadata dict
-        self.metadata = {}
+        # self.metadata = {}
+        # Keep metadata from previous call - better than nothing
+        self.metadata = {k:self.metadata.get(k) for k in self.clients.keys() }
 
         # A dict that gathers information about who is done grabbing the metadata
         self.meta_grab_done_dct = {name:None for name in self.clients.keys()}
+
+        print(self.meta_grab_done_dct)
 
         # Make sure everyone will stop after their meta collection
         self.continue_flag.clear()
@@ -207,12 +217,11 @@ class Manager(DriverBase):
         """
         Kill all servers.
         """
-        self.stop_flag = True
+        self.stop_flag.set()
         while self.clients:
             name, c = self.clients.popitem()
             if name == 'manager':
                 # We don't kill ourselves
-                del c
                 continue
             c.ask_admin(True, True)
             c._proxy.kill()
@@ -224,7 +233,7 @@ class Manager(DriverBase):
         """
         Clean up
         """
-        self.stop_flag = True
+        self.stop_flag.set()
         if m := getManager():
             del m
         self.clients_loop_future.join()
