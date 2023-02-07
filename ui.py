@@ -8,7 +8,7 @@ import inspect
 import os
 import logging
 
-from . import drivers, motors, data_path, client_or_None
+from . import drivers, motors, data_path, client_or_None, THIS_HOST
 from .util import uitools
 from .util.uitools import ask, ask_yes_no, user_prompt
 from .util.logs import logger as rootlogger
@@ -38,13 +38,13 @@ def init(yes=None):
 
     # Excillum
     if ask_yes_no("Connect to Excillum?"):
-        if driver:=client_or_None('excillum'):
+        if driver:=client_or_None('excillum', client_name=f'main-client-{THIS_HOST}'):
             drivers['excillum'] = driver
 
     # Smaract
     if ask_yes_no('Initialise smaracts?',
                   help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
-        if driver:=client_or_None('smaract'):
+        if driver:=client_or_None('smaract', client_name=f'main-client-{THIS_HOST}'):
             drivers['smaract'] = driver
             from . import smaract
             motors['sx'] = smaract.Motor('sx', driver, axis=0)
@@ -54,25 +54,25 @@ def init(yes=None):
     # Coarse stages
     if ask_yes_no('Initialise short branch coarse stages?'):
         # McLennan 1 (sample coarse x translation)
-        if driver:=client_or_None('mclennan1'):
+        if driver:=client_or_None('mclennan1', client_name=f'main-client-{THIS_HOST}'):
             drivers['mclennan1'] = driver
             from . import mclennan
             motors['ssx'] = mclennan.Motor('ssx', driver)
 
         # McLennan 2 (short branch detector coarse x translation)
-        if driver:=client_or_None('mclennan2'):
+        if driver:=client_or_None('mclennan2', client_name=f'main-client-{THIS_HOST}'):
             drivers['mclennan2'] = driver
             from . import mclennan
             motors['dsx'] = mclennan.Motor('dsx', driver)
 
         # McLennan 3 (long branch detector coarse x translation)
-        if driver:=client_or_None('mclennan3'):
+        if driver:=client_or_None('mclennan3', client_name=f'main-client-{THIS_HOST}'):
             drivers['mclennan3'] = driver
             from . import mclennan
             motors['dsx'] = mclennan.Motor('dsx', driver)
 
     if ask_yes_no('Initialise Varex detector?'):
-        if driver := client_or_None('varex'):
+        if driver := client_or_None('varex', client_name=f'main-client-{THIS_HOST}'):
             drivers['varex'] = driver
 
     #if ask_yes_no('Initialise PCO camera?'):
@@ -85,29 +85,29 @@ def init(yes=None):
     #    pass
 
     if ask_yes_no('Initialise rotation stage?'):
-        if driver := client_or_None('aerotech'):
+        if driver := client_or_None('aerotech', client_name=f'main-client-{THIS_HOST}'):
             drivers['aerotech'] = driver
             from . import aerotech
             motors['rot'] = aerotech.Motor('rot', driver)
 
     if ask_yes_no('Initialise Newport XPS motors?'):
-        if driver := client_or_None('xps1'):
+        if driver := client_or_None('xps1', client_name=f'main-client-{THIS_HOST}'):
             drivers['xps1'] = driver
             from . import xps
             motors['xps1'] = xps.Motor('xps1', driver)
 
-        if driver := client_or_None('xps2'):
+        if driver := client_or_None('xps2', client_name=f'main-client-{THIS_HOST}'):
             drivers['xps2'] = driver
             from . import xps
             motors['xps2'] = xps.Motor('xps2', driver)
 
-        if driver := client_or_None('xps3'):
+        if driver := client_or_None('xps3', client_name=f'main-client-{THIS_HOST}'):
             drivers['xps3'] = driver
             from . import xps
             motors['xps3'] = xps.Motor('xps3', driver)
 
     if ask_yes_no('Initialize mecademic robot?'):
-        if driver := client_or_None('mecademic'):
+        if driver := client_or_None('mecademic', client_name=f'main-client-{THIS_HOST}'):
             drivers['mecademic'] = driver
             from . import mecademic
             motors.update(mecademic.create_motors(driver))
@@ -183,7 +183,7 @@ def init_dummy(yes=None):
         uitools.user_interactive = False
 
     if ask_yes_no("Start dummy driver?"):
-        if driver := client_or_None('dummy'):
+        if driver := client_or_None('dummy', client_name=f'main-client-{THIS_HOST}'):
             drivers['dummy'] = driver
 
 

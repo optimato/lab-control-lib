@@ -29,7 +29,7 @@ def running():
     with logging_muted():
         for name in NETWORK_CONF.keys():
             click.echo(f' * {name+":":<20}', nl=False)
-            d = client_or_None(name)
+            d = client_or_None(name, client_name=f'check-{THIS_HOST}')
             if d is not None:
                 click.secho('YES', fg='green')
             else:
@@ -65,7 +65,7 @@ def start(name, loglevel):
 
     # Check if already running
     with logging_muted():
-        d = client_or_None(name)
+        d = client_or_None(name, client_name=f'check-{THIS_HOST}')
     if d is not None:
         click.secho('ALREADY RUNNING', fg='yellow')
         return
@@ -94,7 +94,7 @@ def start(name, loglevel):
 @cli.command(help='Kill the server proxy of driver [name] if running.')
 @click.argument('name', nargs=-1)
 def kill(name):
-    d = client_or_None(name[0])
+    d = client_or_None(name[0], client_name=f'killer-{THIS_HOST}')
     if d:
         time.sleep(.2)
         d.ask_admin(True, True)
@@ -105,7 +105,7 @@ def kill(name):
 @cli.command(help='Kill all running server proxy.')
 def killall():
     # First ask manager to kill all other servers
-    d = client_or_None('manager')
+    d = client_or_None('manager', client_name=f'killer-{THIS_HOST}')
     if not d:
         click.Abort('Could not connect to manager!')
     time.sleep(.5)

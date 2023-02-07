@@ -227,8 +227,8 @@ class ServerBase:
                 self.logger.debug(f'{ID} sent command {cmd}')
 
                 if (ID == 0) or (ID not in self.clients):
-                    # ID == 0 is a request from a new client
-                    reply = self.new_connection(message, ID=ID)
+                    # ID == 0 is a request from a new client and cmd is the name to identify the client.
+                    reply = self.new_connection(message, ID=ID, name=cmd)
                     self.socket.send_json(reply)
                     continue
                 if ID not in self.clients:
@@ -276,7 +276,7 @@ class ServerBase:
         # Unpack command and arguments
         ID, cmd, args, kwargs = message
 
-        self.logger.debug(f'Received command "{cmd}" from client "{ID}"')
+        self.logger.debug(f'Received command "{cmd}" from client "{self.clients[ID]["name"]}" ({ID})')
 
         # Manage escaped command
         if cmd.startswith(self.ESCAPE_STRING):
@@ -378,10 +378,11 @@ class ServerBase:
                 self.logger.info(f'Method {cmd} is the abort call.')
         self.logger.info('Created instance of wrapped class.')
 
-    def new_connection(self, message, ID):
+    def new_connection(self, message, ID, name=None):
         """
         Manage new client.
         """
+        name = name or f'#{ID}'
         _, _, args, kwargs = message
 
         if ID == 0:
@@ -391,7 +392,8 @@ class ServerBase:
                 ID += 1
 
         # Set statistics
-        self.clients[ID] = {'startup': time.time(),
+        self.clients[ID] = {'name': name,
+                            'startup': time.time(),
                             'reply_number': 0,
                             'total_reply_time': 0.,
                             'total_reply_time2': 0.,
@@ -405,7 +407,7 @@ class ServerBase:
             Future(target=self.create_instance, args=args, kwargs=kwargs)
 
         reply = {'status': 'ok', 'value': {'ID': ID}}
-        self.logger.info(f'Client #{ID} connected.')
+        self.logger.info(f'Client #{ID} ({name}) connected.')
         return reply
 
     def _parse_escaped(self, ID, cmd, args, kwargs):
@@ -546,7 +548,7 @@ class ClientProxy:
     REQUEST_TIMEOUT = 10.
     NUM_RECONNECT = 1000000 # ~= infinity
 
-    def __init__(self, address, API, clean=True, cls_name=None):
+    def __init__(self, address, API, name=None, clean=True, cls_name=None):
         """
         Client whose instance will be hidden in the proxy class.
         address: (IP, port) to connect to
@@ -560,7 +562,7 @@ class ClientProxy:
         self.clean = clean
         self.API = API
         self.cls_name = cls_name
-        self.name = self.__class__.__name__.lower()
+        self.name = name or self.__class__.__name__.lower()
         # self.logger = rootlogger.getChild(self.__class__.__name__)
         self.logger = rootlogger.getChild('.'.join([self.cls_name, self.__class__.__name__]))
 
@@ -607,7 +609,7 @@ class ClientProxy:
         # Establish connection with the server with ID=0
         self.connecting = True
         try:
-            reply = self.send_recv([0, '', args, kwargs], clean=False)
+            reply = self.send_recv([0, self.name, args, kwargs], clean=False)
         except ProxyClientError:
             self._stopping = True
             self.context.destroy()
@@ -622,7 +624,7 @@ class ClientProxy:
 
         # Connection was successful. Prepare the data pipe
         self.ID = reply['value']['ID']
-        self.logger.info(f'Connected to {self.cls_name} proxy (client ID={self.ID})')
+        self.logger.info(f'Connected to {self.cls_name} proxy (client name={self.name}, ID={self.ID})')
 
         # Request admin rights if needed
         reply = self.ask_admin(admin)
@@ -859,8 +861,9 @@ class ClientBase:
         """
         args = args or ()
         kwargs = kwargs or {}
-        self.name = name or self.__class__.__name__
-        self._proxy = ClientProxy(address=self._address, API=self._API, clean=self._clean, cls_name=self._cls_name)
+        self.name = self.__class__.__name__
+        self.client_name = name or self.name
+        self._proxy = ClientProxy(address=self._address, API=self._API, name=self.client_name, clean=self._clean, cls_name=self._cls_name)
         self._proxy.connect(args, kwargs, address=address, admin=admin)
         self.ask_admin = self._proxy.ask_admin
         self.get_result = self._proxy.get_result

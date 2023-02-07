@@ -137,7 +137,7 @@ def register_proxy_client(cls):
     return cls
 
 
-def client_or_None(name, admin=True, inexistent_ok=True):
+def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
     """
     Client creation.
     """
@@ -150,7 +150,7 @@ def client_or_None(name, admin=True, inexistent_ok=True):
         else:
             raise RuntimeError(f'Could not find class {name}. Has the corresponding module been imported?')
     try:
-        d = Classes[name].Client(admin=admin)
+        d = Classes[name].Client(admin=admin, name=client_name)
     except ProxyClientError as e:
         logs.logger.info(str(e))
     return d

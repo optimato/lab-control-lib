@@ -12,7 +12,7 @@ from datetime import datetime
 import time
 import threading
 
-from . import data_path, register_proxy_client, Classes, client_or_None
+from . import data_path, register_proxy_client, Classes, client_or_None, THIS_HOST
 from .network_conf import NETWORK_CONF, MANAGER as NET_INFO
 from .util.uitools import ask, user_prompt
 from .util.proxydevice import proxydevice, proxycall
@@ -34,7 +34,7 @@ def getManager():
     """
     if _client and _client[0]:
         return _client[0]
-    d = client_or_None('manager', admin=False)
+    d = client_or_None('manager', admin=False, client_name=f'client-{THIS_HOST}')
     _client.clear()
     _client.append(d)
     return d
@@ -119,7 +119,7 @@ class Manager(DriverBase):
                 if name not in self.clients:
                     # Attempt client instantiation
                     with logging_muted():
-                        client = client_or_None(name, admin=False)
+                        client = client_or_None(name, admin=False, client_name='manager_loop')
                     if client:
                         # Store client
                         self.logger.info(f'Client "{name}" is connected')
