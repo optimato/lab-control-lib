@@ -189,6 +189,10 @@ class ServerBase:
         # Initialize socket for entry point
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
+
+        # Apparently this is needed for a clean shutdown
+        self.socket.setsockopt(zmq.LINGER, 0)
+
         full_address = f'tcp://{self.address[0]}:{self.address[1]}'
         try:
             self.socket.bind(full_address)
@@ -209,6 +213,7 @@ class ServerBase:
             self.logger.info('Stop listening')
             self.socket.unbind(full_address)
             self.socket.close()
+            self.context.term()
 
     def _listen(self):
         """
@@ -583,8 +588,9 @@ class ClientProxy:
         # This will hold the ping thread
         self.future_ping = None
         self._last_ping = 0.
+
         # Flag to kill the ping thread
-        self._stopping = False
+        self._stopping = threading.Event()
 
         atexit.register(self.shutdown)
 
@@ -604,6 +610,10 @@ class ClientProxy:
         except:
             pass
         self.socket = self.context.socket(zmq.REQ)
+
+        # Apparently this is needed for a clean shutdown
+        self.socket.setsockopt(zmq.LINGER, 0)
+
         self.socket.connect(self.full_address)
 
         # Establish connection with the server with ID=0
@@ -611,8 +621,11 @@ class ClientProxy:
         try:
             reply = self.send_recv([0, self.name, args, kwargs], clean=False)
         except ProxyClientError:
-            self._stopping = True
-            self.context.destroy()
+            self._stopping.set()
+            if self.future_ping:
+                self.future_ping.join()
+            self.socket.close()
+            self.context.term()
             raise
 
         self.connecting = False
@@ -724,6 +737,10 @@ class ClientProxy:
                     self.connecting = False
                     raise ProxyClientError(f'Could not connect to server at {self.full_address}')
 
+                if self._stopping.is_set():
+                    self.shutdown()
+                    raise ProxyClientError(f'Client shut down while trying to reconnect to {self.full_address}')
+
                 # We were connected but there was no reply. We need to keep trying
                 self.socket.setsockopt(zmq.LINGER, 0)
                 self.socket.close()
@@ -788,14 +805,15 @@ class ClientProxy:
         """
         Periodic ping.
         """
-        while not self._stopping:
+        while True:
+            if self._stopping.wait(self.PING_INTERVAL):
+                return
             try:
                 reply = self.send_recv([self.ID, '^ping', [], {}], clean=False)
                 if reply['status'] == 'ok':
                     self._last_ping = time.time()
             except BaseException as error:
                 self.logger.exception('Ping error.')
-            time.sleep(self.PING_INTERVAL)
 
     def disconnect(self):
         """
@@ -822,7 +840,10 @@ class ClientProxy:
         Terminate ping thread and close socket.
         """
         self.disconnect()
-        self._stopping = True
+        self._stopping.set()
+        if self.future_ping:
+            self.future_ping.join()
+        self.socket.close()
         self.context.destroy()
 
     def get_stats(self):
