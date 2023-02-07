@@ -675,6 +675,9 @@ class ClientProxy:
                 if cmd == '^ping':
                     # Most likely no big deal.
                     return {'status': 'ok', 'msg': 'probably waiting for another call.'}
+                elif cmd == '^disconnect':
+                    # Server might have shut down - just leave.
+                    return {'status': 'ok', 'msg': 'probably server has shut down.'}
                 elif cmd == '^abort':
                     # Emergency, we need to try harder. We wait for the reply and send
                     # immediately the abort request.
