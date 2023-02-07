@@ -77,7 +77,6 @@ os.makedirs(LOG_DIR, exist_ok=True)
 # This import takes care of setting up everything
 from .util import logs
 
-
 #
 # IDENTIFY SYSTEM
 #
@@ -112,6 +111,14 @@ print('\n'.join(['*{:^64s}*'.format(f"OptImaTo Lab Control"),
                  ])
       )
 
+# Log to file only on the control PC
+if THIS_HOST == 'control':
+    logs.log_to_file()
+    print('*{0:^64}*'.format('[Logging to file on this host]'))
+else:
+    print('*{0:^64}*'.format('[Not logging to file on this host]'))
+
+print()
 
 # Errors
 class ControllerRunningError(RuntimeError):
