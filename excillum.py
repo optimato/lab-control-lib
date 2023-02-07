@@ -73,8 +73,8 @@ class Excillum(SocketDriverBase):
                                })
 
         # Start periodic calls
-        self.periodic_calls.update({'status': (self.status, 1)})
-        self.start_periodic_calls()
+        #self.periodic_calls.update({'status': (self.status, 1)})
+        #self.start_periodic_calls()
 
     def init_device(self):
         """
