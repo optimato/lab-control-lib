@@ -278,11 +278,10 @@ class CameraBase(DriverBase):
             self.logger.debug('Setting acquire_done flag.')
             self.acquire_done.set()
 
-            if self.stop_rolling_flag:
-                # We are done rolling
-                break
-
             if self.rolling:
+                if self.stop_rolling_flag:
+                    # We are done rolling
+                    break
                 # We are not done rolling - ask immediately for another frame
                 self.do_acquire.set()
                 continue
@@ -549,14 +548,14 @@ class CameraBase(DriverBase):
         if not self.rolling:
             return
 
-        # Stop rolling
-        self.rolling = False
-
         # Inform the _trigger loop that it needs to exit now
         self.stop_rolling_flag = True
 
         # Disarm camera. This waits for the acquisition loop to finish
         self.disarm()
+
+        # Stop rolling
+        self.rolling = False
 
         # Restore previous exposure time and exposure number
         self.exposure_time = self._exposure_time_before_roll
