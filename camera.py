@@ -211,6 +211,9 @@ class CameraBase(DriverBase):
         before proceeding with the acquisition. NOTE: the previous
         values of these parameters are not reset aftwerwards.
         """
+        if self.rolling:
+            self.logger.warning("Cannot snap while in rolling mode.")
+
         # If the camera is not armed, we arm it and remember that it was done automatically in snap
         if not self.armed:
             self.logger.debug('Camera was not armed when calling snap. Arming first.')
