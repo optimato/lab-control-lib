@@ -148,6 +148,7 @@ class CameraBase(DriverBase):
         self.do_acquire = threading.Event()
         self.acquire_done = threading.Event()
         self.frame_queue_empty_flag = threading.Event()
+        self.stop_rolling_flag = False
 
         self.frame_queue = SimpleQueue()
         self.frame_future = Future(self.frame_management_loop)
@@ -158,6 +159,7 @@ class CameraBase(DriverBase):
             self.file_streamer.on()
 
         self._exposure_time_before_roll = self.exposure_time
+        self._exposure_number_before_roll = self.exposure_number
 
 
     def _trigger(self, *args, **kwargs):
@@ -211,13 +213,19 @@ class CameraBase(DriverBase):
         before proceeding with the acquisition. NOTE: the previous
         values of these parameters are not reset aftwerwards.
         """
+        if self.rolling:
+            self.logger.warning("Cannot snap while in rolling mode.")
+            return
+
         # If the camera is not armed, we arm it and remember that it was done automatically in snap
+        self.auto_armed = False
         if not self.armed:
             self.logger.debug('Camera was not armed when calling snap. Arming first.')
             self.auto_armed = True
             self.arm(exp_time=exp_time, exp_num=exp_num)
 
-        # Camera is armed
+        # Camera is now armed and acquisition loop is waiting
+
         # Build filename
         if self.in_scan:
             prefix = self._manager.next_prefix()
@@ -235,18 +243,22 @@ class CameraBase(DriverBase):
         self.acquire_done.wait()
         self.acquire_done.clear()
 
+        if self.auto_armed:
+            self.disarm()
+
         return
 
     def acquisition_loop(self):
         """
-        Main acquisition loop. Started at the end of the arming procedure
-        and running on a thread.
+        Main acquisition loop.
+
+        NOTE: This it started on a thread every time the camera is armed.
         """
         self.logger.debug('Acquisition loop started')
         while True:
 
             # Wait for the next trigger
-            if not self.do_acquire.wait(1):
+            if not self.do_acquire.wait(.2):
                 if self.end_acquisition:
                     break
                 continue
@@ -266,16 +278,18 @@ class CameraBase(DriverBase):
             self.logger.debug('Setting acquire_done flag.')
             self.acquire_done.set()
 
-            # Finalize saving
-            if not self.rolling:
+            if self.rolling:
+                if self.stop_rolling_flag:
+                    # We are done rolling
+                    break
+                # We are not done rolling - ask immediately for another frame
+                self.do_acquire.set()
+                continue
+            else:
+                # Finalize saving
                 self.frame_queue_empty_flag.wait()
                 self.logger.debug('Calling file_writer.close()')
                 self.file_writer.close()
-
-            if self.rolling:
-                # Ask immediately for another frame
-                self.do_acquire.set()
-                continue
 
             # Automatically armed - this is a single shot
             if self.auto_armed:
@@ -285,8 +299,7 @@ class CameraBase(DriverBase):
             # Get ready for next acquisition
             self._rearm()
 
-        # The loop is closed, so we disarm
-        self.disarm()
+        # The loop is closed, we are done
         self.logger.debug('Acquisition loop completed')
 
     def metadata_loop(self):
@@ -467,8 +480,9 @@ class CameraBase(DriverBase):
         """
         Terminate acquisition.
         """
-        # Terminate acquisition loop
+        # Terminate acquisition loop and wait for it to complete
         self.end_acquisition = True
+        self.loop_future.join()
 
         # Disarm with subclassed method
         self._disarm()
@@ -481,6 +495,7 @@ class CameraBase(DriverBase):
         """
         Start endless sequence acquisition for live mode.
         """
+        self.stop_rolling_flag = False
         # If currently rolling check if fps needs updating
         if self.rolling:
             if fps is not None:
@@ -513,9 +528,14 @@ class CameraBase(DriverBase):
         self._exposure_time_before_roll = self.exposure_time
         self.exposure_time = 1./fps
 
+        # Set a largish exposure number to avoid retriggering too often
+        self._exposure_number_before_roll = self.exposure_number
+        self.exposure_number = 100
+
         # Trigger the first acquisition immediately
         self.do_acquire.set()
-        # Arm the camera
+
+        # Arm the camera (this starts acquisition loop)
         if not self.armed:
             self.arm()
 
@@ -528,12 +548,18 @@ class CameraBase(DriverBase):
         if not self.rolling:
             return
 
-        # Stop rolling and disarm the camera
-        self.rolling = False
+        # Inform the _trigger loop that it needs to exit now
+        self.stop_rolling_flag = True
+
+        # Disarm camera. This waits for the acquisition loop to finish
         self.disarm()
 
-        # Restore previous exposure time
+        # Stop rolling
+        self.rolling = False
+
+        # Restore previous exposure time and exposure number
         self.exposure_time = self._exposure_time_before_roll
+        self.exposure_number = self._exposure_number_before_roll
 
         return
 

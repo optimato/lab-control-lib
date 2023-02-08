@@ -99,18 +99,15 @@ class Varex(CameraBase):
         n_exp = self.exposure_number
         exp_time = self.exposure_time
 
-        self._det_frames = []
-        self._det_meta = {}
-
         self.logger.debug('Triggering detector.')
         det.software_trigger()
-
-        # Trigger metadata collection
-        self.grab_metadata.set()
 
         self.logger.debug('Starting acquisition loop.')
         n = 0
         while True:
+            # Trigger metadata collection
+            self.grab_metadata.set()
+
             # Wait for end of acquisition
             # det.wait_image is a busy wait! So we sleep for exposure_time - 50 ms, and only then we wait
             time.sleep(exp_time - .05)
@@ -123,9 +120,6 @@ class Varex(CameraBase):
 
             # Get metadata
             self.metadata = self._manager.return_meta()
-
-            # Already trigger next metadata collection
-            self.grab_metadata.set()
 
             # Find and read out buffer
             count = det.get_field_count()
@@ -145,8 +139,12 @@ class Varex(CameraBase):
             det.check_for_live_error()
 
             if n == n_exp:
+                # Exit if we have reached the requested nuber of exposures
                 break
 
+            if self.rolling and self.stop_rolling_flag:
+                # Exit if rolling and stop was requested
+                break
             # For very high number of exposures, we need to reset the loop
             if (count - self.count_start - 1) % n_exp == 0:
                 if det.is_live():
