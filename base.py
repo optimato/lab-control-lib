@@ -364,7 +364,7 @@ class SocketDriverBase(DriverBase):
         Create a terminal session to send commands directly to the device.
         """
         print('Enter command and hit return. Empty line will exit.')
-        prompt = f'[{self.__name__}] >> '
+        prompt = f'[{self.name}] >> '
         while True:
             cmd = input(prompt)
             if not cmd:

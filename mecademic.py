@@ -213,7 +213,7 @@ class Mecademic(SocketDriverBase):
                             (-112., -24),
                             (-360., 360.))
     # Adding some time to make sure that we capture all the replies
-    REPLY_WAIT_TIME = .01
+    REPLY_WAIT_TIME = .1
 
     # Raise error if there is no reply (e.g. because of a call that doesn't give a reply is not managed well)
     REPLY_TIMEOUT = 5.

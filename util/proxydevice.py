@@ -737,9 +737,9 @@ class ClientProxy:
                     self.connecting = False
                     raise ProxyClientError(f'Could not connect to server at {self.full_address}')
 
-                if self._stopping.is_set():
-                    self.shutdown()
-                    raise ProxyClientError(f'Client shut down while trying to reconnect to {self.full_address}')
+                if cmd == '^disconnect':
+                    # No point trying, server might be already dead
+                    return
 
                 # We were connected but there was no reply. We need to keep trying
                 self.socket.setsockopt(zmq.LINGER, 0)
