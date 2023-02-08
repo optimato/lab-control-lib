@@ -218,10 +218,10 @@ class CameraBase(DriverBase):
             return
 
         # If the camera is not armed, we arm it and remember that it was done automatically in snap
-        auto_armed = False
+        self.auto_armed = False
         if not self.armed:
             self.logger.debug('Camera was not armed when calling snap. Arming first.')
-            auto_armed = True
+            self.auto_armed = True
             self.arm(exp_time=exp_time, exp_num=exp_num)
 
         # Camera is now armed and acquisition loop is waiting
@@ -243,7 +243,7 @@ class CameraBase(DriverBase):
         self.acquire_done.wait()
         self.acquire_done.clear()
 
-        if auto_armed:
+        if self.auto_armed:
             self.disarm()
 
         return
@@ -291,6 +291,11 @@ class CameraBase(DriverBase):
                 self.frame_queue_empty_flag.wait()
                 self.logger.debug('Calling file_writer.close()')
                 self.file_writer.close()
+
+            # Automatically armed - this is a single shot
+            if self.auto_armed:
+                self.auto_armed = False
+                break
 
             # Get ready for next acquisition
             self._rearm()
