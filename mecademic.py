@@ -334,7 +334,9 @@ class Mecademic(SocketDriverBase):
                     arg = (arg, )
                 cmd += f'{arg}'.encode()
             cmd += self.EOL
+        self.logger.debug(f'Sending command string "{cmd}"')
         reply = self.device_cmd(cmd)
+        self.logger.debug(f'Received reply "{reply}"')
         return self.process_reply(reply)
 
     def process_reply(self, reply):
