@@ -65,7 +65,6 @@ import traceback
 import sys
 
 import zmq
-from zmq.log.handlers import PUBHandler
 import time
 import atexit
 import threading
@@ -81,22 +80,37 @@ class ProxyClientError(Exception):
 
 
 class FakeStream:
-    def __init__(self, stream, socket):
+    def __init__(self, stream, socket, name):
         """
         Place-holder to capture stdout and stderr.
         """
         self.real_stream = stream
         self.socket = socket
+        self.name = name
 
     def write(self, string):
         """
         Replacement for stdout.write and stderr.write.
         """
-        self.socket.send(string.encode())
+        self.socket.send_json([self.name, string])
         self.real_stream.write(string)
 
     def flush(self):
         self.real_stream.flush()
+
+class FakeStdOut(FakeStream):
+    def __init__(self, socket):
+        super().__init__(sys.stdout, socket, 'stdout')
+        sys.stdout = self
+    def __del__(self):
+        sys.stdout = self.real_stream
+
+class FakeStdErr(FakeStream):
+    def __init__(self, socket):
+        super().__init__(sys.stderr, socket, 'stderr')
+        sys.stderr = self
+    def __del__(self):
+        sys.stderr = self.real_stream
 
 
 class ServerBase:
@@ -208,12 +222,9 @@ class ServerBase:
         self.stream_socket = self.stream_context.socket(zmq.PUB)
         self.stream_socket.bind(full_address)
 
-        # Save the real stdout
-        self.fake_stdout = FakeStream(sys.stdout, self.stream_socket)
-        self.fake_stderr = FakeStream(sys.stderr, self.stream_socket)
-
-        sys.stdout = self.fake_stdout
-        sys.stderr = self.fake_stderr
+        # This starts capturing stdout and stderr
+        self.fake_stdout = FakeStdOut(self.stream_socket)
+        self.fake_stderr = FakeStdErr(self.stream_socket)
 
         self.logger.info(f'Now publishing stdout and stderr on {full_address}')
 
@@ -230,9 +241,9 @@ class ServerBase:
         """
         del self.instance
         if self.fake_stdout:
-            sys.stdout = self.fake_stdout.real_stream
+            del self.fake_stdout
         if self.fake_stderr:
-            sys.stderr = self.fake_stderr.real_stream
+            del self.fake_stderr
         self._stopping = True
 
     def _run(self):
@@ -897,9 +908,13 @@ class ClientProxy:
             try:
                 if (stream_socket.poll(500.) & zmq.POLLIN) == 0:
                     continue
-                data = stream_socket.recv()
-                sys.stdout.write(data.decode('utf8'))
-                sys.stdout.flush()
+                stream_name, string = stream_socket.recv_json()
+                if stream_name == 'stdout':
+                    sys.stdout.write(string)
+                    sys.stdout.flush()
+                elif stream_name == 'stderr':
+                    sys.stderr.write(string)
+                    sys.stderr.flush()
             except BaseException as error:
                 self.logger.exception('Streaming error.')
 
