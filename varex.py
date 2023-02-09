@@ -103,7 +103,7 @@ class Varex(CameraBase):
         det.software_trigger()
 
         self.logger.debug('Starting acquisition loop.')
-        n = 0
+        frame_counter = 0
         while True:
             # Trigger metadata collection
             self.grab_metadata.set()
@@ -130,15 +130,18 @@ class Varex(CameraBase):
             # Rotate frame
             f = np.rot90(f)
 
+            # Include frame counter in meta
+            m['frame_counter'] = frame_counter + 1
+
             # Add frame to the queue
             self.enqueue_frame(f, m)
 
             # increment count
-            n += 1
+            frame_counter += 1
 
             det.check_for_live_error()
 
-            if n == n_exp:
+            if frame_counter == n_exp:
                 # Exit if we have reached the requested nuber of exposures
                 break
 
