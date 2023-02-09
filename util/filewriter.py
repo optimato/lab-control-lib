@@ -338,32 +338,29 @@ class H5FileWriter(FileWriter):
         """
         (process side) do the actual closing on its own thread.
         """
-        # We extract the filename immediately because it will change in the future.
+        # We extract attributes immediately because they will change in the future.
         filename = self._filename
+        meta = self._meta
+        frames = self._frames
+
+        # Now we wait for the queue to empty
         self.queue_empty_flag.wait()
         self.logger.debug('Queue empty flag as been set')
         self.logger.debug(f'Queue size: {self.queue.qsize()}')
 
         if self.mode == 'ram':
             self.logger.debug(f'Creating numpy dataset')
-            data = np.array(self._frames)
+            data = np.array(frames)
             self.logger.debug(f'Saving with h5write')
-            self.h5write(filename=filename, meta=self._meta, data=data)
+            self.h5write(filename=filename, meta=meta, data=data)
         elif self.mode == 'append':
             # Store metadata
             self.logger.debug(f'Storing metadata')
-            self.h5append(self._fd, meta=self._meta)
+            self.h5append(self._fd, meta=meta)
 
             self.logger.debug(f'Closing hdf5 file')
             self._fd.close()
         self.logger.debug(f'Done')
-
-        # Reset everything for next time
-        self._frames = []
-        self._meta = []
-        self._fd = None
-        self._dset = None
-        self._single_counter = 0
 
         return
 
