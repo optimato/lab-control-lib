@@ -317,11 +317,11 @@ class CameraBase(DriverBase):
             self.grab_metadata.clear()
             self.logger.debug('Metadata collection requested (grab_metadata flag)')
 
-            # Request global metadata
-            self._manager.request_meta()
+            # Request global metadata (exclude self, we do that locally instead)
+            self._manager.request_meta(exclude_list=['varex'])
 
             # Local metadata
-            self.localmeta = self.get_local_meta()
+            self.localmeta = self.get_meta()
             self.localmeta['acquisition_start'] = now()
         self.logger.debug('Metadata loop completed')
 
@@ -360,7 +360,8 @@ class CameraBase(DriverBase):
                 self.logger.debug('Setting frame queue empty flag.')
                 self.frame_queue_empty_flag.set()
 
-    def get_local_meta(self):
+    @proxycall()
+    def get_meta(self, , metakeys=None):
         """
         Return camera-specific metadata
         """

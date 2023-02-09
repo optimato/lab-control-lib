@@ -151,16 +151,18 @@ class Manager(DriverBase):
                     return
                 continue
 
-            if client := self.clients.get(name, None):
-                t0 = time.time()
-                meta = client.get_meta()
-                dt = time.time() - t0
-                self.logger.debug(f'{name} : metadata collection completed in {dt * 1000:3.2f} ms')
-                self.metadata[name] = meta
-                self.meta_grab_done_dct[name] = dt
-                if all(self.meta_grab_done_dct.values()):
-                    self.meta_grab_done = True
-                    self.logger.info(f'Metadata collection completed.')
+            # This is a way to exclude some clients
+            if name in self.meta_grab_done_dct:
+                if client := self.clients.get(name, None):
+                    t0 = time.time()
+                    meta = client.get_meta()
+                    dt = time.time() - t0
+                    self.logger.debug(f'{name} : metadata collection completed in {dt * 1000:3.2f} ms')
+                    self.metadata[name] = meta
+                    self.meta_grab_done_dct[name] = dt
+                    if all(self.meta_grab_done_dct.values()):
+                        self.meta_grab_done = True
+                        self.logger.info(f'Metadata collection completed.')
 
             while not self.continue_flag.wait(timeout=.5):
                 # Wait here until told to continue
@@ -170,12 +172,13 @@ class Manager(DriverBase):
         self.logger.info(f'Metadata collection loop for {name} ended.')
 
     @proxycall()
-    def request_meta(self):
+    def request_meta(self, except_list=[]):
         """
         Start grabbing all the metadata corresponding to the keys in self.meta_to_save.
 
         This method returns immediately. The metadata itself will be obtained when calling return_meta.
         """
+
         # Nothing to do if already requested
         if self.grab_meta_flag.is_set():
             return
@@ -186,7 +189,7 @@ class Manager(DriverBase):
         self.metadata = {k:self.metadata.get(k) for k in self.clients.keys() }
 
         # A dict that gathers information about who is done grabbing the metadata
-        self.meta_grab_done_dct = {name:None for name in self.clients.keys()}
+        self.meta_grab_done_dct = {name:None for name in self.clients.keys() if name not in except_list}
 
         # Make sure everyone will stop after their meta collection
         self.continue_flag.clear()
