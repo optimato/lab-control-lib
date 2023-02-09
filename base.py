@@ -249,8 +249,6 @@ class SocketDriverBase(DriverBase):
         self.logger.debug(f'Driver {self.name} will connect to {self.device_address[0]}:{self.device_address[1]}')
 
         # Attributes initialized (or re-initialized) in self.connect_device
-        # device_cmd lock
-        self.cmd_lock = threading.Lock()
         # Buffer in which incoming data will be stored
         self.recv_buffer = None
         # Flag to inform other threads that data has arrived
@@ -258,7 +256,7 @@ class SocketDriverBase(DriverBase):
         # Listening/receiving thread
         self.recv_thread = None
         # Receiver lock
-        self.recv_lock = threading.Lock()
+        self._lock = threading.Lock()
 
         # Connect to device
         self.connected = False
@@ -311,7 +309,7 @@ class SocketDriverBase(DriverBase):
                 break
             if rlist:
                 # Incoming data
-                with self.recv_lock:
+                with self._lock:
                     d = _recv_all(rlist[0], EOL=self.EOL)
                     self.recv_buffer += d
                     self.recv_flag.set()
@@ -327,21 +325,20 @@ class SocketDriverBase(DriverBase):
         if not self.initialized:
             self.logger.info('Device not (yet?) initialized.')
 
-        with self.cmd_lock:
+        # Flush the replies
+        reply = self.get_recv_buffer()
 
-            # Flush the replies
-            reply = self.get_recv_buffer()
-
+        with self._lock:
             # Pass command to device
             _send_all(self.device_sock, cmd)
 
-            # Wait for reply
-            time.sleep(self.REPLY_WAIT_TIME)
-            if not self.recv_flag.wait(timeout=self.REPLY_TIMEOUT):
-                raise RuntimeError('Device reply timed out.')
+        # Wait for reply
+        time.sleep(self.REPLY_WAIT_TIME)
+        if not self.recv_flag.wait(timeout=self.REPLY_TIMEOUT):
+            raise RuntimeError('Device reply timed out.')
 
-            # Concatenate replies
-            reply += self.get_recv_buffer()
+        # Concatenate replies
+        reply += self.get_recv_buffer()
 
         return reply
 
@@ -349,8 +346,7 @@ class SocketDriverBase(DriverBase):
         """
         Read and reset the recv buffer. This can be used to flush the buffer.
         """
-        with self.recv_lock:
-
+        with self._lock:
             # Reply is in the local buffer
             data = self.recv_buffer
 
