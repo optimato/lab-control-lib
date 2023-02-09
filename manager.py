@@ -188,8 +188,6 @@ class Manager(DriverBase):
         # A dict that gathers information about who is done grabbing the metadata
         self.meta_grab_done_dct = {name:None for name in self.clients.keys()}
 
-        print(self.meta_grab_done_dct)
-
         # Make sure everyone will stop after their meta collection
         self.continue_flag.clear()
 
