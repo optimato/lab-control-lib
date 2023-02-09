@@ -4,7 +4,8 @@ from qtpy.QtWidgets import (QWidget,
                             QPushButton,
                             QLabel,
                             QSpinBox,
-                            QGroupBox)
+                            QGroupBox,
+                            QCheckBox)
 from qtpy.QtCore import QTimer, Qt, Signal
 import napari
 import napari.utils.notifications
@@ -127,6 +128,19 @@ class LiveView(QWidget):
         # Pause button
         self.pause_button = QPushButton(self.PAUSE)
         self.layout().addWidget(self.pause_button)
+
+        """
+        # Capture group
+        self.capture_group = QGroupBox("Capture")
+        self.capture_group.setLayout(QVBoxLayout())
+
+        # Capture Checkboxes
+        self.capture_snap = QCheckBox('SNAP')
+        self.capture_scan = QCheckBox('SCAN')
+        self.capture_group.layout().addWidget(self.capture_snap)
+        self.capture_group.layout().addWidget(self.capture_scan)
+        self.layout().addWidget(self.capture_group)
+        """
 
         # Ring buffer group
         self.buffer_group = QGroupBox("Buffer")

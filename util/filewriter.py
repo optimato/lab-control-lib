@@ -210,7 +210,7 @@ class FileWriter(multiprocessing.Process):
         This method is called by the main process to request data to be stored.
 
         data=None indicates that the data has already been transferred onto the
-        buffer. The ndarray parameters are those of self._array
+        buffer, whose ndarray representation is self._array
         """
 
         with self.comm_lock:
@@ -327,44 +327,15 @@ class H5FileWriter(FileWriter):
             # Empty dataset
             self._dset = None
 
-    def _close(self):
+    def _close(self, filename, frames, meta):
         """
-        (process side) closing of the file saving.
+        (process side) Save data.
         """
-        Future(self.__close)
-        return
-
-    def __close(self):
-        """
-        (process side) do the actual closing on its own thread.
-        """
-        # We extract the filename immediately because it will change in the future.
-        filename = self._filename
-        self.queue_empty_flag.wait()
-        self.logger.debug('Queue empty flag as been set')
-        self.logger.debug(f'Queue size: {self.queue.qsize()}')
-
-        if self.mode == 'ram':
-            self.logger.debug(f'Creating numpy dataset')
-            data = np.array(self._frames)
-            self.logger.debug(f'Saving with h5write')
-            self.h5write(filename=filename, meta=self._meta, data=data)
-        elif self.mode == 'append':
-            # Store metadata
-            self.logger.debug(f'Storing metadata')
-            self.h5append(self._fd, meta=self._meta)
-
-            self.logger.debug(f'Closing hdf5 file')
-            self._fd.close()
+        self.logger.debug(f'Creating numpy dataset')
+        data = np.array(frames)
+        self.logger.debug(f'Saving with h5write')
+        self.h5write(filename=filename, meta=meta, data=data)
         self.logger.debug(f'Done')
-
-        # Reset everything for next time
-        self._frames = []
-        self._meta = []
-        self._fd = None
-        self._dset = None
-        self._single_counter = 0
-
         return
 
     def open(self, filename):
@@ -390,50 +361,22 @@ class H5FileWriter(FileWriter):
     def write(self, filename, meta, data):
         """
         This is called by store each time a frame arrives.
-        For now: use h5write, but could be done with h5py directly e.g. to follow some NEXUS
-        standards, or to add more advanced features (e.g. appending to existing files).
+
         """
-        self._meta.append(meta)
-        if self.mode == 'ram':
-            # Accumulate frame in ram. We'll save everything at the end.
-            self.logger.debug(f'Appending frame in RAM')
-            self._frames.append(np.squeeze(data))
-        elif self.mode == 'single':
-            filename = self._filename.replace ('.h5', f'_{self._single_counter:06d}.h5')
-            self.h5write(filename=filename, meta=meta, data=np.squeeze(data))
-            self.logger.debug(f'Frame saved to file {filename}')
-            self._single_counter += 1
+        if filename != self._filename:
+            # New filename: store everything and move on
+            if self._filename:
+                Future(self._close, args=(self._filename, self._frames, self._meta))
+
+            # Reset everything
+            self._filename = filename
+            self._frames = [np.squeeze(data)]
+            self._meta = [meta]
         else:
-            # Add frame to the open hdf5 file.
-            shape = data.shape
-            if len(shape) == 2:
-                shape = (1,) + shape
-
-            # If dataset has not been created do it now
-            if not self._dset:
-                self.logger.debug(f'Creating dataset')
-                dtype = str(data.dtype)
-                self._dset = self._fd.create_dataset(name="data",
-                                                     shape=(0,) + shape[-2:],
-                                                     maxshape=(None,) + shape[-2:],
-                                                     dtype=dtype,
-                                                     chunks=(1, 64, 64),
-                                                     # compression='gzip'
-                                                     )
-                # Adding this attribute makes the file compatible with h5write
-                self._dset.attrs['type'] = 'array'
-                self.logger.debug(f'Done creating dataset')
-
-            # Size of the current dataset
-            N = self._dset.shape[0]
-
-            # Resize adding the size of the new data
-            self.logger.debug(f'Resizing dataset')
-            self._dset.resize(size=shape[0] + N, axis=0)
-
-            # Store the data
-            self.logger.debug(f'Storing data')
-            self._dset[-shape[0]:] = data
-            self.logger.debug(f'Done')
-
+            self._frames.append(np.squeeze(data))
+            self._meta.append(meta)
         return
+
+        """
+            filename = self._filename.replace ('.h5', f'_{self._single_counter:06d}.h5')
+        """

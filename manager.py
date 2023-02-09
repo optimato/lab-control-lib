@@ -170,15 +170,23 @@ class Manager(DriverBase):
         self.logger.info(f'Metadata collection loop for {name} ended.')
 
     @proxycall()
-    def request_meta(self):
+    def request_meta(self, exclude=None):
         """
         Start grabbing all the metadata corresponding to the keys in self.meta_to_save.
 
         This method returns immediately. The metadata itself will be obtained when calling return_meta.
+
+        The driver names in the `exclude` list are ignored for this call
         """
         # Nothing to do if already requested
         if self.grab_meta_flag.is_set():
             return
+
+        if exclude:
+            if type(exclude) is str:
+                exclude = [exclude]
+        else:
+            exclude = []
 
         # Clear metadata dict
         # self.metadata = {}
@@ -187,8 +195,6 @@ class Manager(DriverBase):
 
         # A dict that gathers information about who is done grabbing the metadata
         self.meta_grab_done_dct = {name:None for name in self.clients.keys()}
-
-        print(self.meta_grab_done_dct)
 
         # Make sure everyone will stop after their meta collection
         self.continue_flag.clear()
@@ -291,6 +297,27 @@ class Manager(DriverBase):
                 'path': self.path,
                 'count': self.counter
                  }
+
+    def save_mode(self):
+        """
+        Sets the way files are saved:
+        - "per_scan" or "scan" -> one file per scan
+        - "per_snap" or "snap" -> one file per snap call
+        - "per_frame" or "frame" -> one file every frame
+        """
+
+    def camera(self):
+        """
+        The name of the current camers being used.
+        """
+
+    @proxycall(admin=True)
+    @property
+    def scan_config(self):
+        """
+        Scan configuration.
+        """
+        return self.config['scan_config']
 
     @proxycall()
     def status(self):
