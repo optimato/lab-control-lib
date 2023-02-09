@@ -361,7 +361,7 @@ class CameraBase(DriverBase):
                 self.frame_queue_empty_flag.set()
 
     @proxycall()
-    def get_meta(self, , metakeys=None):
+    def get_meta(self, metakeys=None):
         """
         Return camera-specific metadata
         """
