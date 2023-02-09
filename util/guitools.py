@@ -442,18 +442,26 @@ class StatusBar(QWidget):
             identifier += '/' + scan_name
         elif filename := cam_meta.get('filename'):
             scan_type = 'SNAP'
-            identifier += '/{counter}'.format(**cam_meta)
+            identifier += '/{snap_counter}'.format(**cam_meta)
         else:
             scan_type = 'ROLL'
 
         date = cam_meta.get('acquisition_start', '????-??-?? ??:??:??.???')
 
+        frame_number = cam_meta.get('frame_number')
+        scan_number = cam_meta.get('scan_number')
         exposure_time = cam_meta.get('exposure_time', 0.0)
         exposure_number = cam_meta.get('exposure_number', 0)
         if scan_type == 'ROLL':
             exposure = f'FPS: {1/exposure_time:3.1f}'
         else:
-            exposure = f"{exposure_time:3.2f}   ({i+1}/{exposure_number})"
+            exposure = f"{exposure_time:3.2f} s'"
+        if scan_number:
+            exposure += f"  [{scan_number:4d}]"
+        if frame_number:
+            exposure += f"  ({frame_number}/{exposure_number})"
+        else:
+            exposure += f"  /{exposure_number}"
 
         self.set_labels(scan_type=scan_type,
                         identifier=identifier,
