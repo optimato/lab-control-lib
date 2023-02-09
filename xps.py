@@ -147,8 +147,10 @@ class XPS(SocketDriverBase):
         """
         return self.send_cmd(f'GroupMoveRelative({self.axis}, {disp})')
 
+
+NET_INFO = NETWORK_CONF['xps1']
 @register_proxy_client
-@proxydevice(address=NETWORK_CONF['xps1']['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class XPS1(XPS):
     """
     Driver for motor 1
@@ -159,8 +161,9 @@ class XPS1(XPS):
     def __init__(self, device_address=None):
         super().__init__(name='xps1', axis='Group1.Pos')
 
+NET_INFO = NETWORK_CONF['xps2']
 @register_proxy_client
-@proxydevice(address=NETWORK_CONF['xps2']['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class XPS2(XPS):
     """
     Driver for motor 2
@@ -171,8 +174,9 @@ class XPS2(XPS):
     def __init__(self, device_address=None):
         super().__init__(name='xps2', axis='Group2.Pos')
 
+NET_INFO = NETWORK_CONF['xps3']
 @register_proxy_client
-@proxydevice(address=NETWORK_CONF['xps3']['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class XPS3(XPS):
     """
     Driver for motor 3

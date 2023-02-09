@@ -10,25 +10,30 @@ HOST_IPS = {
             'lambda': '172.19.248.39',
             'xps': '172.19.248.37'
             }
+cIP = HOST_IPS['control']
+vIP = HOST_IPS['varex']
+pIP = HOST_IPS['pco']
+lIP = HOST_IPS['lambda']
+xIP = HOST_IPS['xps']
 
 NETWORK_CONF = {
-    'excillum': {'control': (HOST_IPS['control'], 5000), 'device': ('10.19.48.3', 4944), 'logging': (HOST_IPS['control'], 7000)},
-    'mecademic': {'control': (HOST_IPS['control'], 5010), 'device': ('10.19.48.5', 10000), 'logging': (HOST_IPS['control'], 7010)},
-    'mecademic_monitor': {'control': (HOST_IPS['control'], 5015), 'device': ('10.19.48.5', 10001), 'logging': (HOST_IPS['control'], 7015)},
-    'xps1': {'control': (HOST_IPS['control'], 5020), 'device': (HOST_IPS['xps'], 5001), 'logging': (HOST_IPS['control'], 7020)},  # change the IP to a private one later
-    'xps2': {'control': (HOST_IPS['control'], 5021), 'device': (HOST_IPS['xps'], 5001), 'logging': (HOST_IPS['control'], 7021)},  # change the IP to a private one later
-    'xps3': {'control': (HOST_IPS['control'], 5022), 'device': (HOST_IPS['xps'], 5001), 'logging': (HOST_IPS['control'], 7022)},  # change the IP to a private one later
-    'smaract': {'control': (HOST_IPS['control'], 5030), 'device': ('10.19.48.?', 5000), 'logging': (HOST_IPS['control'], 7030)},
-    'aerotech': {'control': (HOST_IPS['control'], 5040), 'device': ('10.19.48.?', 8000), 'logging': (HOST_IPS['control'], 7040)},
-    'mclennan1': {'control': (HOST_IPS['control'], 5050), 'device': ('10.19.48.?', 7776),  'logging': (HOST_IPS['control'], 7050)},
-    'mclennan2': {'control': (HOST_IPS['control'], 5051), 'device': ('10.19.48.?', 7777), 'logging': (HOST_IPS['control'], 7051)},
-    'mclennan3': {'control': (HOST_IPS['control'], 5052), 'device': ('10.19.48.?', 7778), 'logging': (HOST_IPS['control'], 7052)},
-    'dummy':  {'control': ('127.0.0.1', 5060), 'device': ('127.0.0.1', 6789),  'logging': ('127.0.0.1', 7060)},
-    'varex': {'control': (HOST_IPS['varex'], 5070), 'device': None,  'logging': (HOST_IPS['varex'], 7070), 'broadcast_port': 8070},
-    'pco': {'control': (HOST_IPS['pco'], 5080), 'device': None, 'logging': (HOST_IPS['pco'], 7080), 'broadcast_port': 8080},
-    'xspectrum': {'control': (HOST_IPS['lambda'], 5090), 'device': None, 'logging': (HOST_IPS['lambda'], 7090), 'broadcast_port': 8090},
-    'datalogger': {'control': (HOST_IPS['control'], 8086)},
-    'manager': {'control': (HOST_IPS['control'], 9001)}
+    'excillum':  {'control': (cIP, 5000),         'device': ('10.19.48.3', 4944),  'logging': (cIP, 7000),         'stream': (cIP, 5500)},
+    'mecademic': {'control': (cIP, 5010),         'device': ('10.19.48.5', 10000), 'logging': (cIP, 7010),         'stream': (cIP, 5510)},
+    'mecademic_monitor': {'control': (cIP, 5015), 'device': ('10.19.48.5', 10001), 'logging': (cIP, 7015)},
+    'xps1':      {'control': (cIP, 5020),         'device': (xIP, 5001),           'logging': (cIP, 7020),         'stream': (cIP, 5520)},  # change the IP to a private one later
+    'xps2':      {'control': (cIP, 5021),         'device': (xIP, 5001),           'logging': (cIP, 7021),         'stream': (cIP, 5521)},  # change the IP to a private one later
+    'xps3':      {'control': (cIP, 5022),         'device': (xIP, 5001),           'logging': (cIP, 7022),         'stream': (cIP, 5522)},  # change the IP to a private one later
+    'smaract':   {'control': (cIP, 5030),         'device': ('10.19.48.?', 5000),  'logging': (cIP, 7030),         'stream': (cIP, 5530)},
+    'aerotech':  {'control': (cIP, 5040),         'device': ('10.19.48.?', 8000),  'logging': (cIP, 7040),         'stream': (cIP, 5540)},
+    'mclennan1': {'control': (cIP, 5050),         'device': ('10.19.48.?', 7776),  'logging': (cIP, 7050),         'stream': (cIP, 5550)},
+    'mclennan2': {'control': (cIP, 5051),         'device': ('10.19.48.?', 7777),  'logging': (cIP, 7051),         'stream': (cIP, 5551)},
+    'mclennan3': {'control': (cIP, 5052),         'device': ('10.19.48.?', 7778),  'logging': (cIP, 7052),         'stream': (cIP, 5552)},
+    'dummy':     {'control': ('127.0.0.1', 5060), 'device': ('127.0.0.1', 6789),   'logging': ('127.0.0.1', 7060), 'stream': (cIP, 5560)},
+    'varex':     {'control': (vIP, 5070),         'device': None,                  'logging': (vIP, 7070),         'stream': (vIP, 5570), 'broadcast_port': 8070},
+    'pco':       {'control': (pIP, 5080),         'device': None,                  'logging': (pIP, 7080),         'stream': (pIP, 5580), 'broadcast_port': 8080},
+    'xspectrum': {'control': (lIP, 5090),         'device': None,                  'logging': (lIP, 7090),         'stream': (lIP, 5590), 'broadcast_port': 8090},
+    'datalogger': {'control': (cIP, 8086)},
+    'manager':  {'control': (cIP, 5100),          'device': None,                  'logging': (cIP, 7100),         'stream': (cIP, 5600)}
 }
 
 # For convenience

@@ -71,7 +71,7 @@ EOL = b'\n'
 
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class Smaract(SocketDriverBase):
     """
     Smaract Driver

@@ -18,7 +18,7 @@ from .util.proxydevice import proxydevice, proxycall
 __all__ = ['Dummy', 'Motor']
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class Dummy(SocketDriverBase):
     """
     Dummy Daemon
