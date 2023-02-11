@@ -348,7 +348,7 @@ class H5FileWriter(FileWriter):
         meta = self._meta
         frames = self._frames
 
-        self.enqueue(None)
+        self.queue.put(None)
 
         # Now we wait for the signal to close
         self.close_flag.wait()
