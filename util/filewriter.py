@@ -68,6 +68,7 @@ class FileWriter(multiprocessing.Process):
         # Flag the completion of the writing loop, after exhaustion of the queue
         self.stop_flag = multiprocessing.Event()
         self.end_flag = multiprocessing.Event()
+        self.close_flag = multiprocessing.Event()
         self.queue_empty_flag = multiprocessing.Event()
 
         self.comm_lock = multiprocessing.Lock()
@@ -109,22 +110,26 @@ class FileWriter(multiprocessing.Process):
                     break
                 else:
                     continue
-            self.logger.debug('Processing one item of the queue.')
+            if item is None:
+                # That's a special signal to say that we're done
+                self.close_flag.set()
+            else:
+                self.logger.debug('Processing one item of the queue.')
 
-            # Store beginning of processing time
-            self.times['processed'].append(time.time())
+                # Store beginning of processing time
+                self.times['processed'].append(time.time())
 
-            filename, data, meta = item
-            self.logger.debug(f'Saving data to {filename} ({self.queue.qsize()} remaining in queue)')
-            self.write(filename=filename, meta=meta, data=data)
+                filename, data, meta = item
+                self.logger.debug(f'Saving data to {filename} ({self.queue.qsize()} remaining in queue)')
+                self.write(filename=filename, meta=meta, data=data)
 
-            # Store end of processing time
-            n = len(self.times['completed'])
-            self.times['completed'].append(time.time())
-            wait_time = self.times['processed'][n] - self.times['received'][n]
-            save_time = self.times['completed'][n] - self.times['processed'][n]
+                # Store end of processing time
+                n = len(self.times['completed'])
+                self.times['completed'].append(time.time())
+                wait_time = self.times['processed'][n] - self.times['received'][n]
+                save_time = self.times['completed'][n] - self.times['processed'][n]
 
-            self.logger.debug(f'Done. Time in queue: {wait_time:0.3f} s, Saving duration: {save_time:0.3f} s')
+                self.logger.debug(f'Done. Time in queue: {wait_time:0.3f} s, Saving duration: {save_time:0.3f} s')
 
             if self.queue.qsize() == 0:
                 self.queue_empty_flag.set()
@@ -343,9 +348,12 @@ class H5FileWriter(FileWriter):
         meta = self._meta
         frames = self._frames
 
-        # Now we wait for the queue to empty
-        self.queue_empty_flag.wait()
-        self.logger.debug('Queue empty flag as been set')
+        self.enqueue(None)
+
+        # Now we wait for the signal to close
+        self.close_flag.wait()
+        self.close_flag.clear()
+        self.logger.debug('Close flag as been set')
         self.logger.debug(f'Queue size: {self.queue.qsize()}')
 
         if self.mode == 'ram':
