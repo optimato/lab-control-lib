@@ -148,6 +148,10 @@ class Varex(CameraBase):
             if self.rolling and self.stop_rolling_flag:
                 # Exit if rolling and stop was requested
                 break
+
+            if self.abort_flag.is_set():
+                break
+
             # For very high number of exposures, we need to reset the loop
             if (count - self.count_start - 1) % n_exp == 0:
                 if det.is_live():
