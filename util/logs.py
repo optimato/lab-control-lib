@@ -7,14 +7,11 @@ import logging.config
 import logging.handlers
 import zmq
 import json
-from contextlib import contextmanager
 import threading
 import time
 import datetime
 
 from .future import Future
-
-from .. import LOG_FILE
 
 # This adds another debug level but it is not well managed by
 # zmq.logs.PubHandler so for now not used.
