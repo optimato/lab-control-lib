@@ -287,10 +287,10 @@ class CameraBase(DriverBase):
             # trigger acquisition with subclassed method and wait until it is done
             self.logger.debug('Calling the subclass trigger.')
             self._trigger()
-            if self.abort_flag.is_set():
-                self.logger.info('Acquisition aborted.')
-                self.acquire_done.set()
-                break
+            #if self.abort_flag.is_set():
+            #    self.logger.info('Acquisition aborted.')
+            #    self.acquire_done.set()
+            #    break
 
             self.logger.debug('Done calling the subclass trigger.')
 
@@ -307,7 +307,7 @@ class CameraBase(DriverBase):
                 continue
             else:
                 # Finalize saving
-                self.frame_queue_empty_flag.wait()
+                #self.frame_queue_empty_flag.wait()
                 self.logger.debug('Calling file_writer.close()')
                 self.file_writer.close()
 
