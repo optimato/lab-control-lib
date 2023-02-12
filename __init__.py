@@ -69,12 +69,10 @@ data_path = '/data/'
 #
 # SETUP LOGGING
 #
+# This import takes care of setting up everything
 # File logging
 LOG_DIR = os.path.join(conf_path, 'logs/')
-LOG_FILE = os.path.join(LOG_DIR, 'optimato-labcontrol.log')
 os.makedirs(LOG_DIR, exist_ok=True)
-
-# This import takes care of setting up everything
 from .util import logs
 
 #
@@ -111,9 +109,10 @@ print('\n'.join(['*{:^64s}*'.format(f"OptImaTo Lab Control"),
                  ])
       )
 
-# Log to file only on the control PC
-if THIS_HOST == 'control':
-    logs.log_to_file()
+# Log to file interactive sessions
+if util.uitools.is_interactive():
+    log_file_name = os.path.join(LOG_DIR, 'optimato-labcontrol.log')
+    logs.log_to_file(log_file_name)
     print('*{0:^64}*'.format('[Logging to file on this host]'))
 else:
     print('*{0:^64}*'.format('[Not logging to file on this host]'))
