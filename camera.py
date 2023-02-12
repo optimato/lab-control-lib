@@ -500,7 +500,10 @@ class CameraBase(DriverBase):
         """
         # Terminate acquisition loop and wait for it to complete
         self.end_acquisition = True
-        self.loop_future.join()
+        try:
+            self.loop_future.join()
+        except AttributeError:
+            pass
 
         # Disarm with subclassed method
         self._disarm()
