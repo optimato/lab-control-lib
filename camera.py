@@ -282,6 +282,7 @@ class CameraBase(DriverBase):
 
             # Prepare next acquisition on the file writing process
             if not self.rolling:
+                self.logger.debug('Requesting opening to file writer.')
                 self.file_writer.open(filename=self.filename)
 
             # trigger acquisition with subclassed method and wait until it is done
