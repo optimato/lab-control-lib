@@ -75,8 +75,8 @@ from .base import DriverBase
 from .util import now, FramePublisher
 from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
-from .util import filewriter
-from .util import filestreamer
+from .util import frameconsumer
+from .util import framestreamer
 
 DEFAULT_FILE_FORMAT = 'hdf5'
 DEFAULT_BROADCAST_PORT = 5555
@@ -135,7 +135,7 @@ class CameraBase(DriverBase):
         self.abort_flag = threading.Event()
 
         # File writing process
-        self.file_writer = filewriter.H5FileWriter.start_process(mode=self.config['save_mode'])
+        self.file_writer = frameconsumer.H5FileWriter.start_process()
 
         # Prepare metadata collection
         self.metadata = {}
@@ -152,9 +152,9 @@ class CameraBase(DriverBase):
         self.frame_future = Future(self.frame_management_loop)
 
         # Broadcasting process
-        self.file_streamer = filestreamer.FileStreamer.start_process(self.broadcast_port)
+        self.frame_streamer = framestreamer.FrameStreamer.start_process(self.broadcast_port)
         if self.config['do_broadcast']:
-            self.file_streamer.on()
+            self.frame_streamer.on()
 
         self._exposure_time_before_roll = self.exposure_time
         self._exposure_number_before_roll = self.exposure_number
@@ -375,7 +375,7 @@ class CameraBase(DriverBase):
 
             if self.config['do_broadcast']:
                 self.logger.debug('Calling file_streamer.store() with frame')
-                self.file_streamer.store(self.filename, meta=meta, data=data)
+                self.frame_streamer.store(self.filename, meta=meta, data=data)
                 self.logger.debug('file_streamer.store() returned')
 
             if self.frame_queue.qsize() == 0:
@@ -613,7 +613,7 @@ class CameraBase(DriverBase):
         """
         super().set_log_level(level)
         self.file_writer.exec('set_log_level', (level,))
-        self.file_streamer.exec('set_log_level', (level,))
+        self.frame_streamer.exec('set_log_level', (level,))
 
     def shutdown(self):
         # Stop rolling
@@ -621,7 +621,7 @@ class CameraBase(DriverBase):
         # Stop file_writer process
         self.file_writer.stop()
         # Stop file_streamer process
-        self.file_streamer.stop()
+        self.frame_streamer.stop()
         # Stop metadata loop
         self.closing = True
 
@@ -858,7 +858,7 @@ class CameraBase(DriverBase):
         """
         Start broadcaster.
         """
-        self.file_streamer.on()
+        self.frame_streamer.on()
         self.config['do_broadcast'] = True
 
     @proxycall(admin=True)
@@ -866,7 +866,7 @@ class CameraBase(DriverBase):
         """
         Start broadcaster.
         """
-        self.file_streamer.off()
+        self.frame_streamer.off()
         self.config['do_broadcast'] = False
 
     @proxycall()
