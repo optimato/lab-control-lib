@@ -8,7 +8,7 @@ import logging
 import numpy as np
 from threading import Event
 
-from . import register_proxy_client
+from . import manager, register_proxy_client
 from .camera import CameraBase
 from .network_conf import VAREX as NET_INFO
 from .util.proxydevice import proxydevice
@@ -119,7 +119,7 @@ class Varex(CameraBase):
                     continue
 
             # Get metadata
-            self.metadata = self._manager.return_meta()
+            self.metadata = manager.getManager().return_meta()
 
             # Find and read out buffer
             count = det.get_field_count()
@@ -148,6 +148,10 @@ class Varex(CameraBase):
             if self.rolling and self.stop_rolling_flag:
                 # Exit if rolling and stop was requested
                 break
+
+            if self.abort_flag.is_set():
+                break
+
             # For very high number of exposures, we need to reset the loop
             if (count - self.count_start - 1) % n_exp == 0:
                 if det.is_live():

@@ -1,7 +1,7 @@
 import sys
 
 
-__all__ = ['_interactive', 'ask', 'ask_yes_no', 'user_prompt']
+__all__ = ['is_interactive', 'ask', 'ask_yes_no', 'user_prompt']
 
 # Would be better to check if a client is connected...
 __interactive = hasattr(sys, 'ps1')
@@ -10,7 +10,7 @@ __interactive = hasattr(sys, 'ps1')
 user_interactive = None
 
 
-def _interactive():
+def is_interactive():
     """
     Check if session is interactive
     """
@@ -52,7 +52,7 @@ def ask(question, choices=None, clab=None, cval=None, default=None, help=None, a
         RuntimeError(f'default {default} not part of choices.')
 
     # If not working interactive, accept all defaults and raise error for cases without default
-    if not _interactive():
+    if not is_interactive():
         if not assume or default is None:
             raise RuntimeError("Interactive mode only.")
         return values[default]

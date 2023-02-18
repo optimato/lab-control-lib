@@ -68,6 +68,7 @@ class FileWriter(multiprocessing.Process):
         # Flag the completion of the writing loop, after exhaustion of the queue
         self.stop_flag = multiprocessing.Event()
         self.end_flag = multiprocessing.Event()
+        self.close_flag = multiprocessing.Event()
         self.queue_empty_flag = multiprocessing.Event()
 
         self.comm_lock = multiprocessing.Lock()
@@ -109,22 +110,26 @@ class FileWriter(multiprocessing.Process):
                     break
                 else:
                     continue
-            self.logger.debug('Processing one item of the queue.')
+            if item is None:
+                # That's a special signal to say that we're done
+                self.close_flag.set()
+            else:
+                self.logger.debug('Processing one item of the queue.')
 
-            # Store beginning of processing time
-            self.times['processed'].append(time.time())
+                # Store beginning of processing time
+                self.times['processed'].append(time.time())
 
-            filename, data, meta = item
-            self.logger.debug(f'Saving data to {filename} ({self.queue.qsize()} remaining in queue)')
-            self.write(filename=filename, meta=meta, data=data)
+                filename, data, meta = item
+                self.logger.debug(f'Saving data to {filename} ({self.queue.qsize()} remaining in queue)')
+                self.write(filename=filename, meta=meta, data=data)
 
-            # Store end of processing time
-            n = len(self.times['completed'])
-            self.times['completed'].append(time.time())
-            wait_time = self.times['processed'][n] - self.times['received'][n]
-            save_time = self.times['completed'][n] - self.times['processed'][n]
+                # Store end of processing time
+                n = len(self.times['completed'])
+                self.times['completed'].append(time.time())
+                wait_time = self.times['processed'][n] - self.times['received'][n]
+                save_time = self.times['completed'][n] - self.times['processed'][n]
 
-            self.logger.debug(f'Done. Time in queue: {wait_time:0.3f} s, Saving duration: {save_time:0.3f} s')
+                self.logger.debug(f'Done. Time in queue: {wait_time:0.3f} s, Saving duration: {save_time:0.3f} s')
 
             if self.queue.qsize() == 0:
                 self.queue_empty_flag.set()
@@ -338,32 +343,32 @@ class H5FileWriter(FileWriter):
         """
         (process side) do the actual closing on its own thread.
         """
-        # We extract the filename immediately because it will change in the future.
+        # We extract attributes immediately because they will change in the future.
         filename = self._filename
-        self.queue_empty_flag.wait()
-        self.logger.debug('Queue empty flag as been set')
+        meta = self._meta
+        frames = self._frames
+
+        self.queue.put(None)
+
+        # Now we wait for the signal to close
+        self.close_flag.wait()
+        self.close_flag.clear()
+        self.logger.debug('Close flag as been set')
         self.logger.debug(f'Queue size: {self.queue.qsize()}')
 
         if self.mode == 'ram':
             self.logger.debug(f'Creating numpy dataset')
-            data = np.array(self._frames)
+            data = np.array(frames)
             self.logger.debug(f'Saving with h5write')
-            self.h5write(filename=filename, meta=self._meta, data=data)
+            self.h5write(filename=filename, meta=meta, data=data)
         elif self.mode == 'append':
             # Store metadata
             self.logger.debug(f'Storing metadata')
-            self.h5append(self._fd, meta=self._meta)
+            self.h5append(self._fd, meta=meta)
 
             self.logger.debug(f'Closing hdf5 file')
             self._fd.close()
         self.logger.debug(f'Done')
-
-        # Reset everything for next time
-        self._frames = []
-        self._meta = []
-        self._fd = None
-        self._dset = None
-        self._single_counter = 0
 
         return
 

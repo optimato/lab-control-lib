@@ -132,9 +132,7 @@ class CameraBase(DriverBase):
         self.filename = None
         self.end_acquisition = False
         self._scan_path = None
-
-        # Scan managemnt
-        self._manager = manager.getManager()
+        self.abort_flag = threading.Event()
 
         # File writing process
         self.file_writer = filewriter.H5FileWriter.start_process(mode=self.config['save_mode'])
@@ -228,7 +226,7 @@ class CameraBase(DriverBase):
 
         # Build filename
         if self.in_scan:
-            prefix = self._manager.next_prefix()
+            prefix = manager.getManager().next_prefix()
             self.filename = self._build_filename(prefix=prefix, path=self._scan_path)
         else:
             self.counter += 1
@@ -248,6 +246,22 @@ class CameraBase(DriverBase):
 
         return
 
+    @proxycall(interrupt=True)
+    def abort(self):
+        """
+        Abort whatever the camera was doing.
+        """
+        self.logger.info('Abort requested.')
+
+        # Set abort flag
+        self.abort_flag.set()
+
+        # Rolling is managed differently
+        if self.rolling:
+            self.logger.info('Camera was rolling. Calling roll_off...')
+            self.roll_off()
+            self.logger.info('Done.')
+
     def acquisition_loop(self):
         """
         Main acquisition loop.
@@ -255,6 +269,7 @@ class CameraBase(DriverBase):
         NOTE: This it started on a thread every time the camera is armed.
         """
         self.logger.debug('Acquisition loop started')
+        self.abort_flag.clear()
         while True:
 
             # Wait for the next trigger
@@ -267,11 +282,17 @@ class CameraBase(DriverBase):
 
             # Prepare next acquisition on the file writing process
             if not self.rolling:
+                self.logger.debug('Requesting opening to file writer.')
                 self.file_writer.open(filename=self.filename)
 
             # trigger acquisition with subclassed method and wait until it is done
             self.logger.debug('Calling the subclass trigger.')
             self._trigger()
+            #if self.abort_flag.is_set():
+            #    self.logger.info('Acquisition aborted.')
+            #    self.acquire_done.set()
+            #    break
+
             self.logger.debug('Done calling the subclass trigger.')
 
             # Flip flag immediately to allow snap to return.
@@ -287,17 +308,18 @@ class CameraBase(DriverBase):
                 continue
             else:
                 # Finalize saving
-                self.frame_queue_empty_flag.wait()
+                #self.frame_queue_empty_flag.wait()
                 self.logger.debug('Calling file_writer.close()')
                 self.file_writer.close()
 
             # Automatically armed - this is a single shot
             if self.auto_armed:
-                self.auto_armed = False
                 break
 
             # Get ready for next acquisition
             self._rearm()
+
+        self.auto_armed = False
 
         # The loop is closed, we are done
         self.logger.debug('Acquisition loop completed')
@@ -318,7 +340,7 @@ class CameraBase(DriverBase):
             self.logger.debug('Metadata collection requested (grab_metadata flag)')
 
             # Request global metadata (exclude self, we do that locally instead)
-            self._manager.request_meta(exclude_list=['varex'])
+            manager.getManager().request_meta(exclude_list=['varex'])
 
             # Local metadata
             self.localmeta = self.get_meta()
@@ -455,9 +477,7 @@ class CameraBase(DriverBase):
                 self.exposure_number = exp_num
 
         # Check if this is part of a scan
-        if not self._manager:
-            self._manager = manager.getManager()
-        self._scan_path = self._manager.scan_path
+        self._scan_path = manager.getManager().scan_path
 
         # Finish arming with subclassed method
         self._arm()
@@ -472,7 +492,7 @@ class CameraBase(DriverBase):
         """
         True if within a scan context.
         """
-        return self._manager.scan_path is not None
+        return manager.getManager().scan_path is not None
 
     @proxycall(admin=True)
     def disarm(self):
@@ -481,7 +501,10 @@ class CameraBase(DriverBase):
         """
         # Terminate acquisition loop and wait for it to complete
         self.end_acquisition = True
-        self.loop_future.join()
+        try:
+            self.loop_future.join()
+        except AttributeError:
+            pass
 
         # Disarm with subclassed method
         self._disarm()

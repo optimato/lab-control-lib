@@ -1,12 +1,13 @@
 import time
 import sys
+import os
 import click
 import logging
 
-from . import THIS_HOST, LOCAL_HOSTNAME, client_or_None, Classes
+from . import THIS_HOST, LOCAL_HOSTNAME, client_or_None, Classes, LOG_DIR
 from .network_conf import NETWORK_CONF, HOST_IPS
 from .util.future import Future
-from .util.logs import logging_muted, DisplayLogger, logger as rootlogger
+from .util.logs import logging_muted, DisplayLogger, log_to_file, logger as rootlogger
 
 
 AVAILABLE = [k for k, v in NETWORK_CONF.items() if v['control'][0] in HOST_IPS.get(THIS_HOST, [])]
@@ -88,6 +89,9 @@ def start(name, loglevel, loglevel_global):
             ll = logging._nameToLevel[loglevel]
         except KeyError:
             raise click.BadParameter(f'Unknown log level: {loglevel}')
+
+    # Log to file
+    log_to_file(os.path.join(LOG_DIR, f'optimato-labcontrol-{name}.log'))
 
     # Start the server
     # with logging_muted():

@@ -172,7 +172,7 @@ class Manager(DriverBase):
         self.logger.info(f'Metadata collection loop for {name} ended.')
 
     @proxycall()
-    def request_meta(self, except_list=[]):
+    def request_meta(self, exclude_list=[]):
         """
         Start grabbing all the metadata corresponding to the keys in self.meta_to_save.
 
@@ -189,7 +189,7 @@ class Manager(DriverBase):
         self.metadata = {k:self.metadata.get(k) for k in self.clients.keys() }
 
         # A dict that gathers information about who is done grabbing the metadata
-        self.meta_grab_done_dct = {name:None for name in self.clients.keys() if name not in except_list}
+        self.meta_grab_done_dct = {name:None for name in self.clients.keys() if name not in exclude_list}
 
         # Make sure everyone will stop after their meta collection
         self.continue_flag.clear()
