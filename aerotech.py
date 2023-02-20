@@ -51,7 +51,7 @@ from .util.uitools import ask_yes_no
 __all__ = ['Aerotech', 'Motor']
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class Aerotech(SocketDriverBase):
     """
     Aerotech socket driver.

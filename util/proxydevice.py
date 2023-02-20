@@ -62,9 +62,9 @@ a.get_multiple(5)
 
 import logging
 import traceback
+import sys
 
 import zmq
-from zmq.log.handlers import PUBHandler
 import time
 import atexit
 import threading
@@ -79,6 +79,40 @@ class ProxyClientError(Exception):
     pass
 
 
+class FakeStream:
+    def __init__(self, stream, socket, name):
+        """
+        Place-holder to capture stdout and stderr.
+        """
+        self.real_stream = stream
+        self.socket = socket
+        self.name = name
+
+    def write(self, string):
+        """
+        Replacement for stdout.write and stderr.write.
+        """
+        self.socket.send_json([self.name, string])
+        self.real_stream.write(string)
+
+    def flush(self):
+        self.real_stream.flush()
+
+class FakeStdOut(FakeStream):
+    def __init__(self, socket):
+        super().__init__(sys.stdout, socket, 'stdout')
+        sys.stdout = self
+    def __del__(self):
+        sys.stdout = self.real_stream
+
+class FakeStdErr(FakeStream):
+    def __init__(self, socket):
+        super().__init__(sys.stderr, socket, 'stderr')
+        sys.stderr = self
+    def __del__(self):
+        sys.stderr = self.real_stream
+
+
 class ServerBase:
     """
     Server for a wrapped class.
@@ -87,6 +121,7 @@ class ServerBase:
     POLL_TIMEOUT = 100
     ESCAPE_STRING = '^'
     ADDRESS = None
+    STREAM_ADDRESS = None
     API = None
     CLS = None
     RESULT_TIMEOUT = .2  # Wait time for completion of a blocking task before
@@ -95,7 +130,14 @@ class ServerBase:
                          # back and forth, but should not be too long to allow
                          # for emergency stops to be requested fast enough.
 
-    def __init__(self, cls=None, API=None, address=None, instantiate=False, instance_args=None, instance_kwargs=None):
+    def __init__(self,
+                 cls=None,
+                 API=None,
+                 address=None,
+                 instantiate=False,
+                 instance_args=None,
+                 instance_kwargs=None,
+                 stream_address=None):
         """
         Base class for server proxy
 
@@ -113,6 +155,7 @@ class ServerBase:
         self.cls = cls or self.CLS
         self.API = API or self.API
         self.address = address or self.ADDRESS
+        self.stream_address = stream_address or self.STREAM_ADDRESS
 
         self.logger = rootlogger.getChild(self.__class__.__name__)
         self.name = self.__class__.__name__.lower()
@@ -137,6 +180,12 @@ class ServerBase:
         self.context = None
         self.socket = None
 
+        # To be assigned in self.capture_streams
+        self.stream_context = None
+        self.stream_socket = None
+        self.fake_stdout = None
+        self.fake_stderr = None
+
         self.admin = None
         self._stopping = None
         atexit.register(self.stop)
@@ -160,6 +209,25 @@ class ServerBase:
             pass
         self.server_future = Future(self._run)
 
+        self.capture_streams()
+
+    def capture_streams(self):
+        """
+        Capture stdout and stderr and publish them for the clients.
+        """
+        full_address = f'tcp://*:{self.stream_address[1]}'
+
+        # Prepare socket
+        self.stream_context = zmq.Context()
+        self.stream_socket = self.stream_context.socket(zmq.PUB)
+        self.stream_socket.bind(full_address)
+
+        # This starts capturing stdout and stderr
+        self.fake_stdout = FakeStdOut(self.stream_socket)
+        self.fake_stderr = FakeStdErr(self.stream_socket)
+
+        self.logger.info(f'Now publishing stdout and stderr on {full_address}')
+
     def wait(self):
         """
         Wait until the server stops.
@@ -172,6 +240,10 @@ class ServerBase:
         Stop the server. This signals both listening and ping threads to terminate.
         """
         del self.instance
+        if self.fake_stdout:
+            self.fake_stdout = None
+        if self.fake_stderr:
+            self.fake_stderr = None
         self._stopping = True
 
     def _run(self):
@@ -553,7 +625,7 @@ class ClientProxy:
     REQUEST_TIMEOUT = 10.
     NUM_RECONNECT = 1000000 # ~= infinity
 
-    def __init__(self, address, API, name=None, clean=True, cls_name=None):
+    def __init__(self, address, API, name=None, clean=True, cls_name=None, stream_address=None):
         """
         Client whose instance will be hidden in the proxy class.
         address: (IP, port) to connect to
@@ -567,6 +639,7 @@ class ClientProxy:
         self.clean = clean
         self.API = API
         self.cls_name = cls_name
+        self.stream_address = stream_address
         self.name = name or self.__class__.__name__.lower()
         # self.logger = rootlogger.getChild(self.__class__.__name__)
         self.logger = rootlogger.getChild('.'.join([self.cls_name, self.__class__.__name__]))
@@ -589,7 +662,10 @@ class ClientProxy:
         self.future_ping = None
         self._last_ping = 0.
 
-        # Flag to kill the ping thread
+        # This will hold the stream subscription thread
+        self.future_streams = None
+
+        # Flag to kill the ping and streaming threads
         self._stopping = threading.Event()
 
         atexit.register(self.shutdown)
@@ -646,6 +722,9 @@ class ClientProxy:
 
         # Start ping process
         self.future_ping = Future(self._ping)
+
+        # Starting stream subscriber
+        self.future_streams = Future(self._subscribe_streams)
 
     def send_recv(self, cmd_seq, clean=None):
         """
@@ -718,6 +797,9 @@ class ClientProxy:
                 poll_timeout /= 10
 
             while True:
+
+                if self._stopping.is_set():
+                    return
 
                 # Ideal case: there's a reply
                 if (self.socket.poll(poll_timeout) & zmq.POLLIN) != 0:
@@ -815,6 +897,33 @@ class ClientProxy:
             except BaseException as error:
                 self.logger.exception('Ping error.')
 
+    def _subscribe_streams(self):
+        """
+        Printing out stdout and stdin form the server asynchronously.
+        """
+        if not self.stream_address:
+            self.logger.error('Cannot stream stdout and stderr from server: stream_address is None.')
+            return
+        full_address = 'tcp://{0}:{1}'.format(*self.stream_address)
+        stream_context = zmq.Context()
+        stream_socket = stream_context.socket(zmq.SUB)
+        stream_socket.setsockopt(zmq.SUBSCRIBE, b'')
+        stream_socket.connect(full_address)
+
+        while not self._stopping.is_set():
+            try:
+                if (stream_socket.poll(500.) & zmq.POLLIN) == 0:
+                    continue
+                stream_name, string = stream_socket.recv_json()
+                if stream_name == 'stdout':
+                    sys.stdout.write(string)
+                    sys.stdout.flush()
+                elif stream_name == 'stderr':
+                    sys.stderr.write(string)
+                    sys.stderr.flush()
+            except BaseException as error:
+                self.logger.exception('Streaming error.')
+
     def disconnect(self):
         """
         Inform the server that we are leaving.
@@ -876,8 +985,9 @@ class ClientBase:
     _API = None
     _clean = None
     _cls_name = None
+    _stream_address = None
 
-    def __init__(self, address=None, admin=True, name=None, args=None, kwargs=None):
+    def __init__(self, address=None, admin=True, name=None, args=None, kwargs=None, stream_address=None):
         """
         Mostly empty class that will be subclassed and filled with the methods and properties identified by the
         proxycall decorators.
@@ -885,9 +995,11 @@ class ClientBase:
         """
         args = args or ()
         kwargs = kwargs or {}
+        stream_address = stream_address or self._stream_address
         self.name = self.__class__.__name__
         self.client_name = name or self.name
-        self._proxy = ClientProxy(address=self._address, API=self._API, name=self.client_name, clean=self._clean, cls_name=self._cls_name)
+        self._proxy = ClientProxy(address=self._address, API=self._API, name=self.client_name,
+                                  clean=self._clean, cls_name=self._cls_name, stream_address=stream_address)
         self._proxy.connect(args, kwargs, address=address, admin=admin)
         self.ask_admin = self._proxy.ask_admin
         self.get_result = self._proxy.get_result
@@ -932,15 +1044,17 @@ class proxydevice:
     """
     Decorator that does the main magic.
     """
-    def __init__(self, address=None, clean=True):
+    def __init__(self, address=None, clean=True, stream_address=None):
         """
         Decorator initialization.
         address: (IP, port) of the serving address. If None, will have to be provided as an argument
         clean: whether the client side should receive replies in the same format as for the native class. If false,
         all methods return a dict that contain a 'status', 'value' and possibly 'msg' entry.
+        stream_address is the address to publish captured stdout and stderr
         """
         self.address = address
         self.clean = clean
+        self.stream_address = stream_address
 
     def __call__(self, cls):
         """
@@ -966,6 +1080,7 @@ class proxydevice:
         # Define server subclass and set default values
         Server = type(f'{cls.__name__}ProxyServer', (ServerBase,), {})
         Server.ADDRESS = self.address
+        Server.STREAM_ADDRESS = self.stream_address
         Server.API = API
         Server.CLS = cls
 
@@ -977,7 +1092,7 @@ class proxydevice:
         Client._API = API
         Client._clean = self.clean
         Client._cls_name = cls.__name__
-
+        Client._stream_address = self.stream_address
 
         # Create all fake methods and properties for Client
         for k, api_info in API.items():

@@ -41,7 +41,7 @@ def getManager():
 
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class Manager(DriverBase):
     """
     Management of experiment structures and metadata.

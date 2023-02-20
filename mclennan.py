@@ -601,8 +601,9 @@ class McLennan(SocketDriverBase):
         self.config['limits'] = limits
 
 
+NET_INFO = NETWORK_CONF['mclennan1']
 @register_proxy_client
-@proxydevice(address=NETWORK_CONF['mclennan1']['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class McLennan1(McLennan):
     """
     Driver for motor 1
@@ -615,8 +616,9 @@ class McLennan1(McLennan):
         super().__init__(device_address=NETWORK_CONF[self.name]['device'], name=self.name)
 
 
+NET_INFO = NETWORK_CONF['mclennan2']
 @register_proxy_client
-@proxydevice(address=NETWORK_CONF['mclennan2']['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class McLennan2(McLennan):
     """
     Driver for motor 2
@@ -629,8 +631,9 @@ class McLennan2(McLennan):
         super().__init__(device_address=NETWORK_CONF[self.name]['device'], name=self.name)
 
 
+NET_INFO = NETWORK_CONF['mclennan3']
 @register_proxy_client
-@proxydevice(address=NETWORK_CONF['mclennan3']['control'])
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class McLennan3(McLennan):
     """
     Driver for motor 3
