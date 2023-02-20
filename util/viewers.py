@@ -11,7 +11,7 @@ import logging
 
 from .imstream import FrameSubscriber
 from .logs import logger as rootlogger
-from .guitools import LiveView, FrameCorrection, StatusBar, Signal
+from .guitools import LiveView, FrameCorrection, StatusBar, Signal, Options
 
 
 class ViewerBase:
@@ -140,7 +140,8 @@ class NapariViewer(ViewerBase):
         self.epsize = None
         self.buffer = None
         self.metadata = None
-        self.buffer_size = 1
+        self._buffer_size = 1
+        self.scalebar_scaled = True
         super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
 
     def prepare_viewer(self):
@@ -169,8 +170,11 @@ class NapariViewer(ViewerBase):
         self.v.layers.events.changed.connect(self.status_bar.update)
         self.v.layers.events.inserted.connect(self.status_bar.update)
 
+        self.options = Options(self)
+
         self.v.window.add_dock_widget(self.live_view, name='Viewer status', area='right')
         self.v.window.add_dock_widget(self.frame_correction, name='Correction', area='right')
+        self.v.window.add_dock_widget(self.options, name='Options', area='right')
         self.v.window.add_dock_widget(self.status_bar, name='Status', area='bottom')
 
     def start_viewer(self):
@@ -197,19 +201,9 @@ class NapariViewer(ViewerBase):
             return
 
         self.logger.debug('New frame received.')
-        epsize = None
-        for v in metadata.values():
-            try:
-                epsize = v.get('epsize')
-            except AttributeError:
-                continue
-            if epsize:
-                self.logger.debug(f'Effective pixel size: {epsize:0.2} μm')
-                break
 
         # Update buffer and metadata list, and update viewer
         self.append_buffer(frame, metadata)
-        self.update_scalebar(epsize)
         self.status_bar.update()
 
     def append_buffer(self, frame, metadata):
@@ -219,11 +213,8 @@ class NapariViewer(ViewerBase):
         if self.buffer is None:
             # First time.
             self.logger.debug('Creating internal buffer')
-            if frame.ndim == 2:
-                frame = frame[np.newaxis, :]
-            bs = frame.shape[0]
-            self.set_buffer_size(bs)
-            self.buffer = frame
+            self.buffer = np.zeros((self._buffer_size,) + frame.shape[-2:], dtype=frame.dtype)
+            self.buffer[0] = frame
             self.metadata = [metadata]
         elif frame.ndim == 2 or frame.shape[0] == 1:
             self.logger.debug('Appending frame to buffer')
@@ -279,9 +270,21 @@ class NapariViewer(ViewerBase):
             self.v.add_image(corrected_data, name=self.LIVEVIEW_LABEL)
             self.v.layers[self.LIVEVIEW_LABEL].metadata['meta'] = self.metadata
             self.v.layers[self.LIVEVIEW_LABEL].refresh()
+
+        epsize = None
+        try:
+            epsize = self.metadata[0]['varex']['epsize']
+            self.logger.debug(f'Effective pixel size: {epsize:0.2} μm')
+        except (AttributeError, KeyError) as e:
+            pass
+
+        self.update_scalebar(epsize)
         return
 
     def set_buffer_size(self, size: int):
+        """
+        Method called on widget events.
+        """
         size = np.clip(size, 1, self.MAX_BUFFER_SIZE)
         self._buffer_size = size
         self.live_view.update_buffer_size(size)
@@ -315,30 +318,59 @@ class NapariViewer(ViewerBase):
             self.metadata = self.metadata[:bs]
         self.update_layer()
 
-    def update_scalebar(self, epsize):
+    def update_scalebar(self, epsize=None, scaled=True):
         """
         Update or add scale bar if needed.
         """
-        if not epsize:
-            return
-        if epsize == self.epsize:
-            return
         try:
-            epsize = float(epsize)
-        except:
-            self.logger.error(f'epsize is what??? ({epsize})')
+            layer = self.v.layers[self.LIVEVIEW_LABEL]
+        except KeyError:
+            # No live view. Ignore.
             return
-        self.epsize = epsize
-        layer = self.v.layers[self.LIVEVIEW_LABEL]
-        if len(layer.data.shape) == 2:
-            scale = [self.epsize, self.epsize]
-        else:
-            scale = [1, self.epsize, self.epsize]
 
-        layer.scale = scale
-        self.v.scale_bar.visible = True
-        self.v.scale_bar.unit = 'um'
-        self.v.reset_view()
+        if not scaled:
+            if not self.scalebar_scaled:
+                # Nothing changed
+                return
+            self.scalebar_scaled = False
+            layer.scale = layer.data.ndim * (1.,)
+            self.v.scale_bar.unit = 'px'
+            self.v.scale_bar.visible = True
+            self.v.reset_view()
+
+        if epsize:
+            try:
+                epsize = float(epsize)
+            except:
+                self.logger.error(f'epsize is what??? ({epsize})')
+                return
+
+        if scaled:
+            if not self.epsize:
+                if not epsize and self.scalebar_scaled:
+                    # No information about pixel size, ask for non-scaled
+                    self.update_scalebar(scaled=False)
+                    return
+                self.epsize = epsize
+            elif self.scalebar_scaled:
+                if not epsize:
+                    # Nothing to do
+                    return
+                elif epsize == self.epsize:
+                    # Nothing to do
+                    return
+                else:
+                    self.epsize = epsize
+            self.scalebar_scaled = True
+            layer = self.v.layers[self.LIVEVIEW_LABEL]
+            if layer.data.ndim == 2:
+                scale = [self.epsize, self.epsize]
+            else:
+                scale = [1, self.epsize, self.epsize]
+            layer.scale = scale
+            self.v.scale_bar.unit = 'um'
+            self.v.scale_bar.visible = True
+            self.v.reset_view()
 
     def generate_average_layer(self):
         """

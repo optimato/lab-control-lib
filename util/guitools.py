@@ -4,7 +4,8 @@ from qtpy.QtWidgets import (QWidget,
                             QPushButton,
                             QLabel,
                             QSpinBox,
-                            QGroupBox)
+                            QGroupBox,
+                            QCheckBox)
 from qtpy.QtCore import QTimer, Qt, Signal
 import napari
 import napari.utils.notifications
@@ -495,3 +496,30 @@ class StatusBar(QWidget):
     def wipe(self):
         self.set_labels()
 
+class Options(QWidget):
+
+    def __init__(self, napari_viewer):
+        """
+        A Widget for random options. For now, toggle scale bar. Let's see how it evolves.
+        """
+        super().__init__()
+        self.viewer = napari_viewer
+
+        # Overall vertical layout
+        self.setLayout(QVBoxLayout())
+
+        # Scale bar group
+        self.scalebar_group = QGroupBox("Scale Bar")
+        self.scalebar_group.setLayout(QVBoxLayout())
+
+        self.scalebar_check = QCheckBox('Scale')
+        self.scalebar_group.layout().addWidget(self.scalebar_check)
+
+        self.layout().addWidget(self.scalebar_group)
+
+        self.scalebar_check.stateChanged.connect(self.scalebar_toggle)
+    def scalebar_toggle(self, event):
+        """
+        Turn on / off pixel physical units
+        """
+        self.viewer.update_scalebar(scaled=bool(event))
