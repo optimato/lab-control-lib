@@ -241,9 +241,9 @@ class ServerBase:
         """
         del self.instance
         if self.fake_stdout:
-            del self.fake_stdout
+            self.fake_stdout = None
         if self.fake_stderr:
-            del self.fake_stderr
+            self.fake_stderr = None
         self._stopping = True
 
     def _run(self):
@@ -798,6 +798,9 @@ class ClientProxy:
 
             while True:
 
+                if self._stopping.is_set():
+                    return
+
                 # Ideal case: there's a reply
                 if (self.socket.poll(poll_timeout) & zmq.POLLIN) != 0:
                     reply = self.socket.recv_json()
@@ -898,6 +901,9 @@ class ClientProxy:
         """
         Printing out stdout and stdin form the server asynchronously.
         """
+        if not self.stream_address:
+            self.logger.error('Cannot stream stdout and stderr from server: stream_address is None.')
+            return
         full_address = 'tcp://{0}:{1}'.format(*self.stream_address)
         stream_context = zmq.Context()
         stream_socket = stream_context.socket(zmq.SUB)
@@ -989,6 +995,7 @@ class ClientBase:
         """
         args = args or ()
         kwargs = kwargs or {}
+        stream_address = stream_address or self._stream_address
         self.name = self.__class__.__name__
         self.client_name = name or self.name
         self._proxy = ClientProxy(address=self._address, API=self._API, name=self.client_name,
