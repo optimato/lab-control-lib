@@ -112,10 +112,10 @@ class FrameConsumerProcess(multiprocessing.Process):
             msg = self.p_sub.recv()
 
             # Check if the msg is a method to execute
-            if method := msg.get('method', None):
+            if method_name := msg.get('method', None):
                 # Execute command! (the reply format is bogus for now)
                 try:
-                    method = getattr(self, method)
+                    method = getattr(self, method_name)
                     reply = {'status': 'ok'}
                     # Send reply to main process before execution
                     self.p_sub.send(reply)
@@ -199,10 +199,10 @@ class FrameConsumerProcess(multiprocessing.Process):
             # Encode arguments in shared buffer
             self.p_main.send(args)
 
-        # Get reply through same buffer
-        if not self.p_main.poll(20.):
-            raise RuntimeError('Remote process is not responding.')
-        reply = self.p_main.recv()
+            # Get reply through same buffer
+            if not self.p_main.poll(20.):
+                raise RuntimeError('Remote process is not responding.')
+            reply = self.p_main.recv()
         return reply
 
     def exec(self, method, args=(), kwargs=None):
@@ -213,10 +213,10 @@ class FrameConsumerProcess(multiprocessing.Process):
         with self.comm_lock:
             self.p_main.send({'method': method, 'args': args, 'kwargs': kwargs})
 
-        # Get reply through same buffer
-        if not self.p_main.poll(20.):
-            raise RuntimeError('Remote process is not responding.')
-        reply = self.p_main.recv()
+            # Get reply through same buffer
+            if not self.p_main.poll(20.):
+                raise RuntimeError('Remote process is not responding.')
+            reply = self.p_main.recv()
         return reply
 
     def stop(self):
@@ -295,7 +295,6 @@ class H5FileWriter(FrameConsumerProcess):
         Worker started by self._open and that accumulates frames until notified to save and closed.
         """
         self.logger.debug(f'Data will be saved in file {filename}')
-        print(3)
 
         frames = []
         metadata = []
@@ -317,24 +316,25 @@ class H5FileWriter(FrameConsumerProcess):
 
             self.msg_flag.clear()
 
-            # Do we need to wrap up?
-            if self.close_flag.is_set():
-                break
-
             # If there is no frame in the queue, ignore this flag (can result from a exec call)
             try:
                 item = self.queue.get(timeout=.01)
             except Empty:
                 continue
 
-            if self.queue.qsize() != 0:
-                # This happens if the acquisition is faster than the processing.
-                self.logger.error('Queue is not empty - maybe acquisition is faster than storing?')
-                return {'status':'error', 'msg': 'more than one item in queue'}
+            #if self.queue.qsize() != 0:
+            #    # This happens if the acquisition is faster than the processing.
+            #    self.logger.error('Queue is not empty - maybe acquisition is faster than storing?')
+            #    return {'status': 'error', 'msg': 'more than one item in queue'}
+
+            data, meta, receive_time = item
+
+            if data is None:
+                self.logger.debug('No more frames.')
+                break
 
             self.logger.debug('Appending a new frame.')
 
-            data, meta, receive_time = item
             frames.append(data)
             metadata.append(meta)
             store_times.append(receive_time)
@@ -351,7 +351,7 @@ class H5FileWriter(FrameConsumerProcess):
         [subprocess]
         End frame accumulation and save.
         """
-        self.close_flag.set()
+        self.queue.put((None, None, None))
         return
 
     def open(self, filename):

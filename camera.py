@@ -370,12 +370,12 @@ class CameraBase(DriverBase):
 
             if not self.rolling:
                 self.logger.debug('Calling file_writer.store() with frame')
-                self.file_writer.store(self.filename, meta=meta, data=data)
+                self.file_writer.store(meta=meta, data=data)
                 self.logger.debug('file_writer.store() returned')
 
             if self.config['do_broadcast']:
                 self.logger.debug('Calling file_streamer.store() with frame')
-                self.frame_streamer.store(self.filename, meta=meta, data=data)
+                self.frame_streamer.store(meta=meta, data=data)
                 self.logger.debug('file_streamer.store() returned')
 
             if self.frame_queue.qsize() == 0:
@@ -612,8 +612,8 @@ class CameraBase(DriverBase):
         Set logging level - also for the filewriter process.
         """
         super().set_log_level(level)
-        self.file_writer.exec('set_log_level', (level,))
-        self.frame_streamer.exec('set_log_level', (level,))
+        self.file_writer.set_log_level(level)
+        self.frame_streamer.set_log_level(level)
 
     def shutdown(self):
         # Stop rolling
