@@ -50,6 +50,7 @@ def _p(s):
             f.write(f'{n}: "{full_s}",\n')
         COUNTER += 1
     DUMPFILE.write(f'{time.perf_counter():3.4f}\t{n}\n')
+    DUMPFILE.flush()
     #print(f'{time.perf_counter():3.4f}[{os.getpid()}] {filename}:{cf.f_back.f_lineno} {s}', flush=True)
 """
 
