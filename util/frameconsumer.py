@@ -27,9 +27,10 @@ import traceback
 from .future import Future
 from .logs import logger as rootlogger
 
-from inspect import currentframe, getframeinfo
 import os
 
+"""
+from inspect import currentframe, getframeinfo
 DUMPFILE = open(f'DUMP_{os.getpid():06d}.txt', 'wt')
 ALLSTRINGS = {}
 COUNTER = 0
@@ -50,7 +51,10 @@ def _p(s):
         COUNTER += 1
     DUMPFILE.write(f'{time.perf_counter():3.4f}\t{n}\n')
     #print(f'{time.perf_counter():3.4f}[{os.getpid()}] {filename}:{cf.f_back.f_lineno} {s}', flush=True)
+"""
 
+def _p(s):
+    pass
 
 #def _p(s):
 #    cf = currentframe()

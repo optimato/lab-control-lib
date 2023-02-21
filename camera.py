@@ -275,6 +275,7 @@ class CameraBase(DriverBase):
             # Wait for the next trigger
             if not self.do_acquire.wait(.2):
                 if self.end_acquisition:
+                    self.logger.debug('end_acquisition is True. Breaking out.')
                     break
                 continue
             self.do_acquire.clear()
@@ -314,6 +315,7 @@ class CameraBase(DriverBase):
 
             # Automatically armed - this is a single shot
             if self.auto_armed:
+                self.logger.debug('Arming was auto (single shot). Breaking out.')
                 break
 
             # Get ready for next acquisition
