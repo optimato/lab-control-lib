@@ -513,6 +513,7 @@ class Options(QWidget):
         self.scalebar_group.setLayout(QVBoxLayout())
 
         self.scalebar_check = QCheckBox('Scale')
+        self.scalebar_check.setChecked(True)
         self.scalebar_group.layout().addWidget(self.scalebar_check)
 
         self.layout().addWidget(self.scalebar_group)

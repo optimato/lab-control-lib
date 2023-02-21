@@ -318,7 +318,7 @@ class NapariViewer(ViewerBase):
             self.metadata = self.metadata[:bs]
         self.update_layer()
 
-    def update_scalebar(self, epsize=None, scaled=True):
+    def update_scalebar(self, epsize=None, scaled=None):
         """
         Update or add scale bar if needed.
         """
@@ -327,6 +327,9 @@ class NapariViewer(ViewerBase):
         except KeyError:
             # No live view. Ignore.
             return
+
+        if scaled is None:
+            scaled = self.scalebar_scaled
 
         if not scaled:
             if not self.scalebar_scaled:
