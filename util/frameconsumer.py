@@ -13,6 +13,7 @@ h5w.store(filename, data, meta) # This copies the data to shared memory and flag
 import multiprocessing
 import os.path
 import threading
+import atexit
 try:
     multiprocessing.set_start_method('spawn')
 except RuntimeError:
@@ -25,6 +26,37 @@ import traceback
 
 from .future import Future
 from .logs import logger as rootlogger
+
+from inspect import currentframe, getframeinfo
+import os
+
+DUMPFILE = open(f'DUMP_{os.getpid():06d}.txt', 'wt')
+ALLSTRINGS = {}
+COUNTER = 0
+with open(f'KEYS_{os.getpid():06d}.txt', 'wt') as f:
+    f.write('keys = {\n')
+
+def _p(s):
+    global COUNTER
+    cf = currentframe()
+    filename = getframeinfo(cf).filename
+    full_s = f'[{os.getpid()}] {filename}:{cf.f_back.f_lineno} {s}'
+    n = ALLSTRINGS.get(full_s)
+    if not n:
+        n = COUNTER+0
+        ALLSTRINGS[full_s] = n
+        with open(f'KEYS_{os.getpid():06d}.txt', 'at') as f:
+            f.write(f'{n}: "{full_s}",\n')
+        COUNTER += 1
+    DUMPFILE.write(f'{time.perf_counter():3.4f}\t{n}\n')
+    #print(f'{time.perf_counter():3.4f}[{os.getpid()}] {filename}:{cf.f_back.f_lineno} {s}', flush=True)
+
+
+#def _p(s):
+#    cf = currentframe()
+#    filename = getframeinfo(cf).filename
+#    DUMPFILE.write(f'{time.perf_counter():3.4f}[{os.getpid()}] {filename}:{cf.f_back.f_lineno} {s}\n')
+#    # print(f'{time.perf_counter():3.4f}[{os.getpid()}] {filename}:{cf.f_back.f_lineno} {s}', flush=True)
 
 
 # 100 varex full frames
@@ -75,6 +107,8 @@ class FrameConsumerProcess(multiprocessing.Process):
         # Defined in subprocess only:
         self.msg_flag = None
 
+        atexit.register(self.stop)
+
     def _process_init(self):
         """
         Possibly additional code to run *only on the separate process*.
@@ -103,7 +137,9 @@ class FrameConsumerProcess(multiprocessing.Process):
         # Main loop: wait for data from main process, announced through the p_main/p_sub pipes
         while True:
             if not self.p_sub.poll(timeout=1.):
+                _p('main pipe poll wait')
                 if self.stop_flag.is_set():
+                    _p('out of main pipe poll wait: stop_flag')
                     break
                 else:
                     continue
@@ -114,18 +150,24 @@ class FrameConsumerProcess(multiprocessing.Process):
             # Check if the msg is a method to execute
             if method_name := msg.get('method', None):
                 # Execute command! (the reply format is bogus for now)
+                _p(f'pipe is method {method_name}')
                 try:
                     method = getattr(self, method_name)
                     reply = {'status': 'ok'}
                     # Send reply to main process before execution
+                    _p(f'Sending reply')
                     self.p_sub.send(reply)
+                    _p(f'Calling method {method_name}')
                     result = method(*msg['args'], **msg['kwargs'])
+                    _p(f'Done calling method {method_name}')
                 except:
+                    _p(f'Error calling method {method_name}')
                     reply = {'status': 'error', 'msg': traceback.format_exc()}
                     self.p_sub.send(reply)
 
             else:
                 # New data has been pushed.
+                _p(f'New data in main loop')
 
                 # Get arrival time for statistics
                 received_time = time.time()
@@ -134,16 +176,25 @@ class FrameConsumerProcess(multiprocessing.Process):
                 data = self.get_array(shape=msg['shape'],
                                   dtype=msg['dtype']).copy()
 
+                _p(f'Copied data from shared buffer. Putting in queue')
+
                 # Put the data and the accompanying metadata in the frame queue
                 self.queue.put((data, msg['meta'], received_time))
 
+                _p(f'Data now in queue')
+
                 # Send information back to main process.
                 reply = {'in_queue': self.queue.qsize()}
+
+                _p(f'Sending reply')
                 self.p_sub.send(reply)
+                _p(f'Done sending reply')
 
             # Flip the flag saying that a message arrived.
+            _p(f'Setting msg_flag')
             self.msg_flag.set()
 
+        _p(f'Out of main loop. Process will shut down')
         self.logger.debug('Main loop ended.')
         self.data_buffer.unlink()
         self.end_flag.set()
@@ -180,6 +231,7 @@ class FrameConsumerProcess(multiprocessing.Process):
         """
         meta = meta or {}
 
+        _p(f'Store acquiring comm lock')
         with self.comm_lock:
             if data is None:
                 # Data is already in buffer
@@ -196,13 +248,20 @@ class FrameConsumerProcess(multiprocessing.Process):
                     'dtype': dtype,
                     'meta': meta}
 
+            _p(f'data is shape={shape}, dtype={dtype}. Sending args through pipe.')
+
             # Encode arguments in shared buffer
             self.p_main.send(args)
+            _p(f'Done sending args through pipe.')
 
             # Get reply through same buffer
+            _p(f'Waiting for reply through pipe')
             if not self.p_main.poll(20.):
                 raise RuntimeError('Remote process is not responding.')
             reply = self.p_main.recv()
+            _p(f'Reply received')
+
+        _p(f'Store releasing comm lock')
         return reply
 
     def exec(self, method, args=(), kwargs=None):
@@ -210,21 +269,31 @@ class FrameConsumerProcess(multiprocessing.Process):
         A crude way to send commands to the process
         """
         kwargs = kwargs or {}
+
+        _p(f'Exec acquiring comm lock')
         with self.comm_lock:
+            _p(f'Sending method {method} and arguments through pipe.')
             self.p_main.send({'method': method, 'args': args, 'kwargs': kwargs})
+            _p(f'Done sending method.')
 
             # Get reply through same buffer
+            _p(f'Waiting for reply')
             if not self.p_main.poll(20.):
                 raise RuntimeError('Remote process is not responding.')
             reply = self.p_main.recv()
+            _p(f'Reply received.')
+
+        _p(f'Exec releasing comm lock')
         return reply
 
     def stop(self):
         self.stop_flag.set()
 
     def __del__(self):
+        _p(f'in __del__')
         self.stop_flag.set()
-        self.end_flag.wait()
+        if self.msg_flag is None:
+            self.end_flag.wait()
 
     @classmethod
     def start_process(cls, *args, **kwargs):
@@ -269,7 +338,9 @@ class H5FileWriter(FrameConsumerProcess):
         This command starts the thread that captures the frames.
         """
         # Start new frame accumulation worker, put it in a dictionary with the filename as its key.
+        _p(f'_open : starting worker thread')
         self.futures[filename] = Future(self._worker, kwargs={'filename': filename})
+        _p(f'_open : worker thread started')
 
         # If needed do some cleanup of previous completed futures.
         for fname, future in list(self.futures.items()):
@@ -279,6 +350,7 @@ class H5FileWriter(FrameConsumerProcess):
             # Otherwise get the result and delete the future.
             self.save_results[fname] = future.result()
             del self.futures[fname]
+        _p(f'_open : exiting')
 
     def _get_save_results(self):
         """
@@ -294,6 +366,7 @@ class H5FileWriter(FrameConsumerProcess):
         [subprocess]
         Worker started by self._open and that accumulates frames until notified to save and closed.
         """
+        _p(f'_worker : starting (filename={filename})')
         self.logger.debug(f'Data will be saved in file {filename}')
 
         frames = []
@@ -301,25 +374,32 @@ class H5FileWriter(FrameConsumerProcess):
         store_times = []
 
         # self.msg_flag is set but the "_open" call, so we need to ignore this first flip.
+        _p(f'_worker: first wait for msg_flag')
         if not self.msg_flag.wait(5):
             print('Something went wrong')
             return {'status': 'error', 'msg': 'Something went wrong when starting _worker'}
+        _p(f'_worker: clearing msg_flag')
         self.msg_flag.clear()
 
         while True:
             # Wait for commands from main process.
             if not self.msg_flag.wait(.5):
+                _p(f'_worker: waiting on msg_flag')
                 if self.stop_flag.is_set():
+                    _p(f'_worker: stop_flag is set.')
                     # TODO: decide what to do if stop_flag is set while accumulating frames here.
                     break
                 continue
 
+            _p(f'_worker: clearing msg_flag.')
             self.msg_flag.clear()
 
             # If there is no frame in the queue, ignore this flag (can result from a exec call)
             try:
+                _p(f'_worker: getting item in queue')
                 item = self.queue.get(timeout=.01)
             except Empty:
+                _p(f'_worker: queue is empty')
                 continue
 
             #if self.queue.qsize() != 0:
@@ -330,19 +410,23 @@ class H5FileWriter(FrameConsumerProcess):
             data, meta, receive_time = item
 
             if data is None:
+                _p(f'_worker: data is None -> breaking out of the loop.')
                 self.logger.debug('No more frames.')
                 break
 
             self.logger.debug('Appending a new frame.')
 
+            _p(f'_worker: appending new data and metadata')
             frames.append(data)
             metadata.append(meta)
             store_times.append(receive_time)
 
         # We broke out of the loop: time to save
+        _p(f'_worker: out of the loop. Converting data and saving')
         data = np.array(frames)
         self.logger.debug(f'Saving with h5write')
         self.h5write(filename=filename, meta=metadata, data=data)
+        _p(f'_worker: Saved to {filename}.')
 
         return {'status': 'ok', 'store_times': store_times, 'complete_time':time.time()}
 
@@ -351,6 +435,7 @@ class H5FileWriter(FrameConsumerProcess):
         [subprocess]
         End frame accumulation and save.
         """
+        _p(f'_close: Enqueuing (None, None, None).')
         self.queue.put((None, None, None))
         return
 
