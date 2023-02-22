@@ -159,7 +159,6 @@ class CameraBase(DriverBase):
         self._exposure_time_before_roll = self.exposure_time
         self._exposure_number_before_roll = self.exposure_number
 
-
     def _trigger(self, *args, **kwargs):
         """
         The device-specific triggering and acquisition procedure.
@@ -478,6 +477,9 @@ class CameraBase(DriverBase):
                 self.logger.info(f'Exposure number: {self.exposure_number} -> {exp_num}')
                 self.exposure_number = exp_num
 
+        # Reset stopping flag
+        self.end_acquisition = False
+
         # Check if this is part of a scan
         self._scan_path = manager.getManager().scan_path
 
@@ -501,8 +503,11 @@ class CameraBase(DriverBase):
         """
         Terminate acquisition.
         """
+        self.logger.debug('Disarm called')
+
         # Terminate acquisition loop and wait for it to complete
         self.end_acquisition = True
+
         try:
             self.loop_future.join()
         except AttributeError:
