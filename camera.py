@@ -397,7 +397,7 @@ class CameraBase(DriverBase):
                 'operation_mode': self.operation_mode,
                 'filename': self.filename,
                 'snap_counter': self.counter,
-                'scan_counter:': manager.getManager().get_counter() if self.in_scan else None}
+                'scan_counter': manager.getManager().get_counter() if self.in_scan else None}
 
         return meta
 
