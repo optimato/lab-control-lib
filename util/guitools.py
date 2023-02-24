@@ -383,7 +383,7 @@ class StatusBar(QWidget):
         self.exposure_group.setLayout(QVBoxLayout())
         self.exposure_label = QLabel('0.5 s   (1/5)')
         self.exposure_label.setAlignment(Qt.AlignCenter)
-        self.exposure_group.setFixedWidth(120)
+        self.exposure_group.setFixedWidth(200)
         self.exposure_group.layout().addWidget(self.exposure_label)
         self.layout().addWidget(self.exposure_group, stretch=1)
 
@@ -427,6 +427,10 @@ class StatusBar(QWidget):
             self.wipe()
             return
 
+        if meta is None:
+            self.wipe()
+            return
+
         # Build labels from metadata
         cam_meta = None
         for cam_name in CAMERA_NAMES:
@@ -458,7 +462,7 @@ class StatusBar(QWidget):
         else:
             exposure = f"{exposure_time:3.2f} s"
         if scan_counter:
-            exposure += f"  [{scan_counter:4d}]"
+            exposure += f"  [{scan_counter}]"
         if frame_counter:
             exposure += f"  ({frame_counter}/{exposure_number})"
         else:

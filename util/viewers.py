@@ -379,15 +379,19 @@ class NapariViewer(ViewerBase):
         """
         Generate the average of the buffer stack and create a new layer.
         """
-        if self.buffer is None:
-            # No buffer yet, we can't do much
+        l = self.v.layers.selection.active
+        if l is None:
+            # No layer or multiple layers selected -
+            self.logger.debug('Could not find active layer')
             return
 
+        stack = l.data
+
         # Compute average
-        if self.buffer.ndim == 2:
-            average = self.buffer.astype('float64')
+        if stack.ndim == 2:
+            average = stack.astype('float64')
         else:
-            average = self.buffer.mean(axis=0)
+            average = stack.mean(axis=0)
 
         # Create new layer
         c = re.compile("Stack average ([0-9]*)")
@@ -399,8 +403,7 @@ class NapariViewer(ViewerBase):
         else:
             n = 0
         layer_name = f'Stack average {n}'
-        live_view_layer = self.v.layers[self.LIVEVIEW_LABEL]
-        self.v.add_image(average, name=layer_name, scale=live_view_layer.scale[-2:])
+        self.v.add_image(average, name=layer_name, scale=l.scale[-2:])
 
     def data_received(self):
         """
