@@ -458,9 +458,9 @@ class MotorBase:
 
     def _set_rel_pos(self, x):
         """
-        Change position relative in mm or degrees
+        Change position relative in mm or degrees. x is in _dial_ units
         """
-        return self._set_abs_pos(self._get_pos() + (self.scalar * x))
+        return self._set_abs_pos(self._get_pos() + x)
 
     def _user_to_dial(self, user):
         """
