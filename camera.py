@@ -118,6 +118,8 @@ class CameraBase(DriverBase):
             self.counter = 0
         if 'save_mode' not in self.config:
             self.config['save_mode'] = 'append'
+        if 'roll_fps' not in self.config:
+            self.config['roll_fps'] = self.DEFAULT_FPS
 
         self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
@@ -528,7 +530,7 @@ class CameraBase(DriverBase):
         # If currently rolling check if fps needs updating
         if self.rolling:
             if fps is not None:
-                current_fps = 1 / self.exposure_time
+                current_fps = self.roll_fps
                 if abs(self.exposure_time - 1/fps) < .01:
                     # Close enough - we don't change fps
                     self.logger.info(f"Already rolling with FPS {current_fps:3.1f}.")
@@ -536,8 +538,14 @@ class CameraBase(DriverBase):
                     # We need to update fps
                     self.logger.info(f"Updating FPS {current_fps:3.1f} -> {fps:3.1f}.")
                     self.roll_off()
-                    self.roll_on(fps)
+                    self.roll_on(fps=fps)
             return
+
+        # Adjust exposure time
+        if not fps:
+            fps = self.roll_fps
+        else:
+            self.roll_fps = fps
 
         # Start rolling
         if not self.is_live:
@@ -545,13 +553,6 @@ class CameraBase(DriverBase):
 
         self.rolling = True
         self.filename = None
-
-        # Adjust exposure time
-        fps = fps or self.DEFAULT_FPS
-
-        if fps > self.MAX_FPS:
-            self.logger.warning(f'Requested FPS ({fps}) is higher than the maximum allowed value ({self.MAX_FPS}).')
-            fps = self.MAX_FPS
 
         # Save exposure time to restore it when we stop rolling
         self._exposure_time_before_roll = self.exposure_time
@@ -847,6 +848,24 @@ class CameraBase(DriverBase):
         Set the *effective* pixel size. This effectively changes the magnification
         """
         self.magnification = self.psize / new_eps
+
+    @proxycall(admin=True)
+    @property
+    def roll_fps(self):
+        """
+        Set FPS for rolling mode.
+        """
+        return self.config['roll_fps']
+
+    @roll_fps.setter
+    def roll_fps(self, value):
+        fps = float(value)
+        if fps > self.MAX_FPS:
+            self.logger.warning(f'Requested FPS ({fps}) is higher than the maximum allowed value ({self.MAX_FPS}).')
+            fps = self.MAX_FPS
+        self.config['roll_fps'] = fps
+        if self.rolling:
+            self.roll_on(fps=fps)
 
     @proxycall(admin=True)
     @property
