@@ -701,6 +701,8 @@ class Mecademic(SocketDriverBase):
             while True:
                 # query axis status
                 status = self.get_status()
+                if status['error']:
+                    raise RuntimeError('Robot is in error')
                 if status['eob']:
                     break
                 else:
