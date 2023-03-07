@@ -79,38 +79,58 @@ class ProxyClientError(Exception):
     pass
 
 
-class FakeStream:
-    def __init__(self, stream, socket, name):
+class SocketStream:
+    def __init__(self, address, to_stdout=True):
         """
-        Place-holder to capture stdout and stderr.
+        A stream-like object that published through a zmq socket.
+        address: a tuple (IP, port)
+        to_stdout: if True, self.write will also call stdout.write
         """
-        self.real_stream = stream
-        self.socket = socket
-        self.name = name
+        self.address = address
+        self.to_stdout = to_stdout
+
+        self.full_address = f'tcp://*:{self.address[1]}'
+
+        # Prepare socket
+        self.stream_context = zmq.Context()
+        self.stream_socket = self.stream_context.socket(zmq.PUB)
+        self.stream_socket.setsockopt(zmq.LINGER, 0)
+        self.stream_socket.bind(self.full_address)
 
     def write(self, string):
         """
-        Replacement for stdout.write and stderr.write.
+        Replacement for stream.write.
         """
-        self.socket.send_json([self.name, string])
-        self.real_stream.write(string)
+        self.stream_socket.send_json(string)
+        if self.to_stdout:
+            sys.stdout.write(string)
 
     def flush(self):
-        self.real_stream.flush()
+        if self.to_stdout:
+            sys.stdout.flush()
 
-class FakeStdOut(FakeStream):
-    def __init__(self, socket):
-        super().__init__(sys.stdout, socket, 'stdout')
-        sys.stdout = self
     def __del__(self):
-        sys.stdout = self.real_stream
+        try:
+            self.stream_socket.unbind(self.full_address)
+            self.stream_socket.close()
+            self.stream_context.term()
+        except:
+            pass
 
-class FakeStdErr(FakeStream):
-    def __init__(self, socket):
-        super().__init__(sys.stderr, socket, 'stderr')
-        sys.stderr = self
-    def __del__(self):
-        sys.stderr = self.real_stream
+class ProxyPrint:
+    def __init__(self, stream):
+        """
+        A possible replacement for print that *also* prints to a given stream
+        """
+        self.stream = stream
+
+    def __call__(self, *objects, sep=' ', end='\n', file=None, flush=False):
+
+        # Print on stream
+        print(*objects, sep=sep, end=end, file=self.stream, flush=flush)
+
+        # Normal print
+        print(*objects, sep=sep, end=end, file=file, flush=flush)
 
 
 class ServerBase:
@@ -141,15 +161,18 @@ class ServerBase:
         """
         Base class for server proxy
 
-        cls: The class being wrapped (defaults to self.CLS)
-        API: a dictionary listing all methods to be exposed (collected through the proxycall decorator)
-        address: (IP, port) to listen on.
-        instantiate: if True, create immediately the internal instance of self.cls, using the provided args/kwargs.
-        If False, instantiation will proceed with the first client connection.
-
         Note that this is not really an abstract class. The proxydevice decorator produces a subclass
         of this class to assign a different name for clearer documentation, and attaches the defaults
         ADDRESS, API and CLS as class attributes.
+
+        cls: The class being wrapped (defaults to self.CLS)
+        API: a dictionary listing all methods to be exposed (collected through the proxycall decorator)
+             defaults to self.API
+        address: (IP, port) to listen on. Defaults to self.ADDRESS
+        instantiate: if True, create immediately the internal instance of self.cls, using the provided args/kwargs.
+        If False, instantiation will proceed with the first client connection.
+        instance_args, instance_kwargs: args, kwargs to pass for class instantiation.
+        stream_address: address used to send stream writes.
         """
         # This is a mechanism to give a default values to subclasses without having to pass the argument.
         self.cls = cls or self.CLS
@@ -180,11 +203,8 @@ class ServerBase:
         self.context = None
         self.socket = None
 
-        # To be assigned in self.capture_streams
-        self.stream_context = None
-        self.stream_socket = None
-        self.fake_stdout = None
-        self.fake_stderr = None
+        # Stream that can be used to pass strings asynchronously to clients.
+        self.stream = None
 
         self.admin = None
         self._stopping = None
@@ -209,24 +229,12 @@ class ServerBase:
             pass
         self.server_future = Future(self._run)
 
-        self.capture_streams()
-
-    def capture_streams(self):
-        """
-        Capture stdout and stderr and publish them for the clients.
-        """
-        full_address = f'tcp://*:{self.stream_address[1]}'
-
-        # Prepare socket
-        self.stream_context = zmq.Context()
-        self.stream_socket = self.stream_context.socket(zmq.PUB)
-        self.stream_socket.bind(full_address)
-
-        # This starts capturing stdout and stderr
-        self.fake_stdout = FakeStdOut(self.stream_socket)
-        self.fake_stderr = FakeStdErr(self.stream_socket)
-
-        self.logger.info(f'Now publishing stdout and stderr on {full_address}')
+        if self.stream_address:
+            # Create the socket stream
+            self.stream = SocketStream(self.stream_address)
+            # Replace built-in print with a print function that will also send through stream
+            globals()['print'] = ProxyPrint(self.stream)
+            self.logger.info(f'"print" will now stream on {self.stream.full_address}')
 
     def wait(self):
         """
@@ -240,10 +248,6 @@ class ServerBase:
         Stop the server. This signals both listening and ping threads to terminate.
         """
         del self.instance
-        if self.fake_stdout:
-            self.fake_stdout = None
-        if self.fake_stderr:
-            self.fake_stderr = None
         self._stopping = True
 
     def _run(self):
@@ -625,11 +629,21 @@ class ClientProxy:
     REQUEST_TIMEOUT = 10.
     NUM_RECONNECT = 1000000 # ~= infinity
 
-    def __init__(self, address, API, name=None, clean=True, cls_name=None, stream_address=None):
+    def __init__(self,
+                 address,
+                 API,
+                 name=None,
+                 clean=True,
+                 cls_name=None,
+                 stream_address=None):
         """
         Client whose instance will be hidden in the proxy class.
         address: (IP, port) to connect to
+        API: the list of proxycalls
+        name: identifier for this proxy
         clean: return only values and not full message (default True)
+        cls_name:
+        stream_address: address of the stream to subscribe if needed.
         """
         self.address = address
         if address is not None:
@@ -724,7 +738,10 @@ class ClientProxy:
         self.future_ping = Future(self._ping)
 
         # Starting stream subscriber
-        self.future_streams = Future(self._subscribe_streams)
+        if self.stream_address:
+            self.future_streams = Future(self._subscribe_to_stream)
+        else:
+            self.future_streams = None
 
     def send_recv(self, cmd_seq, clean=None):
         """
@@ -897,12 +914,12 @@ class ClientProxy:
             except BaseException as error:
                 self.logger.exception('Ping error.')
 
-    def _subscribe_streams(self):
+    def _subscribe_to_stream(self):
         """
         Printing out stdout and stdin form the server asynchronously.
         """
         if not self.stream_address:
-            self.logger.error('Cannot stream stdout and stderr from server: stream_address is None.')
+            self.logger.info('Will not stream from server: stream_address is None.')
             return
         full_address = 'tcp://{0}:{1}'.format(*self.stream_address)
         stream_context = zmq.Context()
@@ -914,15 +931,17 @@ class ClientProxy:
             try:
                 if (stream_socket.poll(500.) & zmq.POLLIN) == 0:
                     continue
-                stream_name, string = stream_socket.recv_json()
-                if stream_name == 'stdout':
-                    sys.stdout.write(string)
-                    sys.stdout.flush()
-                elif stream_name == 'stderr':
-                    sys.stderr.write(string)
-                    sys.stderr.flush()
+                string = stream_socket.recv_json()
+                sys.stdout.write(string)
+                sys.stdout.flush()
             except BaseException as error:
                 self.logger.exception('Streaming error.')
+
+        try:
+            stream_socket.close()
+            stream_context.term()
+        except:
+            pass
 
     def disconnect(self):
         """
