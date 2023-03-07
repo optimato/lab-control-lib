@@ -232,9 +232,7 @@ class ServerBase:
         if self.stream_address:
             # Create the socket stream
             self.stream = SocketStream(self.stream_address)
-            # Replace built-in print with a print function that will also send through stream
-            globals()['print'] = ProxyPrint(self.stream)
-            self.logger.info(f'"print" will now stream on {self.stream.full_address}')
+            self.logger.info(f'Streaming on {self.stream.full_address}')
 
     def wait(self):
         """
@@ -450,6 +448,10 @@ class ServerBase:
             self._stopping = True
             self.instance = None
             raise
+
+        if self.stream is not None:
+            # Replace built-in print with a print function that will also send through stream
+            sys.modules[self.cls.__module__].print = ProxyPrint(self.stream)
 
         # Look for an interrupt method (will be called with an ^abort command)
         self.interrupt_method = None
