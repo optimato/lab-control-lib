@@ -210,10 +210,11 @@ class ServerBase:
         self._stopping = None
         atexit.register(self.stop)
 
-        self.activate()
-
         if instantiate:
             self.create_instance(args=instance_args, kwargs=instance_kwargs)
+
+        self.activate()
+
 
     def activate(self):
         """
@@ -232,6 +233,11 @@ class ServerBase:
         if self.stream_address:
             # Create the socket stream
             self.stream = SocketStream(self.stream_address)
+
+            if self.instance is not None:
+                # Replace built-in print with a print function that will also send through stream
+                sys.modules[self.instance.__class__.__module__].print = ProxyPrint(self.stream)
+
             self.logger.info(f'Streaming on {self.stream.full_address}')
 
     def wait(self):
