@@ -129,8 +129,8 @@ class ProxyPrint:
         # Print on stream
         print(*objects, sep=sep, end=end, file=self.stream, flush=flush)
 
-        # Normal print
-        print(*objects, sep=sep, end=end, file=file, flush=flush)
+        if file is not None:
+            print(*objects, sep=sep, end=end, file=file, flush=flush)
 
 
 class ServerBase:
