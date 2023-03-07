@@ -144,11 +144,6 @@ class LogClient:
         ip, port = address
         self.address = f'tcp://{ip}:{port}'
 
-        # Stats to evaluate the rate of dropped frames
-        self.num_frames = 0
-        self.num_frames_dropped = 0
-        self.num_frames_dropped_sequence = 0
-
         self.zmq_context = zmq.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.SUB)
         self.zmq_socket.setsockopt(zmq.SUBSCRIBE, b'')

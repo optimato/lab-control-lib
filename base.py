@@ -134,7 +134,7 @@ class DriverBase:
             pub_handler = zmq.log.handlers.PUBHandler(pub_interface, root_topic=self.name)
             pub_handler.setFormatter(json_formatter)
             self.logger.addHandler(pub_handler)
-            self.logger.info(f'Driver {self.name} publishing logs on {pub_interface} (topic: "{self.name}".')
+            self.logger.info(f'Driver {self.name} publishing logs on {pub_interface} (topic: "{self.name}").')
 
         # Load (or create) config dictionary
         self.config_filename = os.path.join(conf_path, 'drivers', self.name + '.json')
