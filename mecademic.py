@@ -230,6 +230,7 @@ class Mecademic(SocketDriverBase):
         self.periodic_calls.update({'status': (self.get_status, 10)})
 
         self.last_error = None
+        self.in_error = False
         self.motion_paused = False
 
         self.monitor = None
@@ -290,7 +291,6 @@ class Mecademic(SocketDriverBase):
         if status['paused']:
             self.logger.info('Motion is paused. Clearing.')
             self.clear_motion()
-            self.resume_motion()
 
         # Set joint velocity
         jv = self.config.get('joint_velocity') or DEFAULT_VELOCITY
@@ -362,8 +362,14 @@ class Mecademic(SocketDriverBase):
         reply2000 = None
         for code, message in formatted_replies:
             if code == 2042:
-                # Motion paused - not useful
+                # Motion paused
                 self.motion_paused = True
+            elif code == 1016:
+                # Moved pose outside of reach
+                self.in_error = True
+            elif code == 1011:
+                # Attempt to move when robot is already in error
+                self.in_error = True
             elif code < 2000:
                 # Error code.
                 self.last_error = (code, message)
@@ -377,6 +383,11 @@ class Mecademic(SocketDriverBase):
                     # More than one 2000 reply in one call - this should not happen
                     self.logger.warning(f'More code 2000:{reply2000[0]} - {reply2000[1]}')
                 reply2000 = rep
+
+        if self.motion_paused:
+            raise RuntimeError('Robot motion is paused')
+        if self.in_error:
+            raise RuntimeError('Robot in error')
 
         # Manage cases where the only reply is e.g. a 3000
         if reply2000 is None:
@@ -506,30 +517,30 @@ class Mecademic(SocketDriverBase):
             self.logger.warning(reply)
         else:
             self.logger.info(reply)
+        self.in_error = False
         return
 
     @proxycall(admin=True)
     def clear_motion(self):
         """
-        Clear motion
+        Clear (and resume) motion
         """
+        # First clear
         code, reply = self.send_cmd('ClearMotion')
         if code == 2044:
             self.logger.info(reply)
         else:
             self.logger.warning(reply)
-        return
 
-    @proxycall(admin=True)
-    def resume_motion(self):
-        """
-        Resume motion
-        """
+        # Resume
         code, reply = self.send_cmd('ResumeMotion')
         if code == 2043:
             self.logger.info(reply)
         else:
             self.logger.warning(reply)
+
+        self.motion_paused = False
+
         return
 
     @proxycall(admin=True)
@@ -540,6 +551,8 @@ class Mecademic(SocketDriverBase):
 
         The last is especially important for continuous tomographic scans.
         """
+        if self.in_error:
+            self.clear_errors()
         code, reply = self.send_cmd('SetJointVel', p)
         self.config['joint_velocity'] = p
 
