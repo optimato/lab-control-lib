@@ -210,10 +210,10 @@ class ServerBase:
         self._stopping = None
         atexit.register(self.stop)
 
+        self.activate()
+
         if instantiate:
             self.create_instance(args=instance_args, kwargs=instance_kwargs)
-
-        self.activate()
 
     def activate(self):
         """
