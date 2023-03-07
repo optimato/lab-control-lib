@@ -64,7 +64,7 @@ conf_file = os.path.join(conf_path, 'config.json')
 config = util.FileDict(conf_file)
 
 # Data paths
-data_path = '/data/'
+data_path = '/data3/lab/'
 
 #
 # SETUP LOGGING
