@@ -114,6 +114,7 @@ class Excillum(SocketDriverBase):
                   }
         return status
 
+    @proxycall(admin=True)
     def send_cmd(self, cmd, replycmd=None):
         """
         Send properly formatted request to the driver

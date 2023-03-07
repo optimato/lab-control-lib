@@ -134,7 +134,7 @@ class DriverBase:
             pub_handler = zmq.log.handlers.PUBHandler(pub_interface, root_topic=self.name)
             pub_handler.setFormatter(json_formatter)
             self.logger.addHandler(pub_handler)
-            self.logger.info(f'Driver {self.name} publishing logs on {pub_interface} (topic: "{self.name}".')
+            self.logger.info(f'Driver {self.name} publishing logs on {pub_interface} (topic: "{self.name}").')
 
         # Load (or create) config dictionary
         self.config_filename = os.path.join(conf_path, 'drivers', self.name + '.json')
@@ -458,9 +458,9 @@ class MotorBase:
 
     def _set_rel_pos(self, x):
         """
-        Change position relative in mm or degrees
+        Change position relative in mm or degrees. x is in _dial_ units
         """
-        return self._set_abs_pos(self._get_pos() + (self.scalar * x))
+        return self._set_abs_pos(self._get_pos() + x)
 
     def _user_to_dial(self, user):
         """

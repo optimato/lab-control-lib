@@ -118,6 +118,8 @@ class CameraBase(DriverBase):
             self.counter = 0
         if 'save_mode' not in self.config:
             self.config['save_mode'] = 'append'
+        if 'roll_fps' not in self.config:
+            self.config['roll_fps'] = self.DEFAULT_FPS
 
         self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
@@ -158,7 +160,6 @@ class CameraBase(DriverBase):
 
         self._exposure_time_before_roll = self.exposure_time
         self._exposure_number_before_roll = self.exposure_number
-
 
     def _trigger(self, *args, **kwargs):
         """
@@ -275,6 +276,7 @@ class CameraBase(DriverBase):
             # Wait for the next trigger
             if not self.do_acquire.wait(.2):
                 if self.end_acquisition:
+                    self.logger.debug('end_acquisition is True. Breaking out.')
                     break
                 continue
             self.do_acquire.clear()
@@ -314,6 +316,7 @@ class CameraBase(DriverBase):
 
             # Automatically armed - this is a single shot
             if self.auto_armed:
+                self.logger.debug('Arming was auto (single shot). Breaking out.')
                 break
 
             # Get ready for next acquisition
@@ -370,12 +373,12 @@ class CameraBase(DriverBase):
 
             if not self.rolling:
                 self.logger.debug('Calling file_writer.store() with frame')
-                self.file_writer.store(self.filename, meta=meta, data=data)
+                self.file_writer.store(meta=meta, data=data)
                 self.logger.debug('file_writer.store() returned')
 
             if self.config['do_broadcast']:
                 self.logger.debug('Calling file_streamer.store() with frame')
-                self.frame_streamer.store(self.filename, meta=meta, data=data)
+                self.frame_streamer.store(meta=meta, data=data)
                 self.logger.debug('file_streamer.store() returned')
 
             if self.frame_queue.qsize() == 0:
@@ -396,7 +399,7 @@ class CameraBase(DriverBase):
                 'operation_mode': self.operation_mode,
                 'filename': self.filename,
                 'snap_counter': self.counter,
-                'scan_counter:': manager.getManager().get_counter() if self.in_scan else None}
+                'scan_counter': manager.getManager().get_counter() if self.in_scan else None}
 
         return meta
 
@@ -476,6 +479,9 @@ class CameraBase(DriverBase):
                 self.logger.info(f'Exposure number: {self.exposure_number} -> {exp_num}')
                 self.exposure_number = exp_num
 
+        # Reset stopping flag
+        self.end_acquisition = False
+
         # Check if this is part of a scan
         self._scan_path = manager.getManager().scan_path
 
@@ -499,8 +505,11 @@ class CameraBase(DriverBase):
         """
         Terminate acquisition.
         """
+        self.logger.debug('Disarm called')
+
         # Terminate acquisition loop and wait for it to complete
         self.end_acquisition = True
+
         try:
             self.loop_future.join()
         except AttributeError:
@@ -521,7 +530,7 @@ class CameraBase(DriverBase):
         # If currently rolling check if fps needs updating
         if self.rolling:
             if fps is not None:
-                current_fps = 1 / self.exposure_time
+                current_fps = self.roll_fps
                 if abs(self.exposure_time - 1/fps) < .01:
                     # Close enough - we don't change fps
                     self.logger.info(f"Already rolling with FPS {current_fps:3.1f}.")
@@ -529,8 +538,14 @@ class CameraBase(DriverBase):
                     # We need to update fps
                     self.logger.info(f"Updating FPS {current_fps:3.1f} -> {fps:3.1f}.")
                     self.roll_off()
-                    self.roll_on(fps)
+                    self.roll_on(fps=fps)
             return
+
+        # Adjust exposure time
+        if not fps:
+            fps = self.roll_fps
+        else:
+            self.roll_fps = fps
 
         # Start rolling
         if not self.is_live:
@@ -538,13 +553,6 @@ class CameraBase(DriverBase):
 
         self.rolling = True
         self.filename = None
-
-        # Adjust exposure time
-        fps = fps or self.DEFAULT_FPS
-
-        if fps > self.MAX_FPS:
-            self.logger.warning(f'Requested FPS ({fps}) is higher than the maximum allowed value ({self.MAX_FPS}).')
-            fps = self.MAX_FPS
 
         # Save exposure time to restore it when we stop rolling
         self._exposure_time_before_roll = self.exposure_time
@@ -612,8 +620,8 @@ class CameraBase(DriverBase):
         Set logging level - also for the filewriter process.
         """
         super().set_log_level(level)
-        self.file_writer.exec('set_log_level', (level,))
-        self.frame_streamer.exec('set_log_level', (level,))
+        self.file_writer.set_log_level(level)
+        self.frame_streamer.set_log_level(level)
 
     def shutdown(self):
         # Stop rolling
@@ -840,6 +848,24 @@ class CameraBase(DriverBase):
         Set the *effective* pixel size. This effectively changes the magnification
         """
         self.magnification = self.psize / new_eps
+
+    @proxycall(admin=True)
+    @property
+    def roll_fps(self):
+        """
+        Set FPS for rolling mode.
+        """
+        return self.config['roll_fps']
+
+    @roll_fps.setter
+    def roll_fps(self, value):
+        fps = float(value)
+        if fps > self.MAX_FPS:
+            self.logger.warning(f'Requested FPS ({fps}) is higher than the maximum allowed value ({self.MAX_FPS}).')
+            fps = self.MAX_FPS
+        self.config['roll_fps'] = fps
+        if self.rolling:
+            self.roll_on(fps=fps)
 
     @proxycall(admin=True)
     @property

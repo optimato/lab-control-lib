@@ -4,7 +4,8 @@ from qtpy.QtWidgets import (QWidget,
                             QPushButton,
                             QLabel,
                             QSpinBox,
-                            QGroupBox)
+                            QGroupBox,
+                            QCheckBox)
 from qtpy.QtCore import QTimer, Qt, Signal
 import napari
 import napari.utils.notifications
@@ -382,7 +383,7 @@ class StatusBar(QWidget):
         self.exposure_group.setLayout(QVBoxLayout())
         self.exposure_label = QLabel('0.5 s   (1/5)')
         self.exposure_label.setAlignment(Qt.AlignCenter)
-        self.exposure_group.setFixedWidth(120)
+        self.exposure_group.setFixedWidth(200)
         self.exposure_group.layout().addWidget(self.exposure_label)
         self.layout().addWidget(self.exposure_group, stretch=1)
 
@@ -426,6 +427,10 @@ class StatusBar(QWidget):
             self.wipe()
             return
 
+        if meta is None:
+            self.wipe()
+            return
+
         # Build labels from metadata
         cam_meta = None
         for cam_name in CAMERA_NAMES:
@@ -448,18 +453,18 @@ class StatusBar(QWidget):
 
         date = cam_meta.get('acquisition_start', '????-??-?? ??:??:??.???')
 
-        frame_number = cam_meta.get('frame_number')
-        scan_number = cam_meta.get('scan_number')
+        frame_counter = cam_meta.get('frame_counter')
+        scan_counter = cam_meta.get('scan_counter')
         exposure_time = cam_meta.get('exposure_time', 0.0)
         exposure_number = cam_meta.get('exposure_number', 0)
         if scan_type == 'ROLL':
             exposure = f'FPS: {1/exposure_time:3.1f}'
         else:
-            exposure = f"{exposure_time:3.2f} s'"
-        if scan_number:
-            exposure += f"  [{scan_number:4d}]"
-        if frame_number:
-            exposure += f"  ({frame_number}/{exposure_number})"
+            exposure = f"{exposure_time:3.2f} s"
+        if scan_counter:
+            exposure += f"  [{scan_counter}]"
+        if frame_counter:
+            exposure += f"  ({frame_counter}/{exposure_number})"
         else:
             exposure += f"  /{exposure_number}"
 
@@ -495,3 +500,31 @@ class StatusBar(QWidget):
     def wipe(self):
         self.set_labels()
 
+class Options(QWidget):
+
+    def __init__(self, napari_viewer):
+        """
+        A Widget for random options. For now, toggle scale bar. Let's see how it evolves.
+        """
+        super().__init__()
+        self.viewer = napari_viewer
+
+        # Overall vertical layout
+        self.setLayout(QVBoxLayout())
+
+        # Scale bar group
+        self.scalebar_group = QGroupBox("Scale Bar")
+        self.scalebar_group.setLayout(QVBoxLayout())
+
+        self.scalebar_check = QCheckBox('Scale')
+        self.scalebar_check.setChecked(True)
+        self.scalebar_group.layout().addWidget(self.scalebar_check)
+
+        self.layout().addWidget(self.scalebar_group)
+
+        self.scalebar_check.stateChanged.connect(self.scalebar_toggle)
+    def scalebar_toggle(self, event):
+        """
+        Turn on / off pixel physical units
+        """
+        self.viewer.update_scalebar(scaled=bool(event))

@@ -334,9 +334,9 @@ class Mecademic(SocketDriverBase):
                     arg = (arg, )
                 cmd += f'{arg}'.encode()
             cmd += self.EOL
-        self.logger.debug(f'Sending command string "{cmd}"')
+        #self.logger.debug(f'Sending command string "{cmd}"')
         reply = self.device_cmd(cmd)
-        self.logger.debug(f'Received reply "{reply}"')
+        #   self.logger.debug(f'Received reply "{reply}"')
         return self.process_reply(reply)
 
     def process_reply(self, reply):
@@ -394,6 +394,7 @@ class Mecademic(SocketDriverBase):
         """
         code, reply = self.send_cmd('SetTRF', (0, 0, -70, 0, 0, 0))
 
+    @proxycall()
     def get_status(self):
         """
         Get robot current status
@@ -575,6 +576,7 @@ class Mecademic(SocketDriverBase):
         """
         # Get current joints and change only one value
         joints = self.get_joints()
+        print(joints)
         joints[joint_number - 1] = angle
         return self.move_joints(joints, block=block)
 
@@ -699,6 +701,8 @@ class Mecademic(SocketDriverBase):
             while True:
                 # query axis status
                 status = self.get_status()
+                if status['error']:
+                    raise RuntimeError('Robot is in error')
                 if status['eob']:
                     break
                 else:
