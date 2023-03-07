@@ -451,7 +451,8 @@ class ServerBase:
 
         if self.stream is not None:
             # Replace built-in print with a print function that will also send through stream
-            sys.modules[self.cls.__module__].print = ProxyPrint(self.stream)
+            print(self.instance.__class__.__module__)
+            sys.modules[self.instance.__class__.__module__].print = ProxyPrint(self.stream)
 
         # Look for an interrupt method (will be called with an ^abort command)
         self.interrupt_method = None
