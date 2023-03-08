@@ -8,7 +8,7 @@ HOST_IPS = {
             'varex': '172.19.248.35',
             'pco': '?.?.?.?',
             'lambda': '172.19.248.39',
-            'xps': '172.19.248.37'
+            'xps': '10.19.48.4'
             }
 cIP = HOST_IPS['control']
 vIP = HOST_IPS['varex']
@@ -23,11 +23,11 @@ NETWORK_CONF = {
     'xps1':      {'control': (cIP, 5020),         'device': (xIP, 5001),           'logging': (cIP, 7020),         'stream': (cIP, 5520)},  # change the IP to a private one later
     'xps2':      {'control': (cIP, 5021),         'device': (xIP, 5001),           'logging': (cIP, 7021),         'stream': (cIP, 5521)},  # change the IP to a private one later
     'xps3':      {'control': (cIP, 5022),         'device': (xIP, 5001),           'logging': (cIP, 7022),         'stream': (cIP, 5522)},  # change the IP to a private one later
-    'smaract':   {'control': (cIP, 5030),         'device': ('10.19.48.?', 5000),  'logging': (cIP, 7030),         'stream': (cIP, 5530)},
-    'aerotech':  {'control': (cIP, 5040),         'device': ('10.19.48.?', 8000),  'logging': (cIP, 7040),         'stream': (cIP, 5540)},
-    'mclennan1': {'control': (cIP, 5050),         'device': ('10.19.48.?', 7776),  'logging': (cIP, 7050),         'stream': (cIP, 5550)},
-    'mclennan2': {'control': (cIP, 5051),         'device': ('10.19.48.?', 7777),  'logging': (cIP, 7051),         'stream': (cIP, 5551)},
-    'mclennan3': {'control': (cIP, 5052),         'device': ('10.19.48.?', 7778),  'logging': (cIP, 7052),         'stream': (cIP, 5552)},
+    'smaract':   {'control': (cIP, 5030),         'device': ('10.19.48.8', 5000),  'logging': (cIP, 7030),         'stream': (cIP, 5530)},
+    'aerotech':  {'control': (cIP, 5040),         'device': ('10.19.48.7', 8000),  'logging': (cIP, 7040),         'stream': (cIP, 5540)},
+    'mclennan1': {'control': (cIP, 5050),         'device': ('10.19.48.11', 7776), 'logging': (cIP, 7050),         'stream': (cIP, 5550)},
+    'mclennan2': {'control': (cIP, 5051),         'device': ('10.19.48.12', 7777), 'logging': (cIP, 7051),         'stream': (cIP, 5551)},
+    'mclennan3': {'control': (cIP, 5052),         'device': ('10.19.48.13', 7778), 'logging': (cIP, 7052),         'stream': (cIP, 5552)},
     'dummy':     {'control': ('127.0.0.1', 5060), 'device': ('127.0.0.1', 6789),   'logging': ('127.0.0.1', 7060), 'stream': (cIP, 5560)},
     'varex':     {'control': (vIP, 5070),         'device': None,                  'logging': (vIP, 7070),         'stream': (vIP, 5570), 'broadcast_port': 8070},
     'pco':       {'control': (pIP, 5080),         'device': None,                  'logging': (pIP, 7080),         'stream': (pIP, 5580), 'broadcast_port': 8080},
