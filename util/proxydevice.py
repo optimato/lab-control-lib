@@ -311,14 +311,14 @@ class ServerBase:
                 cmd = message[1]
                 self.logger.debug(f'{ID} sent command {cmd}')
 
-                if (ID == 0) or (ID not in self.clients):
+                if (ID == 0):
                     # ID == 0 is a request from a new client and cmd is the name to identify the client.
                     reply = self.new_connection(message, ID=ID, name=cmd)
                     self.socket.send_json(reply)
                     continue
                 if ID not in self.clients:
-                    # Unknown ID
-                    reply = {'status': 'error', 'msg': f'Client with ID {ID} not recognised'}
+                    # Unknown ID != 0 is a reconnect. We don't know the name of this client
+                    reply = self.new_connection(message, ID=ID, name=None)
                     self.socket.send_json(reply)
                     continue
 
