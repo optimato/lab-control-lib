@@ -270,24 +270,14 @@ class Mecademic(SocketDriverBase):
         status = self.get_status()
         if status['error']:
             # Error mode
-            if ask_yes_no('Robot in error mode. Clear?'):
-                self.clear_errors()
-            else:
-                self.logger.warning('Robot still in error mode after driver initialization.')
-                return
+            self.logger.info('Robot in error mode. Clearing.')
+            self.clear_errors()
         if not status['activated']:
-            if ask_yes_no('Robot deactivated. Activate?'):
-                self.activate()
-            else:
-                self.logger.warning('Robot not activated after driver initialization')
-                return
+            self.logger.info('Robot deactivated. Activating.')
+            self.activate()
         if not status['homed']:
-            # Not homed
-            if ask_yes_no('Robot not homed. Home?'):
-                self.home()
-            else:
-                self.logger.warning('Robot not homed after driver initialization.')
-                return
+            self.logger.info('Robot not homed. Homing.')
+            self.home()
         if status['paused']:
             self.logger.info('Motion is paused. Clearing.')
             self.clear_motion()
@@ -312,6 +302,11 @@ class Mecademic(SocketDriverBase):
         commands are to be sent in a batch. In this case, args
         should be a list of the same length.
         """
+        if self.motion_paused:
+            raise RuntimeError('Robot motion is paused')
+        if self.in_error:
+            raise RuntimeError('Robot in error')
+
         # This looks complicated because we need to manage the
         # case of multiple commands. So in the case of single command.
         # we convert to a list with a single element.
@@ -511,13 +506,16 @@ class Mecademic(SocketDriverBase):
         """
         Clear error status.
         """
+        self.in_error = False
         code, reply = self.send_cmd('ResetError')
         if code == 2006:
-            # Already activated
+            # Already cleared
             self.logger.warning(reply)
         else:
             self.logger.info(reply)
-        self.in_error = False
+
+        self.clear_motion()
+        print('Error cleared')
         return
 
     @proxycall(admin=True)
@@ -525,6 +523,8 @@ class Mecademic(SocketDriverBase):
         """
         Clear (and resume) motion
         """
+        self.motion_paused = False
+
         # First clear
         code, reply = self.send_cmd('ClearMotion')
         if code == 2044:
@@ -539,8 +539,7 @@ class Mecademic(SocketDriverBase):
         else:
             self.logger.warning(reply)
 
-        self.motion_paused = False
-
+        print('Motion cleared')
         return
 
     @proxycall(admin=True)
