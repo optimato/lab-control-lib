@@ -470,6 +470,9 @@ class CameraBase(DriverBase):
         """
         Prepare the camera for acquisition.
         """
+        if self.rolling:
+            raise RuntimeError('Camera is rolling. Call roll_off first.')
+
         if exp_time is not None:
             if exp_time != self.exposure_time:
                 self.logger.info(f'Exposure time: {self.exposure_time} -> {exp_time}')
@@ -505,6 +508,9 @@ class CameraBase(DriverBase):
         """
         Terminate acquisition.
         """
+        if self.rolling and not self.stop_rolling_flag:
+            raise RuntimeError('Camera is rolling. Call roll_off first.')
+
         self.logger.debug('Disarm called')
 
         # Terminate acquisition loop and wait for it to complete
@@ -551,7 +557,6 @@ class CameraBase(DriverBase):
         if not self.is_live:
             self.live_on()
 
-        self.rolling = True
         self.filename = None
 
         # Save exposure time to restore it when we stop rolling
@@ -568,6 +573,8 @@ class CameraBase(DriverBase):
         # Arm the camera (this starts acquisition loop)
         if not self.armed:
             self.arm()
+
+        self.rolling = True
 
     @proxycall(admin=True)
     def roll_off(self):
