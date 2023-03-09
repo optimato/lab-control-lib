@@ -228,6 +228,7 @@ def choose_investigation(name=None):
     else:
         if not INVESTIGATIONS:
             inv = user_prompt('Enter new investigation name:')
+            INVESTIGATIONS[inv] = {}
         else:
             invkeys = list(INVESTIGATIONS.keys())
             values = list(range(len(invkeys)+1))
@@ -242,7 +243,7 @@ def choose_investigation(name=None):
     return inv
 
 
-def choose_experiment(inv=None, name=None):
+def choose_experiment(name=None, inv=None):
     """
     Interactive selection of experiment name.
     If non-interactive and `name` is not None: select/create
