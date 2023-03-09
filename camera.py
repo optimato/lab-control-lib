@@ -509,7 +509,10 @@ class CameraBase(DriverBase):
         Terminate acquisition.
         """
         if self.rolling and not self.stop_rolling_flag:
-            raise RuntimeError('Camera is rolling. Call roll_off first.')
+            self.logger.info('Camera is rolling. Calling roll_off first.')
+            self.roll_off()
+            # roll_off() calls disarm (after setting self.stop_rolling_flag to true, so no recursion will occur.
+            return
 
         self.logger.debug('Disarm called')
 
