@@ -570,14 +570,15 @@ class CameraBase(DriverBase):
         self._exposure_number_before_roll = self.exposure_number
         self.exposure_number = 100
 
-        # Trigger the first acquisition immediately
-        self.do_acquire.set()
-
         # Arm the camera (this starts acquisition loop)
         if not self.armed:
             self.arm()
 
         self.rolling = True
+
+        # Trigger the first acquisition
+        self.do_acquire.set()
+
 
     @proxycall(admin=True)
     def roll_off(self):
