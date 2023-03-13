@@ -220,32 +220,63 @@ class Excillum(SocketDriverBase):
     def state(self, target_state):
         self.set_state(target_state)
 
-    @proxycall()
+    @proxycall(admin=True)
     @property
     #@datalogger.meta(field_name="spotsize_x_um", tags=logtags)
     def spotsize_x_um(self):
+        """
+        Source spot size along x in microns.
+        """
         return try_float(self.send_cmd("spotsize_x_um?"))
 
-    @proxycall()
+    @spotsize_x_um.setter
+    def spotsize_x_um(self, value):
+        value = float(value)
+        self.send_cmd(f"spotsize_x_um={value}")
+
+    @proxycall(admin=True)
     @property
-    #@datalogger.meta(field_name="spotsize_y_um", tags=logtags)
+    #@datalogger.meta(field_name="spotsize_x_um", tags=logtags)
     def spotsize_y_um(self):
+        """
+        Source spot size along y in microns.
+        """
         return try_float(self.send_cmd("spotsize_y_um?"))
 
-    @proxycall()
+    @spotsize_y_um.setter
+    def spotsize_y_um(self, value):
+        value = float(value)
+        self.send_cmd(f"spotsize_y_um={value}")
+
+    @proxycall(admin=True)
     @property
     def generator_emission_current_a(self):
         return try_float(self.send_cmd("generator_emission_current?"))
 
-    @proxycall()
+    @generator_emission_current_a.setter
+    def generator_emission_current_a(self, value):
+        value = float(value)
+        self.send_cmd(f"generator_emission_current={value}")
+
+    @proxycall(admin=True)
     @property
     def generator_emission_power_w(self):
         return try_float(self.send_cmd("generator_emission_power?"))
 
-    @proxycall()
+    @generator_emission_power_w.setter
+    def generator_emission_power_w(self, value):
+        value = float(value)
+        self.send_cmd(f"generator_emission_power={value}")
+
+    @proxycall(admin=True)
     @property
     def generator_high_voltage(self):
         return try_float(self.send_cmd("generator_high_voltage?"))
+
+    @generator_high_voltage.setter
+    def generator_high_voltage(self, value):
+        value=float(value)
+        self.send_cmd(f"generator_high_voltage?={value}")
 
     @proxycall()
     @property
