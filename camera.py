@@ -473,6 +473,8 @@ class CameraBase(DriverBase):
         if self.rolling:
             raise RuntimeError('Camera is rolling. Call roll_off first.')
 
+        self.logger.debug('Arming detector.')
+
         if exp_time is not None:
             if exp_time != self.exposure_time:
                 self.logger.info(f'Exposure time: {self.exposure_time} -> {exp_time}')
