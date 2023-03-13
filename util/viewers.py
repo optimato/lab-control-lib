@@ -216,6 +216,18 @@ class NapariViewer(ViewerBase):
             self.buffer = np.zeros((self._buffer_size,) + frame.shape[-2:], dtype=frame.dtype)
             self.buffer[0] = frame
             self.metadata = [metadata]
+        elif frame.shape[-2:] != self.buffer[-2:]:
+            # The new frame is a different shape. Same as first time.
+            self.logger.debug('Reinitializing internal buffer for a different frame shape')
+            self.buffer = np.zeros((self._buffer_size,) + frame.shape[-2:], dtype=frame.dtype)
+            self.buffer[0] = frame
+            self.metadata = [metadata]
+            if self.frame_correction:
+                # Reset dark/flat if frame shape changed
+                self.frame_correction.flat = None
+                self.frame_correction.dark = None
+                self.frame_correction.dark_apply_button_clicked()
+                self.frame_correction.flat_apply_button_clicked()
         elif frame.ndim == 2 or frame.shape[0] == 1:
             self.logger.debug('Appending frame to buffer')
             self.buffer = np.roll(self.buffer, 1, axis=0)
