@@ -8,9 +8,9 @@ import importlib.util
 import logging
 import numpy as np
 
-from . import register_proxy_client
+from . import manager, register_proxy_client
 from .camera import CameraBase
-from .network_conf import XSPECTRUM as NET_INFO
+from .network_conf import XLAM as NET_INFO
 from .util.proxydevice import proxycall, proxydevice
 from .util.future import Future
 
@@ -28,19 +28,19 @@ else:
             raise RuntimeError('Attempting to access "pyxsp" on a system where it is not present!')
     globals().update({'pyxsp': fake_pyxsp()})
 
-__all__ = ['XSpectrum']
+__all__ = ['Xlam']
 
 
 @register_proxy_client
 @proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
-class XSpectrum(CameraBase):
+class Xlam(CameraBase):
     """
     X-Spectrum lambda 350 Driver
     """
 
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
     PIXEL_SIZE = 55     # Physical pixel pitch in micrometers
-    SHAPE = (1536, 1944)   # Native array shape (vertical, horizontal)
+    SHAPE = (516, 772)   # Native array shape (vertical, horizontal)
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     SYSTEM_FILE = '/etc/opt/xsp/system.yml'
@@ -124,9 +124,6 @@ class XSpectrum(CameraBase):
         self.logger.debug('Starting acquisition.')
         self.det.start_acquisition()
 
-        # Trigger metadata collection
-        self.grab_metadata.set()
-
         # Manage dual mode
         dual = (self.counter_mode == 'dual')
         if dual:
@@ -137,14 +134,16 @@ class XSpectrum(CameraBase):
 
         pair = []
 
-        n = 0
+        frame_counter = 0
         while True:
+            # Trigger metadata collection
+            self.grab_metadata.set()
 
             # Wait for frame
             frame = rec.get_frame(2000*exp_time)
             if not frame:
                 self.det.stop_acquisition()
-                raise RuntimeError('Timout during acquisition!')
+                raise RuntimeError('Time out during acquisition!')
 
             # Release RAM
             rec.release_frame(frame)
@@ -155,19 +154,19 @@ class XSpectrum(CameraBase):
 
             if dual:
                 if frame.subframe == 0:
-                    self.logger.debug(f'Acquired frame {n}[0].')
+                    self.logger.debug(f'Acquired frame {frame_counter}[0].')
                     pair = [np.array(frame.data)]
                     continue
                 else:
-                    self.logger.debug(f'Acquired frame {n}[1].')
+                    self.logger.debug(f'Acquired frame {frame_counter}[1].')
                     pair.append(np.array(frame.data))
                     f = np.array(pair)
             else:
-                self.logger.debug(f'Acquired frame {n}.')
+                self.logger.debug(f'Acquired frame {frame_counter}.')
                 f = np.array(frame.data)
 
             # Get metadata
-            self.metadata = self._manager.return_meta()
+            self.metadata = manager.getManager().return_meta()
 
             # Already trigger next metadata collection if needed
             if self.metadata_every_exposure:
@@ -175,15 +174,23 @@ class XSpectrum(CameraBase):
 
             # Create metadata
             m = {'shape': (rec.frame_height, rec.frame_width),
-                 'dtype': str(frame.dtype)}
+                 'dtype': str(frame.dtype),
+                 'frame_counter': frame_counter + 1}
 
             # Add frame to the queue
             self.enqueue_frame(f, m)
 
             # increment count
-            n += 1
+            frame_counter += 1
 
-            if n == num_frames:
+            if frame_counter == num_frames:
+                break
+
+            if self.rolling and self.stop_rolling_flag:
+                # Exit if rolling and stop was requested
+                break
+
+            if self.abort_flag.is_set():
                 break
 
     def _disarm(self):
@@ -216,15 +223,15 @@ class XSpectrum(CameraBase):
         return opmode
 
     def set_operation_mode(self, **kwargs):
-        if beam_energy:=kwargs.get('beam_energy'):
+        if beam_energy := kwargs.get('beam_energy'):
             self.det.beam_energy = beam_energy
-        if bit_depth:=kwargs.get('bit_depth'):
+        if bit_depth := kwargs.get('bit_depth'):
             self.bit_depth = bit_depth
-        if charge_summing:=kwargs.get('charge_summing'):
+        if charge_summing := kwargs.get('charge_summing'):
             self.charge_summing = charge_summing
-        if counter_mode:=kwargs.get('counter_mode'):
+        if counter_mode := kwargs.get('counter_mode'):
             self.counter_mode = counter_mode
-        if thresholds:=kwargs.get('thresholds'):
+        if thresholds := kwargs.get('thresholds'):
             self.thresholds = thresholds
 
     def _get_binning(self):

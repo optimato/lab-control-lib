@@ -150,8 +150,8 @@ def viewer(name, loglevel, vtype, maxfps):
     from .util import viewers
     viewer_addr = {'varex': (NETWORK_CONF['varex']['control'][0],
                              NETWORK_CONF['varex']['broadcast_port']),
-                   'xspectrum': (NETWORK_CONF['xspectrum']['control'][0],
-                             NETWORK_CONF['xspectrum']['broadcast_port'])
+                   'xlam': (NETWORK_CONF['xlam']['control'][0],
+                             NETWORK_CONF['xlam']['broadcast_port'])
                    }
     addr = viewer_addr.get(name.lower(), None)
     if not addr:

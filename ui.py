@@ -75,6 +75,10 @@ def init(yes=None):
         if driver := client_or_None('varex', client_name=f'main-client-{THIS_HOST}'):
             drivers['varex'] = driver
 
+    if ask_yes_no('Initialise Lambda detector?'):
+        if driver := client_or_None('xlam', client_name=f'main-client-{THIS_HOST}'):
+            drivers['xlam'] = driver
+
     #if ask_yes_no('Initialise PCO camera?'):
     #    pass
 
@@ -135,7 +139,7 @@ def set_current_detector(name):
     """
     Useful to automate arm/disarm
     """
-    if name.lower() not in ['varex', 'xspectrum', 'pco']:
+    if name.lower() not in ['varex', 'xlam', 'pco']:
         print(f'"{name}" is not a known detector name.')
     _current_detector[0] = name
 

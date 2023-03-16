@@ -11,7 +11,7 @@ import napari
 import napari.utils.notifications
 from napari_tools_menu import register_dock_widget
 
-CAMERA_NAMES = ['varex', 'xspectrum', 'pco']
+CAMERA_NAMES = ['varex', 'xlam', 'pco']
 
 
 class BlinkLabel(QLabel):

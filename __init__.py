@@ -179,5 +179,5 @@ from . import mecademic
 #from . import smaract
 from . import varex
 #from . import pco
-from . import xspectrum
+from . import xlam
 from . import xps

@@ -31,9 +31,9 @@ NETWORK_CONF = {
     'dummy':     {'control': ('127.0.0.1', 5060), 'device': ('127.0.0.1', 6789),   'logging': ('127.0.0.1', 7060), 'stream': (cIP, 5560)},
     'varex':     {'control': (vIP, 5070),         'device': None,                  'logging': (vIP, 7070),         'stream': (vIP, 5570), 'broadcast_port': 8070},
     'pco':       {'control': (pIP, 5080),         'device': None,                  'logging': (pIP, 7080),         'stream': (pIP, 5580), 'broadcast_port': 8080},
-    'xspectrum': {'control': (lIP, 5090),         'device': None,                  'logging': (lIP, 7090),         'stream': (lIP, 5590), 'broadcast_port': 8090},
+    'xlam':      {'control': (lIP, 5090),         'device': None,                  'logging': (lIP, 7090),         'stream': (lIP, 5590), 'broadcast_port': 8090},
     'datalogger': {'control': (cIP, 8086)},
-    'manager':  {'control': (cIP, 5100),          'device': None,                  'logging': (cIP, 7100),         'stream': (cIP, 5600)}
+    'manager':   {'control': (cIP, 5100),          'device': None,                  'logging': (cIP, 7100),         'stream': (cIP, 5600)}
 }
 
 # For convenience
@@ -51,7 +51,7 @@ MCLENNAN3 = NETWORK_CONF['mclennan3']
 DUMMY = NETWORK_CONF['dummy']
 VAREX = NETWORK_CONF['varex']
 PCO = NETWORK_CONF['pco']
-XSPECTRUM = NETWORK_CONF['xspectrum']
+XLAM = NETWORK_CONF['xlam']
 DATALOGGER = NETWORK_CONF['datalogger']
 MANAGER = NETWORK_CONF['manager']
 
