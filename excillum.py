@@ -276,7 +276,7 @@ class Excillum(SocketDriverBase):
     @generator_high_voltage.setter
     def generator_high_voltage(self, value):
         value=float(value)
-        self.send_cmd(f"generator_high_voltage?={value}")
+        self.send_cmd(f"generator_high_voltage={value}")
 
     @proxycall()
     @property
