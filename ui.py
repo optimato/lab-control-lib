@@ -82,7 +82,8 @@ def init(yes=None):
             drivers['varex'] = driver
 
     if ask_yes_no('Initialise Lambda detector?'):
-        if driver := client_or_None('xlam', client_name=f'main-client-{THIS_HOST}'):
+        driver = client_or_None('xlam', client_name=f'main-client-{THIS_HOST}')
+        if driver:
             drivers['xlam'] = driver
 
     #if ask_yes_no('Initialise PCO camera?'):
