@@ -134,7 +134,8 @@ def killall():
 def logall():
     dl = DisplayLogger()
     for name, data in NETWORK_CONF.items():
-        if addr:= data.get('logging', None):
+        addr =  data.get('logging', None)
+        if addr:
             try:
                 dl.sub(name, addr)
             except:

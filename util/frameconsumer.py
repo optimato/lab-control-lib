@@ -153,7 +153,8 @@ class FrameConsumerProcess(multiprocessing.Process):
             msg = self.p_sub.recv()
 
             # Check if the msg is a method to execute
-            if method_name := msg.get('method', None):
+            method_name =  msg.get('method', None)
+            if method_name:
                 # Execute command! (the reply format is bogus for now)
                 _p(f'pipe is method {method_name}')
                 try:

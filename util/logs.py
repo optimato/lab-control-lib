@@ -203,7 +203,8 @@ class DisplayLogger:
         """
         Add or replace Log client.
         """
-        if cl := self.log_clients.get(name, None):
+        cl =  self.log_clients.get(name, None)
+        if cl:
             cl.close()
 
         cl = LogClient(address)
@@ -232,7 +233,8 @@ class DisplayLogger:
         try:
             while True:
                 for name, cl in self.log_clients.items():
-                    if data := cl.receive():
+                    data =  cl.receive()
+                    if data:
                         self._show(data)
                 # temporize slightly
                 time.sleep(.05)

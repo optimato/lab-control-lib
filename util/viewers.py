@@ -457,7 +457,8 @@ class CvViewer(ViewerBase):
         if frame is None:
             return
         title = 'Live View'
-        if detector_name := metadata.get('detector'):
+        detector_name =  metadata.get('detector')
+        if detector_name:
             title = ' - '.join([title, detector_name])
         self.cv2.imshow(title, frame)
         self.cv2.waitKey(1)
