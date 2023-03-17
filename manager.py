@@ -153,7 +153,8 @@ class Manager(DriverBase):
 
             # This is a way to exclude some clients
             if name in self.meta_grab_done_dct:
-                if client := self.clients.get(name, None):
+                client =  self.clients.get(name, None)
+                if client:
                     t0 = time.time()
                     meta = client.get_meta()
                     dt = time.time() - t0
@@ -235,7 +236,8 @@ class Manager(DriverBase):
         Clean up
         """
         self.stop_flag.set()
-        if m := getManager():
+        m =  getManager()
+        if m:
             del m
         self.clients_loop_future.join()
 

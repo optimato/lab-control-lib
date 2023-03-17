@@ -314,7 +314,8 @@ class FrameCorrection(QWidget):
         Get the data from current layer if it is 2d.
         """
         # Fetch and current layer
-        if l := self.viewer.layers.selection.active:
+        l =  self.viewer.layers.selection.active
+        if l:
             if l.data.ndim == 2:
                 data = l.data.copy()
             elif (l.data.ndim == 3) and (l.data.shape[0] == 1):
@@ -442,14 +443,17 @@ class StatusBar(QWidget):
             return
 
         identifier = "{investigation}/{experiment}".format(**meta['manager'])
-        if scan_name := cam_meta.get('scan_name'):
+        scan_name =  cam_meta.get('scan_name')
+        if scan_name:
             scan_type = 'SCAN'
             identifier += '/' + scan_name
-        elif filename := cam_meta.get('filename'):
-            scan_type = 'SNAP'
-            identifier += '/{snap_counter}'.format(**cam_meta)
         else:
-            scan_type = 'ROLL'
+            filename = cam_meta.get('filename')
+            if filename:
+                scan_type = 'SNAP'
+                identifier += '/{snap_counter}'.format(**cam_meta)
+            else:
+                scan_type = 'ROLL'
 
         date = cam_meta.get('acquisition_start', '????-??-?? ??:??:??.???')
 

@@ -216,15 +216,20 @@ class XSpectrum(CameraBase):
         return opmode
 
     def set_operation_mode(self, **kwargs):
-        if beam_energy:=kwargs.get('beam_energy'):
+        beam_energy = kwargs.get('beam_energy')
+        if beam_energy:
             self.det.beam_energy = beam_energy
-        if bit_depth:=kwargs.get('bit_depth'):
+        bit_depth = kwargs.get('bit_depth')
+        if bit_depth:
             self.bit_depth = bit_depth
-        if charge_summing:=kwargs.get('charge_summing'):
+        charge_summing = kwargs.get('charge_summing')
+        if charge_summing:
             self.charge_summing = charge_summing
-        if counter_mode:=kwargs.get('counter_mode'):
+        counter_mode = kwargs.get('counter_mode')
+        if counter_mode:
             self.counter_mode = counter_mode
-        if thresholds:=kwargs.get('thresholds'):
+        thresholds = kwargs.get('thresholds')
+        if thresholds:
             self.thresholds = thresholds
 
     def _get_binning(self):
