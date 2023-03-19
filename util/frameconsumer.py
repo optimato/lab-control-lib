@@ -18,7 +18,13 @@ try:
     multiprocessing.set_start_method('spawn')
 except RuntimeError:
     pass
-from multiprocessing import shared_memory
+
+# This is a way to make the code compatible with python 3.7 using the backport (pip install shared-memory38)
+try:
+    from multiprocessing import shared_memory
+except ImportError:
+    import shared_memory
+
 from queue import SimpleQueue, Empty
 import numpy as np
 import time
