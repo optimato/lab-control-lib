@@ -158,9 +158,6 @@ class CameraBase(DriverBase):
         if self.config['do_broadcast']:
             self.frame_streamer.on()
 
-        self._exposure_time_before_roll = self.exposure_time
-        self._exposure_number_before_roll = self.exposure_number
-
     def _trigger(self, *args, **kwargs):
         """
         The device-specific triggering and acquisition procedure.
@@ -601,8 +598,10 @@ class CameraBase(DriverBase):
         self.rolling = False
 
         # Restore previous exposure time and exposure number
-        self.exposure_time = self._exposure_time_before_roll
-        self.exposure_number = self._exposure_number_before_roll
+        if self._exposure_time_before_roll:
+            self.exposure_time = self._exposure_time_before_roll
+        if self._exposure_number_before_roll:
+            self.exposure_number = self._exposure_number_before_roll
 
         return
 
