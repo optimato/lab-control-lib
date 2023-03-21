@@ -132,6 +132,7 @@ class Xlam(CameraBase):
         # Manage dual mode
         dual = (self.counter_mode == 'dual')
         if dual:
+            self.logger.debug('Dual mode: will grab 2x frames')
             frames = [[], []]
         else:
             frames = []
@@ -139,19 +140,16 @@ class Xlam(CameraBase):
 
         pair = []
 
+        # Trigger metadata collection
+        self.grab_metadata.set()
+
         frame_counter = 0
         while True:
-            # Trigger metadata collection
-            self.grab_metadata.set()
-
             # Wait for frame
             frame = rec.get_frame(2000*exp_time)
             if not frame:
                 self.det.stop_acquisition()
                 raise RuntimeError('Time out during acquisition!')
-
-            # Release RAM
-            rec.release_frame(frame)
 
             # Check status
             if frame.status_code != pyxsp.FrameStatusCode.FRAME_OK:
@@ -161,10 +159,14 @@ class Xlam(CameraBase):
             fdata = np.array(frame.data)
             fdata.resize(sh)
 
+            # Release RAM
+            rec.release_frame(frame)
+
             if dual:
                 if frame.subframe == 0:
                     self.logger.debug(f'Acquired frame {frame_counter}[0].')
                     pair = [fdata]
+                    # Continue acquisition immediately
                     continue
                 else:
                     self.logger.debug(f'Acquired frame {frame_counter}[1].')
@@ -197,6 +199,10 @@ class Xlam(CameraBase):
             if self.abort_flag.is_set():
                 break
 
+            # Trigger metadata collection for next frame
+            self.grab_metadata.set()
+
+        # Out of loop
         self.det.stop_acquisition()
 
 

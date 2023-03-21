@@ -246,6 +246,7 @@ class CameraBase(DriverBase):
         self.acquire_done.clear()
 
         if self.auto_armed:
+            self.logger('Calling disarm in snap (should not happen)')
             self.disarm()
 
         return
@@ -320,6 +321,7 @@ class CameraBase(DriverBase):
             # Automatically armed - this is a single shot
             if self.auto_armed:
                 self.logger.debug('Arming was auto (single shot). Breaking out.')
+                self.disarm()
                 break
 
             # Get ready for next acquisition
