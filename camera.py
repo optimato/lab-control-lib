@@ -136,6 +136,8 @@ class CameraBase(DriverBase):
         self._scan_path = None
         self.abort_flag = threading.Event()
 
+        self.enqueue_lock = threading.Lock()
+
         # File writing process
         self.file_writer = frameconsumer.H5FileWriter.start_process()
 
@@ -405,21 +407,22 @@ class CameraBase(DriverBase):
         Add frame and meta to the queue. This is meant to be called
         within _trigger at least once.
         """
-        self.logger.debug('Frame arrived in enqueue_frame')
-        self.frame_queue_empty_flag.clear()
+        with self.enqueue_lock:
+            self.logger.debug('Frame arrived in enqueue_frame')
+            self.frame_queue_empty_flag.clear()
 
-        metadata = self.metadata
-        localmeta = self.localmeta
+            metadata = self.metadata
+            localmeta = self.localmeta
 
-        self.metadata = {}
-        self.localmeta = {}
+            self.metadata = {}
+            self.localmeta = {}
 
-        # Update frame metadata and add to queue
-        localmeta.update(meta)
-        metadata[self.name.lower()] = localmeta
+            # Update frame metadata and add to queue
+            localmeta.update(meta)
+            metadata[self.name.lower()] = localmeta
 
-        self.frame_queue.put((frame, metadata))
-        self.logger.debug('Frame added to queue.')
+            self.frame_queue.put((frame, metadata))
+            self.logger.debug('Frame added to queue.')
 
     def _build_filename(self, prefix, path) -> str:
         """
