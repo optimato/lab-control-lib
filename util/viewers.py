@@ -11,7 +11,7 @@ import logging
 
 from .imstream import FrameSubscriber
 from .logs import logger as rootlogger
-from .guitools import LiveView, FrameCorrection, StatusBar, Signal, Options
+from .guitools import LiveView, FrameCorrection, StatusBar, Signal, Options, CAMERA_NAMES
 
 
 class ViewerBase:
@@ -134,7 +134,7 @@ class NapariViewer(ViewerBase):
     LIVEVIEW_LABEL = 'Live View'
     data_arrived = Signal()
 
-    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=2):
+    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=2, camera_name=None):
         self.v = None
         self.worker = None
         self.epsize = None
@@ -142,6 +142,7 @@ class NapariViewer(ViewerBase):
         self.metadata = None
         self._buffer_size = 1
         self.scalebar_scaled = True
+        self.camera_name = camera_name
         super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
 
     def prepare_viewer(self):
@@ -284,11 +285,19 @@ class NapariViewer(ViewerBase):
             self.v.layers[self.LIVEVIEW_LABEL].refresh()
 
         epsize = None
-        try:
-            epsize = self.metadata[0]['varex']['epsize']
-            self.logger.debug(f'Effective pixel size: {epsize:0.2} μm')
-        except (AttributeError, KeyError) as e:
-            pass
+
+        if self.camera_name is None:
+            # Time to guess the camera name
+            for c in CAMERA_NAMES:
+                if c in self.metadata[0]:
+                    self.camera_name = c
+                    break
+        if self.camera_name is not None:
+            try:
+                epsize = self.metadata[0][self.camera_name]['epsize']
+                self.logger.debug(f'Effective pixel size: {epsize:0.2} μm')
+            except (AttributeError, KeyError) as e:
+                pass
 
         self.update_scalebar(epsize)
         return
