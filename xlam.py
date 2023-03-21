@@ -114,7 +114,8 @@ class Xlam(CameraBase):
         """
         Arming X Spectrum detector: nothing to do apparently.
         """
-        pass
+        if not self.initialized:
+            raise RuntimeError('Initialization is not completed.')
 
     def _trigger(self):
         """
@@ -213,12 +214,14 @@ class Xlam(CameraBase):
     def _set_exposure_time(self, value):
         # Convert to milliseconds
         self.det.shutter_time = 1000 * value
+        self.config['exposure_time'] = value
 
     def _get_exposure_number(self):
         return self.det.number_of_frames
 
     def _set_exposure_number(self, value):
         self.det.number_of_frames = value
+        self.config['exposure_number'] = value
 
     def _get_operation_mode(self):
         opmode = {'beam_energy': self.det.beam_energy,

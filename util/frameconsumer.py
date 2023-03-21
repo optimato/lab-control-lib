@@ -205,7 +205,10 @@ class FrameConsumerProcess(multiprocessing.Process):
 
         _p(f'Out of main loop. Process will shut down')
         self.logger.debug('Main loop ended.')
-        self.data_buffer.unlink()
+        try:
+            self.data_buffer.unlink()
+        except FileNotFoundError:
+            pass
         self.end_flag.set()
 
     def _set_log_level(self, level):
