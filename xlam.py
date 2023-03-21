@@ -82,6 +82,9 @@ class Xlam(CameraBase):
         det.connect()
         det.initialize()
 
+        rec.connect()
+        rec.initialize()
+
         self.logger.info('Lambda detector is online')
 
         self.system = s
@@ -91,6 +94,7 @@ class Xlam(CameraBase):
         self.operation_mode = self.config.get('operation_mode')
         self.exposure_time = self.config.get('exposure_time', .2)
         self.exposure_number = self.config.get('exposure_number', 1)
+        self.thresholds = self.config.get('thresdholds', [7, 15])
 
         # self.initialized will be True only at completion of this Future
         self.future_init = Future(target=self._init)
@@ -152,33 +156,32 @@ class Xlam(CameraBase):
             if frame.status_code != pyxsp.FrameStatusCode.FRAME_OK:
                 raise RuntimeError(f'Error reading frame: {frame.status_code.name}')
 
+            sh = (rec.frame_height, rec.frame_width)
+            fdata = np.array(frame.data)
+            fdata.resize(sh)
+
             if dual:
                 if frame.subframe == 0:
                     self.logger.debug(f'Acquired frame {frame_counter}[0].')
-                    pair = [np.array(frame.data)]
+                    pair = [fdata]
                     continue
                 else:
                     self.logger.debug(f'Acquired frame {frame_counter}[1].')
-                    pair.append(np.array(frame.data))
-                    f = np.array(pair)
+                    pair.append(fdata)
+                    fdata = np.array(pair)
             else:
                 self.logger.debug(f'Acquired frame {frame_counter}.')
-                f = np.array(frame.data)
 
             # Get metadata
             self.metadata = manager.getManager().return_meta()
 
-            # Already trigger next metadata collection if needed
-            if self.metadata_every_exposure:
-                self.grab_metadata.set()
-
             # Create metadata
-            m = {'shape': (rec.frame_height, rec.frame_width),
-                 'dtype': str(frame.dtype),
+            m = {'shape': sh,
+                 'dtype': str(fdata.dtype),
                  'frame_counter': frame_counter + 1}
 
             # Add frame to the queue
-            self.enqueue_frame(f, m)
+            self.enqueue_frame(fdata, m)
 
             # increment count
             frame_counter += 1
@@ -329,6 +332,7 @@ class Xlam(CameraBase):
     @thresholds.setter
     def thresholds(self, value):
         self.det.thresholds = value
+        self.config['thresholds'] = value
 
     @proxycall()
     @property

@@ -35,8 +35,8 @@ from .logs import logger as rootlogger
 
 import os
 
+#from inspect import currentframe, getframeinfo
 """
-from inspect import currentframe, getframeinfo
 DUMPFILE = open(f'DUMP_{os.getpid():06d}.txt', 'wt')
 ALLSTRINGS = {}
 COUNTER = 0
@@ -62,12 +62,9 @@ def _p(s):
 
 def _p(s):
     pass
-
-#def _p(s):
 #    cf = currentframe()
 #    filename = getframeinfo(cf).filename
-#    DUMPFILE.write(f'{time.perf_counter():3.4f}[{os.getpid()}] {filename}:{cf.f_back.f_lineno} {s}\n')
-#    # print(f'{time.perf_counter():3.4f}[{os.getpid()}] {filename}:{cf.f_back.f_lineno} {s}', flush=True)
+#    print(f'{time.perf_counter():3.4f}[{os.getpid()}] {filename}:{cf.f_back.f_lineno} {s}', flush=True)
 
 
 # 100 varex full frames
