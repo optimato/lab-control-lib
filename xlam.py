@@ -196,6 +196,10 @@ class Xlam(CameraBase):
             if self.abort_flag.is_set():
                 break
 
+        self.det.stop_acquisition()
+
+
+
     def _disarm(self):
         """
         Nothing to do on Lambda.
