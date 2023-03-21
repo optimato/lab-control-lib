@@ -154,7 +154,8 @@ def viewer(name, loglevel, vtype, maxfps):
                    'xlam': (NETWORK_CONF['xlam']['control'][0],
                              NETWORK_CONF['xlam']['broadcast_port'])
                    }
-    addr = viewer_addr.get(name.lower(), None)
+    name = name.lower()
+    addr = viewer_addr.get(name, None)
     if not addr:
         click.echo(f'Unknown detector: {name}')
         sys.exit(0)
@@ -181,7 +182,7 @@ def viewer(name, loglevel, vtype, maxfps):
         except KeyError:
             raise click.BadParameter(f'Unknown log level: {loglevel}')
 
-    v = Vclass(address=addr, max_fps=maxfps)
+    v = Vclass(address=addr, max_fps=maxfps, camera_name=name)
     v.logger.setLevel(ll)
     v.start()
     sys.exit(0)

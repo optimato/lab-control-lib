@@ -18,7 +18,7 @@ class ViewerBase:
 
     DEFAULT_ADDRESS = ('localhost', 5555)
 
-    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15):
+    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=15, camera_name=None):
         """
         Base class for frame viewers. This class contains a FrameSubscriber that connects to a FramePublisher.
         The method yield_new_frame is a generator that can be iterated over.
@@ -32,6 +32,7 @@ class ViewerBase:
         self.compress = compress
         self.max_fps = max_fps
         self.yield_timeout = yield_timeout
+        self.camera_name = camera_name
 
         self.logger = rootlogger.getChild(self.__class__.__name__)
 
@@ -142,8 +143,7 @@ class NapariViewer(ViewerBase):
         self.metadata = None
         self._buffer_size = 1
         self.scalebar_scaled = True
-        self.camera_name = camera_name
-        super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
+        super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout, camera_name=camera_name)
 
     def prepare_viewer(self):
         """
@@ -286,12 +286,6 @@ class NapariViewer(ViewerBase):
 
         epsize = None
 
-        if self.camera_name is None:
-            # Time to guess the camera name
-            for c in CAMERA_NAMES:
-                if c in self.metadata[0]:
-                    self.camera_name = c
-                    break
         if self.camera_name is not None:
             try:
                 epsize = self.metadata[0][self.camera_name]['epsize']
@@ -434,12 +428,16 @@ class NapariViewer(ViewerBase):
 
 class CvViewer(ViewerBase):
 
-    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=None):
+    def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=None, camera_name=None):
         import cv2
         self.cv2 = cv2
         self.thread = None
         self._stop = False
-        super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout)
+        super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout, camera_name=camera_name)
+        if self.camera_name:
+            self.title = f'{self.camera_name} - Live View'
+        else:
+            self.title = 'Live View'
 
     def prepare_viewer(self):
         self.thread = threading.Thread(target=self._imshow, daemon=True)
@@ -465,11 +463,7 @@ class CvViewer(ViewerBase):
         frame, metadata = frame_and_meta
         if frame is None:
             return
-        title = 'Live View'
-        detector_name =  metadata.get('detector')
-        if detector_name:
-            title = ' - '.join([title, detector_name])
-        self.cv2.imshow(title, frame)
+        self.cv2.imshow(self.title, frame)
         self.cv2.waitKey(1)
 
 if __name__ == "__main__":
