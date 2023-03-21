@@ -138,6 +138,10 @@ class CameraBase(DriverBase):
 
         self.enqueue_lock = threading.Lock()
 
+        self._exposure_time_before_roll = None
+        self._exposure_number_before_roll = None
+
+
         # File writing process
         self.file_writer = frameconsumer.H5FileWriter.start_process()
 
