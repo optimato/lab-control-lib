@@ -243,6 +243,7 @@ class CameraBase(DriverBase):
 
         # Wait for the end of the acquisition
         self.acquire_done.wait()
+        self.logger.debug(f'Acquire done.')
         self.acquire_done.clear()
 
         if self.auto_armed:
@@ -500,6 +501,7 @@ class CameraBase(DriverBase):
 
         # Reset stopping flag
         self.end_acquisition = False
+        self.acquire_done.clear()
 
         # Check if this is part of a scan
         self._scan_path = manager.getManager().scan_path
