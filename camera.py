@@ -246,7 +246,7 @@ class CameraBase(DriverBase):
         self.acquire_done.clear()
 
         if self.auto_armed:
-            self.logger.error('Calling disarm in snap (should not happen)')
+            self.logger.debug('Camera was auto-armed. Disarming')
             self.disarm()
 
         return
@@ -294,7 +294,18 @@ class CameraBase(DriverBase):
 
             # trigger acquisition with subclassed method and wait until it is done
             self.logger.debug('Calling the subclass trigger.')
-            self._trigger()
+            try:
+                self._trigger()
+            except:
+                self.logger.exception('Error in _trigger')
+                self.acquire_done.set()
+                if not self.rolling:
+                    self.logger.warning(f'File {filename} likely incomplete or corrupt because of an error in _trigger.')
+                    self.file_writer.close(filename=filename)
+                else:
+                    self.roll_off()
+                break
+
             #if self.abort_flag.is_set():
             #    self.logger.info('Acquisition aborted.')
             #    self.acquire_done.set()
@@ -321,14 +332,10 @@ class CameraBase(DriverBase):
 
             # Automatically armed - this is a single shot
             if self.auto_armed:
-                self.logger.debug('Arming was auto (single shot). Breaking out.')
-                self.disarm()
                 break
 
             # Get ready for next acquisition
             self._rearm()
-
-        self.auto_armed = False
 
         # The loop is closed, we are done
         self.logger.debug('Acquisition loop completed')
