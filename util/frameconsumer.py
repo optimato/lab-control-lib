@@ -137,6 +137,7 @@ class FrameConsumerProcess(multiprocessing.Process):
         This is running on a new process.
         """
         # Create the frame queue
+        # The items in the queue are tuples (data, meta, time)
         self.queue = SimpleQueue()
 
         # Additional preparation step
@@ -339,6 +340,8 @@ class H5FileWriter(FrameConsumerProcess):
 
         # Request to finish accumulating frames and save
         self.close_flag = threading.Event()
+        self.worker_flag = threading.Event()
+        self.worker_flag.set()
 
         # List of future objects created by self._open()
         self.futures = {}
@@ -350,6 +353,9 @@ class H5FileWriter(FrameConsumerProcess):
         This command starts the thread that captures the frames.
         """
         # Start new frame accumulation worker, put it in a dictionary with the filename as its key.
+        _p(f'_open : waiting for worker flag')
+        self.worker_flag.wait()
+        self.worker_flag.clear()
         _p(f'_open : starting worker thread')
         self.futures[filename] = Future(self._worker, kwargs={'filename': filename})
         _p(f'_open : worker thread started')
@@ -422,6 +428,9 @@ class H5FileWriter(FrameConsumerProcess):
             data, meta, receive_time = item
 
             if data is None:
+                # Sanity check:
+                if meta != filename:
+                    self.logger.error(f'Was closed called on the wrong file? ({meta} != {filename})')
                 _p(f'_worker: data is None -> breaking out of the loop.')
                 self.logger.debug('No more frames.')
                 break
@@ -435,6 +444,8 @@ class H5FileWriter(FrameConsumerProcess):
 
         # We broke out of the loop: time to save
         _p(f'_worker: out of the loop. Converting data and saving')
+        # Allow for another worker to be created
+        self.worker_flag.set()
         data = np.array(frames)
         self.logger.debug(f'Saving with h5write')
         self.h5write(filename=filename, meta=metadata, data=data)
@@ -442,13 +453,13 @@ class H5FileWriter(FrameConsumerProcess):
 
         return {'status': 'ok', 'store_times': store_times, 'complete_time':time.time()}
 
-    def _close(self):
+    def _close(self, filename):
         """
         [subprocess]
         End frame accumulation and save.
         """
         _p(f'_close: Enqueuing (None, None, None).')
-        self.queue.put((None, None, None))
+        self.queue.put((None, filename, None))
         return
 
     def open(self, filename):
@@ -461,12 +472,12 @@ class H5FileWriter(FrameConsumerProcess):
         os.makedirs(b, exist_ok=True)
         return self.exec('_open', args=(), kwargs={'filename': filename})
 
-    def close(self):
+    def close(self, filename):
         """
         [main process]
         Close file.
         """
-        return self.exec('_close')
+        return self.exec('_close', args=(), kwargs={'filename': filename})
 
     def get_save_results(self):
         """
@@ -474,3 +485,4 @@ class H5FileWriter(FrameConsumerProcess):
         Get save results of closed workers
         """
         return self.exec('_get_save_results')
+

@@ -246,7 +246,7 @@ class CameraBase(DriverBase):
         self.acquire_done.clear()
 
         if self.auto_armed:
-            self.logger('Calling disarm in snap (should not happen)')
+            self.logger.error('Calling disarm in snap (should not happen)')
             self.disarm()
 
         return
@@ -283,13 +283,14 @@ class CameraBase(DriverBase):
                     self.logger.debug('end_acquisition is True. Breaking out.')
                     break
                 continue
+            filename = self.filename
             self.do_acquire.clear()
             self.logger.debug('Received acquisition request (do_acquire flag).')
 
             # Prepare next acquisition on the file writing process
             if not self.rolling:
                 self.logger.debug('Requesting opening to file writer.')
-                self.file_writer.open(filename=self.filename)
+                self.file_writer.open(filename=filename)
 
             # trigger acquisition with subclassed method and wait until it is done
             self.logger.debug('Calling the subclass trigger.')
@@ -316,7 +317,7 @@ class CameraBase(DriverBase):
                 # Finalize saving
                 #self.frame_queue_empty_flag.wait()
                 self.logger.debug('Calling file_writer.close()')
-                self.file_writer.close()
+                self.file_writer.close(filename=filename)
 
             # Automatically armed - this is a single shot
             if self.auto_armed:
