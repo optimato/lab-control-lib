@@ -94,7 +94,7 @@ class Xlam(CameraBase):
         self.operation_mode = self.config.get('operation_mode')
         self.exposure_time = self.config.get('exposure_time', .2)
         self.exposure_number = self.config.get('exposure_number', 1)
-        self.thresholds = self.config.get('thresdholds', [7, 15])
+        self.thresholds = self.config.get('thresholds', [7, 15])
 
         # self.initialized will be True only at completion of this Future
         self.future_init = Future(target=self._init)
@@ -105,9 +105,7 @@ class Xlam(CameraBase):
         """
         while not self.rec.ram_allocated:
             time.sleep(0.1)
-        while not self.det.voltage_settled(1):
-            time.sleep(0.1)
-        self.logger.debug('Ram allocated and voltage settled.')
+        self.logger.debug('Ram allocated.')
         self.initialized = True
 
     def _arm(self):
@@ -116,6 +114,8 @@ class Xlam(CameraBase):
         """
         if not self.initialized:
             raise RuntimeError('Initialization is not completed.')
+        if not self.det.voltage_settled(1):
+            self.logger.warning('Detector is not yet settled!')
 
     def _trigger(self):
         """
