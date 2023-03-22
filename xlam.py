@@ -234,7 +234,9 @@ class Xlam(CameraBase):
                   'bit_depth': self.bit_depth,
                   'charge_summing': self.charge_summing,
                   'counter_mode': self.counter_mode,
-                  'thresholds': self.thresholds}
+                  'thresholds': self.thresholds,
+                  'voltage': self.det.get_voltage(1),
+                  'temperature': self.det.temperature(1)}
 
         return opmode
 
