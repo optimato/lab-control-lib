@@ -217,7 +217,7 @@ class NapariViewer(ViewerBase):
             self.buffer = np.zeros((self._buffer_size,) + frame.shape[-2:], dtype=frame.dtype)
             self.buffer[0] = frame
             self.metadata = [metadata]
-        elif frame.shape[-2:] != self.buffer[-2:]:
+        elif frame.shape[-2:] != self.buffer.shape[-2:]:
             # The new frame is a different shape. Same as first time.
             self.logger.debug('Reinitializing internal buffer for a different frame shape')
             self.buffer = np.zeros((self._buffer_size,) + frame.shape[-2:], dtype=frame.dtype)
