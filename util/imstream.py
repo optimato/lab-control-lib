@@ -158,7 +158,11 @@ class FrameSubscriber:
         while not self._stop:
             if (self.zmq_socket.poll(500.) & zmq.POLLIN) == 0:
                 continue
-            self._data = self.zmq_socket.recv_frame()
+            try:
+                self._data = self.zmq_socket.recv_frame()
+            except ValueError:
+                print('bad frame')
+                continue
             self.num_frames += 1
             if self._data_ready.is_set():
                 self.num_frames_dropped += 1
