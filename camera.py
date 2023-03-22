@@ -502,6 +502,7 @@ class CameraBase(DriverBase):
         # Reset stopping flag
         self.end_acquisition = False
         self.acquire_done.clear()
+        self.do_acquire.clear()
 
         # Check if this is part of a scan
         self._scan_path = manager.getManager().scan_path

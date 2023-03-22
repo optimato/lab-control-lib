@@ -146,6 +146,7 @@ class Xlam(CameraBase):
         frame_counter = 0
         while True:
             # Wait for frame
+            time.sleep(exp_time - .1)
             frame = rec.get_frame(2000*exp_time)
             if not frame:
                 self.det.stop_acquisition()
@@ -181,7 +182,8 @@ class Xlam(CameraBase):
             # Create metadata
             m = {'shape': sh,
                  'dtype': str(fdata.dtype),
-                 'frame_counter': frame_counter + 1}
+                 'frame_counter': frame_counter + 1
+                }
 
             # Add frame to the queue
             self.enqueue_frame(fdata, m)
@@ -234,9 +236,8 @@ class Xlam(CameraBase):
                   'bit_depth': self.bit_depth,
                   'charge_summing': self.charge_summing,
                   'counter_mode': self.counter_mode,
-                  'thresholds': self.thresholds,
-                  'voltage': self.det.voltage(1),
-                  'temperature': self.det.temperature(1)}
+                  'thresholds': self.thresholds
+                  }
 
         return opmode
 
