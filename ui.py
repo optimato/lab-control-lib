@@ -220,7 +220,13 @@ def load_past_investigations(path=None):
         exp_dict = {}
         for exp, exp_path in all_exp.items():
             # Scan directories are of the format %05d or %05d_some_label
-            all_scans = {int(f.name[:6]): f.name for f in os.scandir(exp_path) if f.is_dir()}
+            all_scans = {}
+            for f in os.scandir(exp_path):
+                if f.is_dir():
+                    try:
+                        all_scans[int(f.name[:6])] = f.name
+                    except ValueError:
+                        print(f'{f.name} is an alien directory. Ignored.')
             exp_dict[exp] = all_scans
 
         # This updates the module-level dictionary
