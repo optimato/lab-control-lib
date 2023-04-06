@@ -355,11 +355,11 @@ class Xlam(CameraBase):
         """
         Energy thresholds in keV
         """
-        return self.det.voltage
+        return self.det.voltage(1)
 
     @voltage.setter
     def voltage(self, value):
-        self.det.set_voltage(value)
+        self.det.set_voltage(1, value)
         self.config['voltage'] = value
 
     @proxycall()
