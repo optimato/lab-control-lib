@@ -115,7 +115,7 @@ class Xlam(CameraBase):
         if not self.initialized:
             raise RuntimeError('Initialization is not completed.')
         if not self.det.voltage_settled(1):
-            self.logger.warning('Detector is not yet settled!')
+            self.logger.warning(f'Detector is not yet settled! (Current voltage: {self.voltage})')
 
     def _trigger(self):
         """
@@ -336,7 +336,6 @@ class Xlam(CameraBase):
             self.det.ccounter_mode = pyxsp.CounterMode.DUAL
         else:
             raise RuntimeError(f'counter_mode cannot be set to {value}.')
-
     @proxycall(admin=True)
     @property
     def thresholds(self):
@@ -349,6 +348,19 @@ class Xlam(CameraBase):
     def thresholds(self, value):
         self.det.thresholds = value
         self.config['thresholds'] = value
+
+    @proxycall(admin=True)
+    @property
+    def voltage(self):
+        """
+        Energy thresholds in keV
+        """
+        return self.det.voltage
+
+    @voltage.setter
+    def voltage(self, value):
+        self.det.set_voltage(value)
+        self.config['voltage'] = value
 
     @proxycall()
     @property
