@@ -26,14 +26,24 @@ OTHER TO DO
 think about more inputs
 actually implement
 """
+import os.path
+import threading
+
+import IPython
+from IPython.core.magic import register_line_magic
+import time
+import re
+import traceback
 
 from . import smaract
 from . import mclennan
 from . import aerotech
 from . import labframe
 from . import motors, drivers
-from .util.filedict import FileDict
-from IPython.core.magic import register_line_magic
+from . import manager
+from .util.future import Future
+
+ipython = IPython.get_ipython()
 
 """
 To implement
@@ -58,6 +68,65 @@ def collect_magic_info(f):
     magic_list[f.__name__] = f.__doc__
     return f
 
+@register_line_magic
+@collect_magic_info
+def lcrun(line):
+    """
+    Run a script and copy this script into the created scan directories.
+
+    Syntax: lcrun script [eventually other run parameters like -i]
+    """
+
+    if not line:
+        print("Syntax: lcrun script [eventually other run parameters like -i]")
+        return
+
+    man = manager.getManager()
+
+    # Extract file name, store in memory
+    matches = re.findall(r"\b([^ \.]+\.py)\b", line)
+    if not matches:
+        print(f"No file of the form *.py in '{line}'??")
+        return
+    if len(matches):
+        print(f"{len(matches)} file(s) of the form *.py in '{line}'??")
+    script_name = matches[0]
+    code = open(script_name, 'rt').read()
+
+    script_name = os.path.split(script_name)[-1]
+
+    kill_thread = False
+    def check_new_scans():
+        """
+        Periodically check if a new scan has appeared
+        """
+        scans = []
+        try:
+            while True:
+                scan_path = man.scan_path
+                if scan_path and scan_path not in scans:
+                    scans.append(scan_path)
+                    script_path = os.path.join(scan_path, script_name)
+                    open(script_path, 'wt').write(code)
+                    print(f'Script code added at {script_path}')
+                for i in range(10):
+                    if kill_thread:
+                        return
+                    time.sleep(.1)
+
+        except BaseException:
+            print(traceback.format_exc())
+            return
+
+    # Start check_new_scans on a thread
+    f = Future(check_new_scans)
+
+    # Run script
+    ipython.run_line_magic("run", line)
+
+    # Kill thread
+    kill_thread = True
+    f.join()
 
 @register_line_magic
 @collect_magic_info
