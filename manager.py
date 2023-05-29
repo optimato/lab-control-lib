@@ -379,6 +379,8 @@ class Manager(DriverBase):
 
     @investigation.setter
     def investigation(self, v):
+        if v is None:
+            raise RuntimeError(f'Investigation should not be set to "None"')
         if self._running:
             raise RuntimeError(f'Investigation cannot be modified while a scan is running.')
         if not self._valid_name(v):
@@ -396,6 +398,8 @@ class Manager(DriverBase):
 
     @experiment.setter
     def experiment(self, v):
+        if v is None:
+            raise RuntimeError(f'Experiment should not be set to "None"')
         if self._running:
             raise RuntimeError(f'Experiment cannot be modified while a scan is running.')
         if self.investigation is None:
