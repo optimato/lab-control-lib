@@ -387,7 +387,10 @@ class CameraBase(DriverBase):
 
             if not self.rolling:
                 self.logger.debug('Calling file_writer.store() with frame')
-                self.file_writer.store(meta=meta, data=data)
+                try:
+                    self.file_writer.store(meta=meta, data=data)
+                except RuntimeError:
+                    self.logger.exception("Problem sending data to the file_writer process")
                 self.logger.debug('file_writer.store() returned')
 
             if self.config['do_broadcast']:
@@ -487,6 +490,10 @@ class CameraBase(DriverBase):
         """
         if self.rolling:
             raise RuntimeError('Camera is rolling. Call roll_off first.')
+
+        if self.armed:
+            self.logger.warning('arm() called but camera already armed.')
+            return
 
         self.logger.debug('Arming detector.')
 
