@@ -418,7 +418,7 @@ class Manager(DriverBase):
         """
         Return experiment path
         """
-        if self.experiment is None or self.investigation is None:
+        if (self.experiment is None) or (self.investigation is None):
             RuntimeError('Experiment or Investigation not set.')
         return os.path.join(self.investigation, self.experiment)
 
