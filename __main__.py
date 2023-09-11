@@ -124,11 +124,15 @@ def killall():
     if not d:
         click.Abort('Could not connect to manager!')
     time.sleep(.5)
-    d.ask_admin(True, True)
-    d.killall()
+    try:
+        d.ask_admin(True, True)
+        d.killall()
+        # Then kill manager
+        d._proxy.kill()
+    except AttributeError:
+        # For some reason d can still be None at this point.
+        click.Abort('Could not connect to manager!')
 
-    # Then kill manager
-    d._proxy.kill()
 
 @cli.command(help='Start Display real-time logs of all running drivers')
 def logall():
