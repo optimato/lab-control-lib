@@ -4,7 +4,7 @@ Hard coded network values
 
 # IPs of computer hosting some devices
 HOST_IPS = {
-            'control': '172.19.248.36',
+            'control': '172.19.248.40',
             'varex': '172.19.248.35',
             'pco': '?.?.?.?',
             'lambda': '172.19.248.39',
