@@ -119,7 +119,12 @@ class Varex(CameraBase):
                     continue
 
             # Get metadata
-            self.metadata = manager.getManager().return_meta()
+            man = manager.getManager()
+            if man is None:
+                self.logger.error("Not connected to manager! No metadata will available!")
+                self.metadata = {}
+            else:
+                self.metadata = man.return_meta()
 
             # Find and read out buffer
             count = det.get_field_count()

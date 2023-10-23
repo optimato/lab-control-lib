@@ -177,7 +177,12 @@ class Xlam(CameraBase):
                 self.logger.debug(f'Acquired frame {frame_counter}.')
 
             # Get metadata
-            self.metadata = manager.getManager().return_meta()
+            man = manager.getManager()
+            if man is None:
+                self.logger.error("Not connected to manager! No metadata will available!")
+                self.metadata = {}
+            else:
+                self.metadata = man.return_meta()
 
             # Create metadata
             m = {'shape': sh,

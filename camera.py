@@ -219,6 +219,12 @@ class CameraBase(DriverBase):
             self.logger.warning("Cannot snap while in rolling mode.")
             return
 
+        # If the manager crashes, getManager() will return None and we can't continue
+        man = manager.getManager()
+        if man is None:
+            self.logger.error("Not connected to manager! Can't start acquisition!")
+            return
+
         # If the camera is not armed, we arm it and remember that it was done automatically in snap
         self.auto_armed = False
         if not self.armed:
@@ -230,7 +236,7 @@ class CameraBase(DriverBase):
 
         # Build filename
         if self.in_scan:
-            prefix = manager.getManager().next_prefix()
+            prefix = man.next_prefix()
             self.filename = self._build_filename(prefix=prefix, path=self._scan_path)
         else:
             self.counter += 1
@@ -357,7 +363,11 @@ class CameraBase(DriverBase):
             self.logger.debug('Metadata collection requested (grab_metadata flag)')
 
             # Request global metadata (exclude self, we do that locally instead)
-            manager.getManager().request_meta(exclude_list=['varex'])
+            man = manager.getManager()
+            if man is None:
+                self.logger.error("Not connected to manager! Cannot request metadata!")
+            else:
+                man.request_meta(exclude_list=['varex'])
 
             # Local metadata
             self.localmeta = self.get_meta()
@@ -407,8 +417,16 @@ class CameraBase(DriverBase):
         """
         Return camera-specific metadata
         """
+        man = manager.getManager()
+        if man is None:
+            self.logger.error("Could not connect to manager! metadata will be incomplete.")
+            scan_name = "[unknown]"
+            scan_counter = None
+        else:
+            scan_name = man.scan_name
+            scan_counter = man.get_counter() if man.in_scan else None
         meta = {'detector': self.name,
-                'scan_name': manager.getManager().scan_name,
+                'scan_name': scan_name,
                 'psize': self.psize,
                 'epsize': self.epsize,
                 'exposure_time': self.exposure_time,
@@ -416,7 +434,7 @@ class CameraBase(DriverBase):
                 'operation_mode': self.operation_mode,
                 'filename': self.filename,
                 'snap_counter': self.counter,
-                'scan_counter': manager.getManager().get_counter() if self.in_scan else None}
+                'scan_counter': scan_counter}
 
         return meta
 
@@ -512,7 +530,12 @@ class CameraBase(DriverBase):
         self.do_acquire.clear()
 
         # Check if this is part of a scan
-        self._scan_path = manager.getManager().scan_path
+        man = manager.getManager()
+        if man is None:
+            self.logger.error("Not connected to manager! Can't check scan path!")
+            self._scan_path = None
+        else:
+            self._scan_path = man.scan_path
 
         # Finish arming with subclassed method
         self._arm()
@@ -527,7 +550,11 @@ class CameraBase(DriverBase):
         """
         True if within a scan context.
         """
-        return manager.getManager().scan_path is not None
+        man = manager.getManager()
+        if man is None:
+            self.logger.error("Could not connect to manager!")
+            return False
+        return man.scan_path is not None
 
     @proxycall(admin=True)
     def disarm(self):
