@@ -211,7 +211,13 @@ class Varex(CameraBase):
                   'readout_mode': self.config['readout_mode']}
         return opmode
 
-    def _set_operation_mode(self, full_well_mode=None, exposure_mode=None, readout_mode=None):
+    def _set_operation_mode(self, opmode):
+        """
+        Set operation mode.
+        """
+        self.set_operation_mode(**opmode)
+
+    def set_operation_mode(self, full_well_mode=None, exposure_mode=None, readout_mode=None):
         """
         Set varex operation mode:
 
