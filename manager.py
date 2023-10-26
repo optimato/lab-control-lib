@@ -52,16 +52,16 @@ class Manager(DriverBase):
     # Interval at which attempts are made at connecting clients
     CLIENT_LOOP_INTERVAL = 20.
 
+    DEFAULT_CONFIG = (DriverBase.DEFAULT_CONFIG |
+                      {'experiment':None,
+                       'investigation':None,
+                       'meta_to_save':{}})
+
     def __init__(self):
         """
         Metadata manager for investigations, experiments and scans.
         """
         super().__init__()
-
-        if not self.config.get('experiment'):
-            self.config['experiment'] = None
-        if not self.config.get('investigation'):
-            self.config['investigation'] = None
 
         # Set initial parameters
         self._running = False
@@ -182,6 +182,7 @@ class Manager(DriverBase):
 
         # Nothing to do if already requested
         if self.grab_meta_flag.is_set():
+            self.logger.warning("Request for metadata is already being processed.")
             return
 
         # Clear metadata dict

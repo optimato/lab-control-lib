@@ -44,6 +44,11 @@ class Varex(CameraBase):
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     MAX_FPS = 5           # The real max FPS is higher (especially in binning mode) but this seems sufficient.
+    DEFAULT_CONFIG = (CameraBase.DEFAULT_CONFIG |
+                      {'binning':'x11',
+                       'full_well_mode': 'high',
+                       'exposure_mode': 'sequence_exposure',
+                       'readout_mode': 'continuousreadout'})
 
     def __init__(self, broadcast_port=None):
         """
@@ -71,10 +76,11 @@ class Varex(CameraBase):
 
         self.logger.info('GigE detector is online')
 
-        self.operation_mode = self.config.get('operation_mode', None)
-        self.exposure_time = self.config.get('exposure_time', .2)
-        self.binning = self.config.get('binning', 'x11')
-        self.exposure_number = self.config.get('exposure_number', 1)
+        # Apply saved configuration
+        self.operation_mode = self.operation_mode  # Calls getter/setter
+        self.exposure_time = self.config['exposure_time']
+        self.binning = self.config['binning']
+        self.exposure_number = self.config['exposure_number']
 
         self.detector.set_gap_time(0)
         self.detector.set_trigger_source('internal_software')
@@ -196,12 +202,12 @@ class Varex(CameraBase):
         self.config['exposure_number'] = value
 
     def _get_operation_mode(self):
-        # opmode = {'full_well_mode': self.detector.get_full_well_mode(),
-        #          'exposure_mode': self.detector.get_exposure_mode(),
-        #          'readout_mode': self.detector.get_readout_mode()}
-        return self.config['operation_mode']
+        opmode = {'full_well_mode': self.config['full_well_mode'],
+                  'exposure_mode': self.config['exposure_mode'],
+                  'readout_mode': self.config['readout_mode']}
+        return opmode
 
-    def set_operation_mode(self, full_well_mode=None, exposure_mode=None, readout_mode=None):
+    def _set_operation_mode(self, full_well_mode=None, exposure_mode=None, readout_mode=None):
         """
         Set varex operation mode:
 
@@ -225,9 +231,9 @@ class Varex(CameraBase):
         self.detector.set_full_well_mode(full_well_mode)
         self.detector.set_exposure_mode(exposure_mode)
         self.detector.set_readout_mode(readout_mode)
-        self.config['operation_mode'] = {'full_well_mode': full_well_mode,
-                                         'exposure_mode': exposure_mode,
-                                         'readout_mode': readout_mode}
+        self.config.update({'full_well_mode': full_well_mode,
+                            'exposure_mode': exposure_mode,
+                            'readout_mode': readout_mode})
 
     def _get_binning(self):
         return self.config['binning']  # self.detector.get_binning_mode()

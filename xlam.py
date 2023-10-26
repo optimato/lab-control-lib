@@ -44,13 +44,17 @@ class Xlam(CameraBase):
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     SYSTEM_FILE = '/etc/opt/xsp/system.yml'
+    DEFAULT_CONFIG = (CameraBase.DEFAULT_CONFIG |
+                      {'beam_energy': None,
+                       'charge_summing':'on',
+                       'counter_mode':'single',
+                       'thresholds':[7, 15],
+                       'bit_depth':14,
+                       'voltage': 300.})
 
     def __init__(self, broadcast_port=None):
         """
         Initialization.
-
-        TODO: implement gap time.
-        TODO: implement multiple exposure mode (if needed)
         """
         super().__init__(broadcast_port=broadcast_port)
 
@@ -91,10 +95,9 @@ class Xlam(CameraBase):
         self.det = det
         self.rec = rec
 
-        self.operation_mode = self.config.get('operation_mode')
-        self.exposure_time = self.config.get('exposure_time', .2)
-        self.exposure_number = self.config.get('exposure_number', 1)
-        self.thresholds = self.config.get('thresholds', [7, 15])
+        self.operation_mode = self.operation_mode # Calls getter and then setter.
+        self.exposure_time = self.config['exposure_time']
+        self.exposure_number = self.config['exposure_number']
 
         # self.initialized will be True only at completion of this Future
         self.future_init = Future(target=self._init)
@@ -222,7 +225,9 @@ class Xlam(CameraBase):
 
     def _get_exposure_time(self):
         # Convert to seconds
-        return self.det.shutter_time / 1000
+        exp_time = self.det.shutter_time / 1000
+        self.config['exposure_time'] = exp_time
+        return exp_time
 
     def _set_exposure_time(self, value):
         # Convert to milliseconds
@@ -230,36 +235,37 @@ class Xlam(CameraBase):
         self.config['exposure_time'] = value
 
     def _get_exposure_number(self):
-        return self.det.number_of_frames
+        n = self.det.number_of_frames
+        self.config['exposure_number'] = n
+        return n
 
     def _set_exposure_number(self, value):
         self.det.number_of_frames = value
         self.config['exposure_number'] = value
 
     def _get_operation_mode(self):
-        opmode = {'beam_energy': self.det.beam_energy,
+        opmode = {'beam_energy': self.beam_energy,
                   'bit_depth': self.bit_depth,
                   'charge_summing': self.charge_summing,
                   'counter_mode': self.counter_mode,
                   'thresholds': self.thresholds
                   }
-
         return opmode
 
-    def set_operation_mode(self, **kwargs):
-        beam_energy = kwargs.get('beam_energy')
+    def _set_operation_mode(self, opmode):
+        beam_energy = opmode.get('beam_energy')
         if beam_energy:
-            self.det.beam_energy = beam_energy
-        bit_depth = kwargs.get('bit_depth')
+            self.beam_energy = beam_energy
+        bit_depth = opmode.get('bit_depth')
         if bit_depth:
             self.bit_depth = bit_depth
-        charge_summing = kwargs.get('charge_summing')
+        charge_summing = opmode.get('charge_summing')
         if charge_summing:
             self.charge_summing = charge_summing
-        counter_mode = kwargs.get('counter_mode')
+        counter_mode = opmode.get('counter_mode')
         if counter_mode:
             self.counter_mode = counter_mode
-        thresholds = kwargs.get('thresholds')
+        thresholds = opmode.get('thresholds')
         if thresholds:
             self.thresholds = thresholds
 
@@ -281,11 +287,14 @@ class Xlam(CameraBase):
         """
         Beam energy
         """
-        return self.det.beam_energy
+        be = self.det.beam_energy
+        self.config['beam_energy'] = be
+        return be
 
     @beam_energy.setter
     def beam_energy(self, value):
         self.det.beam_energy = value
+        self.config['beam_energy'] = value
 
     @proxycall(admin=True)
     @property
@@ -293,7 +302,9 @@ class Xlam(CameraBase):
         """
         Bit depth: 1, 6, 12, 24
         """
-        return self.det.bit_depth.value
+        bd = self.det.bit_depth.value
+        self.config['bit_depth'] = bd
+        return bd
 
     @bit_depth.setter
     def bit_depth(self, value):
@@ -307,6 +318,7 @@ class Xlam(CameraBase):
             self.det.bit_depth = pyxsp.BitDepth.DEPTH_24
         else:
             raise RuntimeError(f'Unknown or unsupported bit depth: {value}.')
+        self.config['bit_depth'] = value
 
     @proxycall(admin=True)
     @property
@@ -314,7 +326,9 @@ class Xlam(CameraBase):
         """
         Charge summing ('on', 'off')
         """
-        return self.det.charge_summing.name.lower()
+        cs = self.det.charge_summing.name.lower()
+        self.config['charge_summing'] = cs
+        return cs
 
     @charge_summing.setter
     def charge_summing(self, value):
@@ -324,6 +338,7 @@ class Xlam(CameraBase):
             self.det.charge_summing = pyxsp.ChargeSumming.OFF
         else:
             raise RuntimeError(f'charge_summing cannot be set to {value}.')
+        self.config['charge_summing'] = value
 
     @proxycall(admin=True)
     @property
@@ -331,7 +346,9 @@ class Xlam(CameraBase):
         """
         Counter mode ('single', 'dual')
         """
-        return self.det.counter_mode.name.lower()
+        cm = self.det.counter_mode.name.lower()
+        self.config['counter_mode'] = cm
+        return cm
 
     @counter_mode.setter
     def counter_mode(self, value):
@@ -341,13 +358,17 @@ class Xlam(CameraBase):
             self.det.ccounter_mode = pyxsp.CounterMode.DUAL
         else:
             raise RuntimeError(f'counter_mode cannot be set to {value}.')
+        self.config['counter_mode'] = value
+
     @proxycall(admin=True)
     @property
     def thresholds(self):
         """
         Energy thresholds in keV
         """
-        return self.det.thresholds
+        th = self.det.thresholds
+        self.config['thresholds'] = th
+        return th
 
     @thresholds.setter
     def thresholds(self, value):
@@ -360,7 +381,9 @@ class Xlam(CameraBase):
         """
         Energy thresholds in keV
         """
-        return self.det.voltage(1)
+        v = self.det.voltage(1)
+        self.config['voltage'] = v
+        return v
 
     @voltage.setter
     def voltage(self, value):

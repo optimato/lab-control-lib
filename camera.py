@@ -95,6 +95,19 @@ class CameraBase(DriverBase):
     DATATYPE = 'uint16'            # Expected datatype
     DEFAULT_FPS = 5.
     MAX_FPS = 5.
+    # python >3.9
+    DEFAULT_CONFIG = (DriverBase.DEFAULT_CONFIG |
+                      {'do_save':True,
+                      'file_format':DEFAULT_FILE_FORMAT,
+                      'do_broadcast':True,
+                      'magnification':1.,
+                      'counter':0,
+                      'save_mode':'append',
+                      'roll_fps':DEFAULT_FPS,
+                      'save_path':None,
+                      'operation_mode':None,
+                      'exposure_time':1.,
+                      'exposure_number':1})
 
     def __init__(self, broadcast_port=None):
         super().__init__()
@@ -104,22 +117,6 @@ class CameraBase(DriverBase):
             self.broadcast_port = self.DEFAULT_BROADCAST_PORT
         else:
             self.broadcast_port = broadcast_port
-
-        # Set defaults if they are not set
-        if 'do_save' not in self.config:
-            self.save = True
-        if 'file_format' not in self.config:
-            self.file_format = DEFAULT_FILE_FORMAT
-        if 'do_broadcast' not in self.config:
-            self.config['do_broadcast'] = True
-        if 'magnification' not in self.config:
-            self.magnification = 1.
-        if 'counter' not in self.config:
-            self.counter = 0
-        if 'save_mode' not in self.config:
-            self.config['save_mode'] = 'append'
-        if 'roll_fps' not in self.config:
-            self.config['roll_fps'] = self.DEFAULT_FPS
 
         self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
@@ -140,7 +137,6 @@ class CameraBase(DriverBase):
 
         self._exposure_time_before_roll = None
         self._exposure_number_before_roll = None
-
 
         # File writing process
         self.file_writer = frameconsumer.H5FileWriter.start_process()
@@ -418,6 +414,7 @@ class CameraBase(DriverBase):
         Return camera-specific metadata
         """
         man = manager.getManager()
+
         if man is None:
             self.logger.error("Could not connect to manager! metadata will be incomplete.")
             scan_name = "[unknown]"
@@ -425,6 +422,7 @@ class CameraBase(DriverBase):
         else:
             scan_name = man.scan_name
             scan_counter = man.get_counter() if man.in_scan else None
+
         meta = {'detector': self.name,
                 'scan_name': scan_name,
                 'psize': self.psize,
@@ -435,7 +433,6 @@ class CameraBase(DriverBase):
                 'filename': self.filename,
                 'snap_counter': self.counter,
                 'scan_counter': scan_counter}
-
         return meta
 
     def enqueue_frame(self, frame, meta):

@@ -106,26 +106,6 @@ __all__ = ['McLennan1', 'McLennan2', 'McLennan3', 'Motor']
 # This API uses carriage return (\r) as end-of-line.
 EOL = b'\r'
 
-# microsteps per revolution, according to table in the manual, needs to be set before AC and DC
-DEFAULT_MICROSTEPS = 20000
-
-# acceleration in rev/s/s
-DEFAULT_ACCELERATION = 2
-
-# deceleration in rev/s/s
-DEFAULT_DECELERATION = 2
-
-# velocity in rev/s
-DEFAULT_VELOCITY = 2
-
-# emergency deceleration for fast stops. If spinning at 2 rev/s AM=20 should stop in 0.1 s
-DEFAULT_EMERGENCY_DECELERATION = 20
-
-# motor current in amps, check with mclennan what values are good
-DEFAULT_CURRENT = 2.1
-
-# motor limits in mm
-DEFAULT_LIMITS = (-20, 20)
 
 # Bitmasks for status return
 STATUS_STRINGS = ['Motor Enabled (Motor Disabled if this bit = 0)',  # 0x0001
@@ -159,6 +139,25 @@ class McLennan(SocketDriverBase):
     ballscrew_length = 2.    # Displacement for one full revolution
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
     EOL = EOL
+    DEFAULT_CONFIG = (SocketDriverBase.DEFAULT_CONFIG |
+                      {# microsteps per revolution, according to table in the manual, needs to be set before AC and DC
+                       'microsteps': 20000,
+                       # acceleration in rev/s/s
+                       'acceleration':2,
+                       # deceleration in rev/s/s
+                       'deceleration':2,
+                       # velocity in rev/s
+                       'velocity':2,
+                       # emergency deceleration for fast stops. If spinning at 2 rev/s AM=20 should stop in 0.1 s
+                       'emergency_deceleration':20,
+                       # motor current in amps, check with mclennan what values are good
+                       'current':2.1,
+                       # enabled state
+                       'enabled':True,
+                       # position in mm
+                       'position':0.,
+                       # limits in mm
+                       'limits': (-1., 1.)})
 
     def __init__(self, device_address, name):
         """
@@ -184,23 +183,16 @@ class McLennan(SocketDriverBase):
         # turn Ack/Nack on
         self.send_cmd('PR4')
 
-        if ask_yes_no('Set defaults? (probably needed only the first time)', yes_is_default=False):
-            self.logger.info('Setting defaults...')
-            self.set_microstep_resolution(DEFAULT_MICROSTEPS)
-            self.set_accel(DEFAULT_ACCELERATION)
-            self.set_decel(DEFAULT_DECELERATION)
-            self.set_vel(DEFAULT_VELOCITY)
-            self.set_decel_max(DEFAULT_EMERGENCY_DECELERATION)
-            self.set_current(DEFAULT_CURRENT)
-            self.set_limits(DEFAULT_LIMITS)
-            self.logger.info('Done setting defaults.')
+        self.set_microstep_resolution()
+        self.set_accel()
+        self.set_decel()
+        self.set_vel()
+        self.set_decel_max()
+        self.set_current()
+        self.set_limits()
+        self.logger.info('Done setting defaults.')
 
         position = self.get_pos()
-        if position is None:
-            if ask_yes_no('No position recorded! Set to 0.0?'):
-                position = 0.0
-                self.set_pos(position)
-
         self.logger.info(f'Initial position: {position:0.2f}')
 
         # TODO: how to name motors?
@@ -211,32 +203,6 @@ class McLennan(SocketDriverBase):
         self.logger.info(f"McLennan ({self.name}) initialization complete.")
         self.initialized = True
         return
-
-    def parse_escaped(self, cmd):
-        """
-        Parse extra commands because of persistence.
-        """
-        out = cmd.split(b'PERSIST')
-
-        if len(out) == 1:
-            # Not a 'PERSIST' command. continue parsing
-            return super().parse_escaped(cmd)
-
-        cmd, payload = out
-        payload = payload.decode()
-
-        print(f'payload: {payload}')
-
-        if cmd == b'GET':
-            # pass persistence value
-            value = self.persistence_conf.get(payload)
-            return json.dumps({payload: value}).encode()
-        if cmd == b'SET':
-            # Set a persistence value
-            self.persistence_conf.update(json.loads(payload))
-            return b'OK'
-        else:
-            return b'Error: unknown command ' + cmd
 
     def send_cmd(self, cmd):
         """
@@ -280,6 +246,7 @@ class McLennan(SocketDriverBase):
         s, v = self.send_cmd('ME')
         if s != '%':
             self.logger.critical('Enabling motor failed!')
+        self.config['enabled'] = True
 
     @proxycall(admin=True)
     def disable(self):
@@ -289,6 +256,7 @@ class McLennan(SocketDriverBase):
         s, v = self.send_cmd('MD')
         if s != '%':
             self.logger.critical('Disabling motor failed!')
+        self.config['enabled'] = False
 
     @proxycall(admin=True)
     def move_rel(self, dx):
@@ -306,10 +274,6 @@ class McLennan(SocketDriverBase):
 
         # Get current position
         pos = self.get_pos()
-
-        if pos is None:
-            self.logger.critical('Move aborted. Current position undefined. Use `set_pos` to set.')
-            return
 
         # Check limits
         if (pos + dx) < low_lim:
@@ -381,8 +345,7 @@ class McLennan(SocketDriverBase):
         self.logger.critical("ABORTING MOTION!")
         self.send_cmd('ST')
         self.check_done()
-        self.logger.info("Motion aborted. Position is now undefined.")
-        self.set_pos(None)
+        self.logger.info("Motion aborted. Position is now wrong!")
 
     @proxycall(admin=True, block=False)
     def move_abs(self, x):
@@ -391,11 +354,6 @@ class McLennan(SocketDriverBase):
         This method relies on the recorded software position to have a valid value.
         There is a possibility that the absolute position accumulate errors with time.
         """
-        pos = self.get_pos()
-        if pos is None:
-            self.logger.critical('Move aborted. Current position undefined. Use `set_pos` to set.')
-            return
-
         move = x - self.get_pos()
         return self.move_rel(move)
 
@@ -410,20 +368,25 @@ class McLennan(SocketDriverBase):
         except ValueError:
             self.logger.critical(f'Command EG failed (return value is {v}')
             raise
+        self.config['microsteps'] = v
         return v
 
     @proxycall(admin=True)
-    def set_microstep_resolution(self, microstep_resolution):
+    def set_microstep_resolution(self, microstep_resolution=None):
         """
-        Set number of microsteps per revolution
+        Set number of microsteps per revolution (None means send current config default)
         """
-        microstep_resolution = int(microstep_resolution)
+        if microstep_resolution is None:
+            microstep_resolution = self.config['microsteps']
+        else:
+            microstep_resolution = int(microstep_resolution)
         if (microstep_resolution < 201) or (microstep_resolution > 51200):
             self.logger.critical(f'Microstep resolution should be between 200 and 51200.')
             return
         s, v = self.send_cmd(f'EG{microstep_resolution}')
         if '?' in s:
             self.logger.critical('Error setting microsteps')
+        self.config['microsteps'] = microstep_resolution
         return
 
     @proxycall()
@@ -437,6 +400,7 @@ class McLennan(SocketDriverBase):
         except ValueError:
             self.logger.critical(f'Command AC failed (return value is {v}')
             raise
+        self.config['acceleration'] = v
         return v
 
     @proxycall(admin=True)
@@ -448,6 +412,7 @@ class McLennan(SocketDriverBase):
         s, v = self.send_cmd(f'AC{accel}')
         if '?' in s:
             self.logger.critical('Could not set acceleration')
+        self.config['acceleration'] = accel
         return
 
     @proxycall()
@@ -461,6 +426,7 @@ class McLennan(SocketDriverBase):
         except ValueError:
             self.logger.critical(f'Command DC failed (return value is {v}')
             raise
+        self.config['deceleration'] = v
         return v
 
     @proxycall(admin=True)
@@ -472,12 +438,13 @@ class McLennan(SocketDriverBase):
         s, v = self.send_cmd(f'DC{decel}')
         if '?' in s:
             self.logger.critical('Could not set deceleration')
+        self.config['deceleration'] = decel
         return
 
     @proxycall()
     def get_vel(self):
         """
-        Get acceleration (in revolution / s^2)
+        Get velocity (in revolution / s)
         """
         c, v = self.send_cmd('VE')
         try:
@@ -485,6 +452,7 @@ class McLennan(SocketDriverBase):
         except ValueError:
             self.logger.critical(f'Command VE failed (return value is {v}')
             raise
+        self.config['velocity'] = v
         return v
 
     @proxycall(admin=True)
@@ -496,6 +464,7 @@ class McLennan(SocketDriverBase):
         s, v = self.send_cmd(f'VE{vel}')
         if '?' in s:
             self.logger.critical('Could not set velocity')
+        self.config['velocity'] = vel
         return
 
     @proxycall()
@@ -514,7 +483,7 @@ class McLennan(SocketDriverBase):
     @proxycall(admin=True)
     def set_accel_max(self, accel):
         """
-        Set acceleration (in revolution / s^2)
+        Set maximum acceleration (in revolution / s^2)
         """
         accel = int(accel)
         s, v = self.send_cmd(f'MA{accel}')
@@ -538,7 +507,7 @@ class McLennan(SocketDriverBase):
     @proxycall(admin=True)
     def set_decel_max(self, decel):
         """
-        Set maximum acceleration (in revolution / s^2)
+        Set maximum deceleration (in revolution / s^2)
         """
         decel = int(decel)
         s, v = self.send_cmd(f'AM{decel}')
@@ -557,6 +526,7 @@ class McLennan(SocketDriverBase):
         except ValueError:
             self.logger.critical(f'Command CC failed (return value is {v}')
             raise
+        self.config['current'] = v
         return v
 
     @proxycall(admin=True)
@@ -568,6 +538,7 @@ class McLennan(SocketDriverBase):
         s, v = self.send_cmd(f'CC{cc}')
         if '?' in s:
             self.logger.critical('Could not set current')
+        self.config['current'] = cc
         return
 
     @proxycall()
@@ -575,8 +546,7 @@ class McLennan(SocketDriverBase):
         """
         Get (software) position (in mm)
         """
-        # Send escape command
-        return self.config.get('position')
+        return self.config['position']
 
     @proxycall(admin=True)
     def set_pos(self, pos):
@@ -591,7 +561,7 @@ class McLennan(SocketDriverBase):
         """
         Get (software) limits (in mm)
         """
-        return self.config.get('limits')
+        return self.config['limits']
 
     @proxycall(admin=True)
     def set_limits(self, limits):

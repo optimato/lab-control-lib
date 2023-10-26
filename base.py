@@ -111,6 +111,7 @@ class DriverBase:
 
     logger = None                       # Place-holder. Gets defined at construction.
     DEFAULT_LOGGING_ADDRESS = None      # The default address for logging broadcast
+    DEFAULT_CONFIG = {}
 
     def __init__(self):
         """
@@ -139,6 +140,10 @@ class DriverBase:
         # Load (or create) config dictionary
         self.config_filename = os.path.join(conf_path, 'drivers', self.name + '.json')
         self.config = FileDict(self.config_filename)
+
+        # Make sure all default keys are present
+        for k, v in self.DEFAULT_CONFIG.items():
+            self.config.setdefault(k, v)
 
         # Dictionary of metadata calls
         self.metacalls = {}

@@ -218,6 +218,9 @@ class Mecademic(SocketDriverBase):
     # Raise error if there is no reply (e.g. because of a call that doesn't give a reply is not managed well)
     REPLY_TIMEOUT = 5.
 
+    DEFAULT_CONFIG = (SocketDriverBase.DEFAULT_CONFIG |
+                      {'joint_velocity':DEFAULT_VELOCITY})
+
     def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
@@ -282,9 +285,8 @@ class Mecademic(SocketDriverBase):
             self.logger.info('Motion is paused. Clearing.')
             self.clear_motion()
 
-        # Set joint velocity
-        jv = self.config.get('joint_velocity') or DEFAULT_VELOCITY
-        self.set_joint_velocity(jv)
+        # Set joint velocity to saved (or default) value
+        self.set_joint_velocity()
 
         self.logger.info("Initialization complete.")
 
@@ -543,13 +545,15 @@ class Mecademic(SocketDriverBase):
         return
 
     @proxycall(admin=True)
-    def set_joint_velocity(self, p):
+    def set_joint_velocity(self, p=None):
         """
         Set joint velocity as a percentage of the maximum speed.
         (See MAX_JOINT_VELOCITY)
 
         The last is especially important for continuous tomographic scans.
         """
+        if p is None:
+            p = self.config['joint_velocity']
         if self.in_error:
             self.clear_errors()
         code, reply = self.send_cmd('SetJointVel', p)
@@ -562,7 +566,8 @@ class Mecademic(SocketDriverBase):
         (See MAX_JOINT_VELOCITY)
         """
         code, reply = self.send_cmd('GetJointVel')
-        return float(reply)
+        joint_velocity = float(reply)
+        self.config['joint_velocity'] = joint_velocity
 
     @proxycall(admin=True, block=False)
     def move_joints(self, joints, block=True):
