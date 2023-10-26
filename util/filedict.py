@@ -61,9 +61,3 @@ class FileDict(dict):
     def _save(self):
         with open(self.filename, 'w') as f:
             json.dump(dict(self), f)
-
-    def __delitem__(self, key):
-        self._load()
-        dict.__delitem__(self, key)
-        self._save()
-        return None
