@@ -428,7 +428,8 @@ class CameraBase(DriverBase):
             scan_counter = None
         else:
             scan_name = man.scan_name
-            scan_counter = man.get_counter() if man.in_scan else None
+            scan_path = man.scan_path
+            scan_counter = man.get_counter() if scan_path else None
 
         meta = {'detector': self.name,
                 'scan_name': scan_name,
