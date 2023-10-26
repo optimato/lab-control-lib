@@ -52,7 +52,8 @@ class Manager(DriverBase):
     # Interval at which attempts are made at connecting clients
     CLIENT_LOOP_INTERVAL = 20.
 
-    DEFAULT_CONFIG = (DriverBase.DEFAULT_CONFIG |
+    DEFAULT_CONFIG = DriverBase.DEFAULT_CONFIG.copy()
+    DEFAULT_CONFIG.update(
                       {'experiment':None,
                        'investigation':None,
                        'meta_to_save':{}})
