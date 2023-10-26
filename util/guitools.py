@@ -350,6 +350,7 @@ class StatusBar(QWidget):
         super().__init__()
         self.viewer = napari_viewer.v
         self.logger = napari_viewer.logger
+        self.camera_name = napari_viewer.camera_name
 
         # Overall horizontal layout
         self.setLayout(QHBoxLayout())
@@ -435,12 +436,10 @@ class StatusBar(QWidget):
             return
 
         # Build labels from metadata
-        cam_meta = None
-        for cam_name in CAMERA_NAMES:
-            cam_meta = cam_meta or meta.get(cam_name)
+        cam_meta = meta.get(self.camera_name)
         if not cam_meta:
             # Something is not right
-            self.logger.debug(f'No camera entry has been found.')
+            self.logger.debug(f'No camera {self.camera_name} entry has been found.')
             self.wipe()
             return
 
