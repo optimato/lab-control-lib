@@ -180,6 +180,8 @@ class Scan:
         self.logger.info(f'Starting scan {self.name}')
         self.logger.info(f'Files will be saved in {self.scan_path}')
 
+        return self
+
     def __exit__(self, exception_type, exception_value, traceback):
         """
         Exit scan context
