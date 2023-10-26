@@ -252,12 +252,16 @@ class FrameCorrection(QWidget):
         """
         Apply correction to data.
         """
-        if self.dark_apply_button.isChecked() and (self.dark is not None):
-            out = data - self.dark
+        if self.dark is None:
+            dark = 0
         else:
-            return data
+            dark = self.dark
+        if self.dark_apply_button.isChecked():
+            out = data - dark
+        else:
+            out = data.astype('float64')
         if self.flat_apply_button.isChecked() and (self.flat is not None):
-            f = self.flat - self.dark
+            f = self.flat - dark
             good = (f > 0)
             out[:, good] /= f[good]
             out[:, ~good] = 1.
@@ -290,12 +294,10 @@ class FrameCorrection(QWidget):
         """
         Flat apply button: can be checke
         """
-        if (self.flat is None) or (self.dark is None):
+        print(self.flat_apply_button.isChecked())
+        if self.flat is None:
             self.flat_apply_button.setChecked(False)
-        elif self.flat_apply_button.isChecked():
-            if not self.dark_apply_button.isChecked():
-                self.dark_apply_button.setChecked(True)
-            self.apply.emit()
+        self.apply.emit()
 
     def flat_set_button_clicked(self):
         """
@@ -525,6 +527,13 @@ class Options(QWidget):
         self.scalebar_group.layout().addWidget(self.scalebar_check)
 
         self.layout().addWidget(self.scalebar_group)
+
+        """
+        # Scale bar group
+        self.contrast_group = QGroupBox("Contrast")
+        self.contrast_group.setLayout(QVBoxLayout())
+        """
+
 
         self.scalebar_check.stateChanged.connect(self.scalebar_toggle)
     def scalebar_toggle(self, event):
