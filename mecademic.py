@@ -218,8 +218,8 @@ class Mecademic(SocketDriverBase):
     # Raise error if there is no reply (e.g. because of a call that doesn't give a reply is not managed well)
     REPLY_TIMEOUT = 5.
 
-    DEFAULT_CONFIG = (SocketDriverBase.DEFAULT_CONFIG |
-                      {'joint_velocity':DEFAULT_VELOCITY})
+    DEFAULT_CONFIG = SocketDriverBase.DEFAULT_CONFIG.copy()
+    DEFAULT_CONFIG.update({'joint_velocity':DEFAULT_VELOCITY})
 
     def __init__(self, device_address=None):
         if device_address is None:

@@ -139,7 +139,8 @@ class McLennan(SocketDriverBase):
     ballscrew_length = 2.    # Displacement for one full revolution
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
     EOL = EOL
-    DEFAULT_CONFIG = (SocketDriverBase.DEFAULT_CONFIG |
+    DEFAULT_CONFIG = SocketDriverBase.DEFAULT_CONFIG.copy()
+    DEFAULT_CONFIG.update(
                       {# microsteps per revolution, according to table in the manual, needs to be set before AC and DC
                        'microsteps': 20000,
                        # acceleration in rev/s/s

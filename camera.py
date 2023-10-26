@@ -95,19 +95,26 @@ class CameraBase(DriverBase):
     DATATYPE = 'uint16'            # Expected datatype
     DEFAULT_FPS = 5.
     MAX_FPS = 5.
+
+    LOCAL_DEFAULT_CONFIG = {'do_save':True,
+                            'file_format':DEFAULT_FILE_FORMAT,
+                            'do_broadcast':True,
+                            'magnification':1.,
+                            'counter':0,
+                            'save_mode':'append',
+                            'roll_fps':DEFAULT_FPS,
+                            'save_path':None,
+                            'operation_mode':None,
+                            'exposure_time':1.,
+                            'exposure_number':1}
+ 
     # python >3.9
-    DEFAULT_CONFIG = (DriverBase.DEFAULT_CONFIG |
-                      {'do_save':True,
-                      'file_format':DEFAULT_FILE_FORMAT,
-                      'do_broadcast':True,
-                      'magnification':1.,
-                      'counter':0,
-                      'save_mode':'append',
-                      'roll_fps':DEFAULT_FPS,
-                      'save_path':None,
-                      'operation_mode':None,
-                      'exposure_time':1.,
-                      'exposure_number':1})
+    # DEFAULT_CONFIG = (DriverBase.DEFAULT_CONFIG | LOCAL_DEFAULT_CONFIG)
+ 
+    # python <3.9
+    DEFAULT_CONFIG = DriverBase.DEFAULT_CONFIG.copy()
+    DEFAULT_CONFIG.update(LOCAL_DEFAULT_CONFIG)
+
 
     def __init__(self, broadcast_port=None):
         super().__init__()

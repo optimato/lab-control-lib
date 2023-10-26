@@ -40,15 +40,21 @@ class Varex(CameraBase):
 
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
     PIXEL_SIZE = 74.8  # Physical pixel pitch in micrometers
-    SHAPE = (1944, 1536)  # Native array shape (vertical, horizontal - after 90 degree cc rotation)
+    SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal - after 90 degree cc rotation)
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     MAX_FPS = 5           # The real max FPS is higher (especially in binning mode) but this seems sufficient.
-    DEFAULT_CONFIG = (CameraBase.DEFAULT_CONFIG |
-                      {'binning':'x11',
-                       'full_well_mode': 'high',
-                       'exposure_mode': 'sequence_exposure',
-                       'readout_mode': 'continuousreadout'})
+    LOCAL_DEFAULT_CONFIG = {'binning':'x11',
+                            'full_well_mode': 'high',
+                            'exposure_mode': 'sequence_exposure',
+                            'readout_mode': 'continuousreadout'}
+    
+    # python >3.9
+    # DEFAULT_CONFIG = (CameraBase.DEFAULT_CONFIG | LOCAL_DEFAULT_CONFIG)
+ 
+    # python <3.9
+    DEFAULT_CONFIG = CameraBase.DEFAULT_CONFIG.copy()
+    DEFAULT_CONFIG.update(LOCAL_DEFAULT_CONFIG)
 
     def __init__(self, broadcast_port=None):
         """
@@ -152,9 +158,7 @@ class Varex(CameraBase):
 
             det.check_for_live_error()
 
-            if frame_counter == n_exp:
-                # Exit if we have reached the requested nuber of exposures
-                break
+            if frame_counter == n_exp:Driver
 
             if self.rolling and self.stop_rolling_flag:
                 # Exit if rolling and stop was requested

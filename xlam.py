@@ -44,13 +44,19 @@ class Xlam(CameraBase):
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     SYSTEM_FILE = '/etc/opt/xsp/system.yml'
-    DEFAULT_CONFIG = (CameraBase.DEFAULT_CONFIG |
-                      {'beam_energy': None,
-                       'charge_summing':'on',
-                       'counter_mode':'single',
-                       'thresholds':[7, 15],
-                       'bit_depth':14,
-                       'voltage': 300.})
+    LOCAL_DEFAULT_CONFIG = {'beam_energy': None,
+                            'charge_summing':'on',
+                            'counter_mode':'single',
+                            'thresholds':[7, 15],
+                            'bit_depth':14,
+                            'voltage': 300.}
+
+    # python >3.9
+    # DEFAULT_CONFIG = (CameraBase.DEFAULT_CONFIG | LOCAL_DEFAULT_CONFIG)
+ 
+    # python <3.9
+    DEFAULT_CONFIG = CameraBase.DEFAULT_CONFIG.copy()
+    DEFAULT_CONFIG.update(LOCAL_DEFAULT_CONFIG)
 
     def __init__(self, broadcast_port=None):
         """
