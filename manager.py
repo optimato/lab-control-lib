@@ -8,9 +8,11 @@ Suggested structure similar to Elettra's
 """
 import logging
 import os
+import queue
 from datetime import datetime
 import time
 import threading
+from queue import SimpleQueue, Empty
 
 from . import data_path, register_proxy_client, Classes, client_or_None, THIS_HOST
 from .network_conf import NETWORK_CONF, MANAGER as NET_INFO
@@ -61,6 +63,14 @@ class Manager(DriverBase):
     def __init__(self):
         """
         Metadata manager for investigations, experiments and scans.
+
+        An important task of the Manager driver is to request and collect metadata
+        *concurrently* from all other drivers. This is accomplished by creating
+        clients to each driver. These clients are instantiated (and re-instantiated)
+        on a separate thread running `self.client_loop`. For each client, the
+        method `meta_loop` is started on a separate thread, and waits for a flag to
+        start metadata collection. All this is done to ensure that metadata is obtained
+        as quickly as possible after is has been requested.
         """
         super().__init__()
 
@@ -80,14 +90,9 @@ class Manager(DriverBase):
                           'experiment': lambda: self.experiment,
                           'last_scan': lambda: self.next_scan() or None}
 
-        self.metadata = {}
-        self.meta_futures = {}
-        self.meta_grab_done_dct = {}
-        self.meta_grab_done = False
+        self.requests = {}      # Dictionary to accumulate requests in case many are made before returning
         self.stop_flag = threading.Event()
         self.clients = {}
-        self.grab_meta_flag = threading.Event()
-        self.continue_flag = threading.Event()
 
         # HACK (kind of): On the process where this class is instantiated, getManager must return this instance, not a client.
         _client.clear()
@@ -95,126 +100,103 @@ class Manager(DriverBase):
 
         # self also instead of "client to self"
         self.clients['manager'] = self
-        self.meta_futures['manager'] = Future(self.meta_loop, args=('manager',))
 
-
+        # Start client monitoring loop
         self.clients_loop_future = Future(self.clients_loop)
-
-    @proxycall()
-    @property
-    def meta_to_save(self):
-        """
-        A dictionary of all metadata that will be fetched and saved in files.
-        """
-        return self.config['meta_to_save']
-
-    @meta_to_save.setter
-    def meta_to_save(self, dct):
-        self.config['meta_to_save'] = dct
 
     def clients_loop(self):
         """
         A loop running on a thread monitoring the health of the driver connections
         """
         while True:
+            # Stop if asked
             if self.stop_flag.is_set():
                 break
 
             # Loop through all registered driver classes
             for name in Classes.keys():
+                # If client does not exist
                 if name not in self.clients:
                     # Attempt client instantiation
                     with logging_muted():
                         client = client_or_None(name, admin=False, client_name='manager_loop')
                     if client:
-                        # Store client
+                        # Successful client connection
                         self.logger.info(f'Client "{name}" is connected')
+
+                        # Store client and its queue
                         self.clients[name] = client
-
-                        # Start the meta collection loop
-                        self.meta_futures[name] = Future(self.meta_loop, args=(name,))
-
+                else:
+                    try:
+                        cl = self.clients[name]
+                        assert cl._proxy.running
+                    except:
+                        # Client is dead for some reason. We clean this up and restart it
+                        cl = self.clients.pop(name)
+                        try:
+                            cl._proxy.shutdown()
+                        except:
+                            pass
             # Wait a bit before retrying
             if self.stop_flag.wait(self.CLIENT_LOOP_INTERVAL):
                 break
         self.logger.info('Exiting client connection loop.')
 
-    def meta_loop(self, name):
+    def fetch_meta(self, name):
         """
-        Running on a thread, one per client. Grab metadata when a signal is received,
-        and put it right into self.metadata
+        Method run on a short-lived thread just the time to fetch metadata.
         """
-        self.logger.info(f'Starting metadata collection loop for {name}.')
-        while True:
-            if not self.grab_meta_flag.wait(timeout=1.):
-                # The loop will stay here until the flag is set or the client is removed from the dict
-                if self.stop_flag.is_set() or name not in self.clients:
-                    return
-                continue
-
-            # This is a way to exclude some clients
-            if name in self.meta_grab_done_dct:
-                client =  self.clients.get(name, None)
-                if client:
-                    t0 = time.time()
-                    meta = client.get_meta()
-                    dt = time.time() - t0
-                    self.logger.debug(f'{name} : metadata collection completed in {dt * 1000:3.2f} ms')
-                    self.metadata[name] = meta
-                    self.meta_grab_done_dct[name] = dt
-                    if all(self.meta_grab_done_dct.values()):
-                        self.meta_grab_done = True
-                        self.logger.info(f'Metadata collection completed.')
-
-            while not self.continue_flag.wait(timeout=.5):
-                # Wait here until told to continue
-                if self.stop_flag.is_set():
-                    return
-                continue
-        self.logger.info(f'Metadata collection loop for {name} ended.')
+        client = self.clients.get(name)
+        if client is None:
+            self.logger.warning(f'Client {name} not present.')
+            return None
+        t0 = time.time()
+        meta = client.get_meta()
+        dt = time.time() - t0
+        self.logger.debug(f'{name} : metadata collection completed in {dt * 1000:.3g} ms')
+        return {'meta':meta, 'time': dt}
 
     @proxycall()
-    def request_meta(self, exclude_list=[]):
+    def request_meta(self, request_ID=None, exclude_list=[]):
         """
-        Start grabbing all the metadata corresponding to the keys in self.meta_to_save.
+        Request metadata from all connected clients.
 
         This method returns immediately. The metadata itself will be obtained when calling return_meta.
+
+        request_ID is a (hopefully unique) ID to tag and store the request until self.return_meta is called. It can be None.
+        exclude_list is a list of clients to exclude for the metadata requests.
         """
+        # Check for duplicate
+        duplicate = self.requests.get(request_ID)
+        if duplicate is not None:
+            self.logger.warning(f'Requests ID {request_ID} has not been claimed and will be overwritten.')
 
-        # Nothing to do if already requested
-        if self.grab_meta_flag.is_set():
-            self.logger.warning("Request for metadata is already being processed.")
-            return
-
-        # Clear metadata dict
-        # self.metadata = {}
-        # Keep metadata from previous call - better than nothing
-        self.metadata = {k:self.metadata.get(k) for k in self.clients.keys() }
-
-        # A dict that gathers information about who is done grabbing the metadata
-        self.meta_grab_done_dct = {name:None for name in self.clients.keys() if name not in exclude_list}
-
-        # Make sure everyone will stop after their meta collection
-        self.continue_flag.clear()
-
-        # Flag everyone to get going
-        self.grab_meta_flag.set()
+        # Fetch metadata on separate threads
+        self.requests[request_ID] = {name:Future(self.fetch_meta, (name,)) for name in self.clients.keys() if name not in exclude_list}
         return
 
     @proxycall()
-    def return_meta(self):
+    def return_meta(self, request_ID=None):
         """
         Return the metadata that has been accumulated since the last call to request_meta.
         """
-        if not self.meta_grab_done:
-            not_done = [name for name, v in self.meta_grab_done_dct.items() if v is None]
-            self.logger.warning(f'Metadata not completed at the time it is returned ({not_done})')
+        # Pop the request (use ... instead of None, which is a valid key)
+        request = self.requests.pop(request_ID, ...)
+        if request is ...:
+            self.logger.error(f'Unknown request ID {request_ID}!')
 
-        # Reset everything for next time
-        self.grab_meta_flag.clear()
-        self.continue_flag.set()
+        meta = {}
+        times = {}
+        for name, future in request.items():
+            if not future.done():
+                self.logger.warning(f'{name}: metadata collection not completed in time.')
+            else:
+                result = future.result()
+                if result is not None:
+                    meta[name] = result['meta']
+                    times[name] = result['time']
 
-        return self.metadata
+        return meta
 
     @proxycall(admin=True)
     def killall(self):
