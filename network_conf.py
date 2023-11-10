@@ -16,10 +16,12 @@ pIP = HOST_IPS['pco']
 lIP = HOST_IPS['lambda']
 xIP = HOST_IPS['xps']
 
+# note fabio: I temporarily changed the connection to the mecademic robot to a direct connection.
+# In this connection, the control computer has the IP 192.168.1.1, and the robot has 192.168.1.2.
 NETWORK_CONF = {
-    'excillum':  {'control': (cIP, 5000),         'device': ('10.19.48.3', 4944),  'logging': (cIP, 7000),         'stream': (cIP, 5500)},
-    'mecademic': {'control': (cIP, 5010),         'device': ('10.19.48.5', 10000), 'logging': (cIP, 7010),         'stream': (cIP, 5510)},
-    'mecademic_monitor': {'control': (cIP, 5015), 'device': ('10.19.48.5', 10001), 'logging': (cIP, 7015)},
+    'excillum':  {'control': (cIP, 5000),         'device': ('10.19.48.3', 4944),   'logging': (cIP, 7000),         'stream': (cIP, 5500)},
+    'mecademic': {'control': (cIP, 5010),         'device': ('192.168.1.2', 10000), 'logging': (cIP, 7010),         'stream': (cIP, 5510)},  # 'device': ('10.19.48.5', 10000),
+    'mecademic_monitor': {'control': (cIP, 5015), 'device': ('192.168.1.2', 10001), 'logging': (cIP, 7015)},                                 # 'device': ('10.19.48.5', 10001),
     'xps1':      {'control': (cIP, 5020),         'device': (xIP, 5001),           'logging': (cIP, 7020),         'stream': (cIP, 5520)},  # change the IP to a private one later
     'xps2':      {'control': (cIP, 5021),         'device': (xIP, 5001),           'logging': (cIP, 7021),         'stream': (cIP, 5521)},  # change the IP to a private one later
     'xps3':      {'control': (cIP, 5022),         'device': (xIP, 5001),           'logging': (cIP, 7022),         'stream': (cIP, 5522)},  # change the IP to a private one later
