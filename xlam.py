@@ -104,7 +104,12 @@ class Xlam(CameraBase):
         self.operation_mode = self.operation_mode # Calls getter and then setter.
         self.exposure_time = self.config['exposure_time']
         self.exposure_number = self.config['exposure_number']
-
+        self.beam_energy = self.config['beam_energy']
+        self.bit_depth = self.config['bit_depth']
+        self.charge_summing = self['charge_summing']
+        self.counter_mode = self.config['counter_mode'] 
+        self.thresholds = self.config['thresholds']
+     
         # self.initialized will be True only at completion of this Future
         self.future_init = Future(target=self._init)
 
@@ -156,7 +161,11 @@ class Xlam(CameraBase):
         while True:
             # Wait for frame
             time.sleep(exp_time - .1)
-            frame = rec.get_frame(2000*exp_time)
+            frame = rec.get_frame(2000*exp_time)'beam_energy': self.beam_energy,
+                  'bit_depth': self.bit_depth,
+                  'charge_summing': self.charge_summing,
+                  'counter_mode': self.counter_mode,
+                  'thresholds': self.thresholds
             if not frame:
                 self.det.stop_acquisition()
                 raise RuntimeError('Time out during acquisition!')
@@ -312,7 +321,7 @@ class Xlam(CameraBase):
         self.config['bit_depth'] = bd
         return bd
 
-    @bit_depth.setter
+    @bit_depth.setterth = self.det.thresholds
     def bit_depth(self, value):
         if value == 1:
             self.det.bit_depth = pyxsp.BitDepth.DEPTH_1
