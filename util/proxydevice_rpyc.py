@@ -838,7 +838,7 @@ class proxydevice:
     Decorator that does the main magic.
     """
 
-    def __init__(self, address=None, clean=True, stream=True):
+    def __init__(self, address=None, clean=True, stream=True, **kwargs):
         """
         Decorator initialization.
 
@@ -849,6 +849,7 @@ class proxydevice:
                       same format as for the native class. If false, blocking
                       calls return immediately.
         stream (bool): If True, mirror locally device's stdout and stderr
+        kwargs: kept for compatibility
         """
         self.address = address
         self.clean = clean
