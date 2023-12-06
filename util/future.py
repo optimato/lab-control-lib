@@ -12,19 +12,38 @@ class Future:
     concurrent.futures does not kill the threads with atexit, making processes hang.
     """
 
-    def __init__(self, target, args=(), kwargs=None):
+    def __init__(self, target, args=(), kwargs=None, callback=None):
         """
-        Submit the task
+        Run function "target" with provided arg and kwargs
+        callback can be a function of the form f(result, error), which manages
+        either the result at task completion or an error (in which case the error is not raised)
         """
         self._target = target
         self._done = False
         self._result = None
-        self._thread = threading.Thread(target=self._run, args=args, kwargs=kwargs, daemon=True)
+        self._error = None
+        self._callback = callback
+        kwargs = kwargs or {}
+        self._thread = threading.Thread(
+            target=self._run, args=args, kwargs=kwargs, daemon=True
+        )
         self._thread.start()
 
     def _run(self, *args, **kwargs):
-        self._result = self._target(*args, **kwargs)
-        self._done = True
+        try:
+            self._result = self._target(*args, **kwargs)
+        except BaseException as error:
+            # Catch any error
+            self._error = error
+        if self._callback is not None:
+            # Callback with result and/or error
+            self._callback(self._result, self._error)
+            self._done = True
+        elif self._error is not None:
+            raise self._error
+
+    def in_error(self):
+        return self._error is not None
 
     def done(self):
         return self._done
