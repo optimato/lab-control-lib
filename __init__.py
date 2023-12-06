@@ -140,7 +140,7 @@ def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
     """
     Client creation.
     """
-    from .util.proxydevice import ProxyClientError
+    from .util.proxydevice import ProxyDeviceError
     d = None
     if name not in Classes:
         if inexistent_ok:
@@ -150,7 +150,7 @@ def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
             raise RuntimeError(f'Could not find class {name}. Has the corresponding module been imported?')
     try:
         d = Classes[name].Client(admin=admin, name=client_name)
-    except ProxyClientError as e:
+    except ProxyDeviceError as e:
         logs.logger.info(str(e))
     return d
 
