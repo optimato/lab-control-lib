@@ -405,11 +405,14 @@ class McLennan(SocketDriverBase):
         return v
 
     @proxycall(admin=True)
-    def set_accel(self, accel):
+    def set_accel(self, accel=None):
         """
         Set acceleration (in revolution / s^2)
         """
-        accel = int(accel)
+        if accel is None:
+            accel = self.config['acceleration']
+        else:
+            accel = int(accel)
         s, v = self.send_cmd(f'AC{accel}')
         if '?' in s:
             self.logger.critical('Could not set acceleration')
@@ -431,11 +434,14 @@ class McLennan(SocketDriverBase):
         return v
 
     @proxycall(admin=True)
-    def set_decel(self, decel):
+    def set_decel(self, decel=None):
         """
         Set acceleration (in revolution / s^2)
         """
-        decel = int(decel)
+        if decel is None:
+            decel = self.config['deceleration']
+        else:
+            decel = int(decel)
         s, v = self.send_cmd(f'DC{decel}')
         if '?' in s:
             self.logger.critical('Could not set deceleration')
@@ -457,11 +463,14 @@ class McLennan(SocketDriverBase):
         return v
 
     @proxycall(admin=True)
-    def set_vel(self, vel):
+    def set_vel(self, vel=None):
         """
         Set velocity (in revolution / s)
         """
-        vel = int(vel)
+        if vel is None:
+            vel = self.config['velocity']
+        else:
+            vel = int(vel)
         s, v = self.send_cmd(f'VE{vel}')
         if '?' in s:
             self.logger.critical('Could not set velocity')
@@ -506,10 +515,14 @@ class McLennan(SocketDriverBase):
         return v
 
     @proxycall(admin=True)
-    def set_decel_max(self, decel):
+    def set_decel_max(self, decel=None):
         """
         Set maximum deceleration (in revolution / s^2)
         """
+        if decel is None:
+            decel = self.config['emergency_deceleration']
+        else:
+            decel = int(decel)
         decel = int(decel)
         s, v = self.send_cmd(f'AM{decel}')
         if '?' in s:
@@ -531,12 +544,16 @@ class McLennan(SocketDriverBase):
         return v
 
     @proxycall(admin=True)
-    def set_current(self, cc):
+    def set_current(self, cc=None):
         """
         Set current (in amps)
         """
-        cc = int(cc)
-        s, v = self.send_cmd(f'CC{cc}')
+        if cc is None:
+            cc = self.config['current']
+        else:
+            #cc = int(cc)  # fdm: I don't think this should be converted to int!
+            pass
+        s, v = self.send_cmd(f'CC{cc:.1f}')  # fdm: fixed this to transmit 1 decimal point
         if '?' in s:
             self.logger.critical('Could not set current')
         self.config['current'] = cc
@@ -565,11 +582,12 @@ class McLennan(SocketDriverBase):
         return self.config['limits']
 
     @proxycall(admin=True)
-    def set_limits(self, limits):
+    def set_limits(self, limits=None):
         """
         Set (software) limits (in mm)
         """
-        self.config['limits'] = limits
+        if limits is not None:
+            self.config['limits'] = limits
 
 
 NET_INFO = NETWORK_CONF['mclennan1']
