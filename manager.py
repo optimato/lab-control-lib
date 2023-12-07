@@ -115,6 +115,8 @@ class Manager(DriverBase):
 
             # Loop through all registered driver classes
             for name in Classes.keys():
+                if name.lower() == self.name.lower():
+                    continue
                 # If client does not exist
                 if name not in self.clients:
                     # Attempt client instantiation
@@ -124,17 +126,17 @@ class Manager(DriverBase):
                         # Successful client connection
                         self.logger.info(f'Client "{name}" is connected')
 
-                        # Store client and its queue
+                        # Store client
                         self.clients[name] = client
                 else:
                     try:
                         cl = self.clients[name]
-                        assert cl._proxy.running
-                    except:
+                        cl.conn.ping()                        
+                    except EOFError:
                         # Client is dead for some reason. We clean this up and restart it
                         cl = self.clients.pop(name)
                         try:
-                            cl._proxy.shutdown()
+                            cl.disconnect()
                         except:
                             pass
             # Wait a bit before retrying

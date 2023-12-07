@@ -348,6 +348,7 @@ class ProxyClientBase:
         self._connection_failed = False
         self.first_connect = True
         self._active = False
+        self._terminate = False
         self.connect()
 
         # Result-ready-flag
@@ -384,6 +385,13 @@ class ProxyClientBase:
                 raise ProxyDeviceError('Connection failed')
             time.sleep(0.05)
 
+    def disconnect(self):
+        """
+        Disconnect from server
+        """
+        self._stop()
+        self._terminate = True
+
     def _serve(self):
         """
         Serve rpyc incoming connections. This replaces rpyc.BgServingThread, which
@@ -391,7 +399,7 @@ class ProxyClientBase:
         All exceptions have to be caught because this is running on a separate thread.
         """
         # Wrap everything in a loop for reconnect.
-        while True:
+        while not self._terminate:
             try:
                 # rpyc connection
                 self.conn = rpyc.connect(
