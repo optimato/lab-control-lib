@@ -41,6 +41,7 @@ class Future:
             self._done = True
         elif self._error is not None:
             raise self._error
+        self._done = True
 
     def in_error(self):
         return self._error is not None
