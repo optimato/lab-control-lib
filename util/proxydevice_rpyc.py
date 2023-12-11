@@ -349,6 +349,15 @@ class ProxyClientBase:
         self.clean = clean
         self.reconnect = reconnect
 
+        # Statistics
+        self.stats = {'startup': time.time(),
+                      'reply_number': 0,
+                      'total_reply_time': 0.,
+                      'total_reply_time2': 0.,
+                      'min_reply_time': 100.,
+                      'max_reply_time': 0.,
+                      'last_reply_time': 0.}
+
         # Create logger
         self.logger = rootlogger.getChild(self.__class__.__name__)
 
@@ -423,15 +432,11 @@ class ProxyClientBase:
             except ConnectionRefusedError:
                 # No server present
                 if self.first_connect or not self.reconnect:
-                    self.logger.error(
-                        f"Connection to {self.ADDRESS} refused. Is the server running?"
-                    )
+                    self.logger.error(f"Connection to {self.ADDRESS} refused. Is the server running?")
                     raise
 
                 # Try reconnecting
-                self.logger.warning(
-                    f"Connection to {self.ADDRESS} is lost. Reconnecting..."
-                )
+                self.logger.info(f"Connection to {self.ADDRESS} is lost. Reconnecting...")
                 time.sleep(self.RECONNECT_INTERVAL)
                 continue
 
@@ -496,6 +501,20 @@ class ProxyClientBase:
 
         return ClientService
 
+    def _update_stats(self, t0, t1):
+        """
+        Update internal timing statistics.
+        """
+        dt = t1 - t0
+        self.stats['reply_number'] += 1
+        self.stats['total_reply_time'] += dt
+        self.stats['total_reply_time2'] += dt * dt
+        minr = self.stats['min_reply_time']
+        maxr = self.stats['max_reply_time']
+        self.stats['min_reply_time'] = min(dt, minr)
+        self.stats['max_reply_time'] = max(dt, maxr)
+        self.stats['last_reply_time'] = t0
+
     @classmethod
     def _new_property(cls, name, doc):
         """
@@ -508,14 +527,18 @@ class ProxyClientBase:
 
         # Create getter
         def fget(client_self):
+            t0 = time.time()
             method = getattr(client_self.conn.root, f"get_{name}")
             reply = method()
+            client_self._update_stats(t0, time.time())
             return reply["result"]
 
         # Create setter
         def fset(client_self, value):
+            t0 = time.time()
             method = getattr(client_self.conn.root, f"set_{name}")
             reply = method(value)
+            client_self._update_stats(t0, time.time())
 
         # Set name
         fget.__name__ = name
@@ -540,8 +563,10 @@ class ProxyClientBase:
         if block:
             # In blocking mode, we just request the result and wait
             def method(client_self, *args, **kwargs):
+                t0 = time.time()
                 service_method = getattr(client_self.conn.root, name)
                 reply = service_method(*args, **kwargs)
+                client_self._update_stats(t0, time.time())
                 return reply["result"]
 
         else:
