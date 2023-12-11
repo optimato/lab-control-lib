@@ -158,7 +158,9 @@ class Varex(CameraBase):
 
             det.check_for_live_error()
 
-            if frame_counter == n_exp:Driver
+            if frame_counter == n_exp:
+                # Exit if we have reached the requested nuber of exposures
+                break
 
             if self.rolling and self.stop_rolling_flag:
                 # Exit if rolling and stop was requested
