@@ -142,6 +142,12 @@ class WrapServiceBase(rpyc.Service):
         """
         return self.server.ask_admin(admin=admin, force=force)
 
+    def exposed_kill(self):
+        """
+        Kill the server.
+        """
+        self.server.stop()
+
     def exposed_abort(self):
         """
         Abort call.
@@ -391,6 +397,9 @@ class ProxyClientBase:
         """
         self._stop()
         self._terminate = True
+
+    def kill_server(self):
+        self.conn.root.kill()
 
     def _serve(self):
         """

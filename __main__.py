@@ -114,7 +114,7 @@ def kill(name):
         time.sleep(.2)
         d.ask_admin(True, True)
         time.sleep(.2)
-        d._proxy.kill()
+        d.kill_server()
 
 
 @cli.command(help='Kill all running server proxy.')
@@ -128,7 +128,7 @@ def killall():
         d.ask_admin(True, True)
         d.killall()
         # Then kill manager
-        d._proxy.kill()
+        d.kill_server()
     except AttributeError:
         # For some reason d can still be None at this point.
         click.Abort('Could not connect to manager!')

@@ -212,7 +212,7 @@ class Manager(DriverBase):
                 # We don't kill ourselves
                 continue
             c.ask_admin(True, True)
-            c._proxy.kill()
+            c.kill_server()
             time.sleep(.5)
             del c
             self.logger.info(f'{name} killed.')

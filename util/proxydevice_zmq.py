@@ -1034,6 +1034,7 @@ class ClientBase:
         self.ask_admin = self._proxy.ask_admin
         self.get_result = self._proxy.get_result
         self.get_stats = self._proxy.get_stats
+        self.kill_server = self._proxy.kill
 
 
 
