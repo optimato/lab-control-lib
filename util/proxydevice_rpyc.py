@@ -77,6 +77,7 @@ import time
 import sys
 import traceback
 import builtins
+import pickle
 
 from .future import Future
 
@@ -85,6 +86,19 @@ __all__ = ['proxydevice', 'proxycall', 'ProxyDeviceError']
 
 logger = logging.getLogger(__name__)
 rootlogger = logger
+
+
+def _m(obj):
+    """
+    Marshaller to avoid rpyc netrefs.
+    """
+    return pickle.dumps(obj)
+
+def _um(s):
+    """
+    Unmarshaller.
+    """
+    return pickle.loads(s)
 
 
 class ProxyDeviceError(Exception):
@@ -171,7 +185,7 @@ class WrapServiceBase(rpyc.Service):
         """
         if block:
             # Normal case: a method that grabs the lock and run the method
-            def method(service_self, *args, **kwargs):
+            def method(service_self, args, kwargs):
                 # Check if admin rights are required
                 if admin and not service_self.server.is_admin:
                     raise ProxyDeviceError(
@@ -183,12 +197,12 @@ class WrapServiceBase(rpyc.Service):
 
                 # Call the instance method
                 with service_self.server.lock:
-                    result = instance_method(*args, **kwargs)
-                return {"result": result}
+                    result = instance_method(*_um(args), **_um(kwargs))
+                return _m({"result": result})
 
         else:
             # Non-blocking call: we need to call the method on a separate thread and return
-            def method(service_self, *args, **kwargs):
+            def method(service_self, args, kwargs):
                 # Check if admin rights are required
                 if admin and not service_self.server.is_admin:
                     raise ProxyDeviceError(
@@ -213,7 +227,7 @@ class WrapServiceBase(rpyc.Service):
                     # Define callback function
                     def callback(result, error):
                         # Send result or error to client
-                        result = {"result": result}
+                        result = _m({"result": result})
                         c.root.notify_result(result, error)
 
                         # Either way we are done with this call so we reset the
@@ -223,11 +237,11 @@ class WrapServiceBase(rpyc.Service):
                     # Create the thread and start it
                     service_self.server.awaiting_result = Future(
                         instance_method,
-                        args=args,
-                        kwargs=kwargs,
+                        args=_um(args),
+                        kwargs=_um(kwargs),
                         callback=callback,
                     )
-                return {"result": None}
+                return _m({"result": None})
 
         # Attach the method to the service with "exposed_" prefix as per rpyc
         setattr(cls, f"exposed_{name}", method)
@@ -250,7 +264,7 @@ class WrapServiceBase(rpyc.Service):
             with service_self.server.lock:
                 result = getattr(service_self.server.instance, name)
 
-            return {"result": result}
+            return _m({"result": result})
 
         # Setter
         def set_method(service_self, value):
@@ -260,8 +274,8 @@ class WrapServiceBase(rpyc.Service):
 
             # Call setattr on the instance
             with service_self.server.lock:
-                setattr(service_self.server.instance, name, value)
-            return {"result": None}
+                setattr(service_self.server.instance, name, _um(value))
+            return _m({"result": None})
 
         # Attach the two methods to the service.
         setattr(cls, f"exposed_get_{name}", get_method)
@@ -313,7 +327,7 @@ class ClientServiceBase(rpyc.Service):
             # Something happened
             raise error
         # Store result
-        self.client.awaited_result = result
+        self.client.awaited_result = _um(result)
 
 
 class ProxyClientBase:
@@ -529,7 +543,7 @@ class ProxyClientBase:
         def fget(client_self):
             t0 = time.time()
             method = getattr(client_self.conn.root, f"get_{name}")
-            reply = method()
+            reply = _um(method())
             client_self._update_stats(t0, time.time())
             return reply["result"]
 
@@ -537,7 +551,7 @@ class ProxyClientBase:
         def fset(client_self, value):
             t0 = time.time()
             method = getattr(client_self.conn.root, f"set_{name}")
-            reply = method(value)
+            method(_m(value))
             client_self._update_stats(t0, time.time())
 
         # Set name
@@ -565,7 +579,7 @@ class ProxyClientBase:
             def method(client_self, *args, **kwargs):
                 t0 = time.time()
                 service_method = getattr(client_self.conn.root, name)
-                reply = service_method(*args, **kwargs)
+                reply = _um(service_method(_m(args), _m(kwargs)))
                 client_self._update_stats(t0, time.time())
                 return reply["result"]
 
@@ -577,7 +591,7 @@ class ProxyClientBase:
                 service_method = getattr(client_self.conn.root, name)
 
                 # This calls the remote method, but since it is non-blocking it returns immediately
-                reply = service_method(*args, **kwargs)
+                reply = _um(service_method(_m(args), _m(kwargs)))
 
                 # Reset awaited result
                 client_self.awaited_result = None
