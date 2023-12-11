@@ -74,12 +74,12 @@ import atexit
 import threading
 import inspect
 import time
+import sys
+import traceback
+import builtins
+
 from .future import Future
 
-# import traceback
-# import sys
-
-# import time
 
 __all__ = ['proxydevice', 'proxycall', 'ProxyDeviceError']
 
@@ -291,11 +291,17 @@ class ClientServiceBase(rpyc.Service):
         # Call parent class connect
         super().on_connect(conn)
 
-    def exposed_print(self, s):
+    def exposed_print(self, *objects, sep=' ', end='\n', file=sys.stdout, flush=False):
         """
         Print string locally
         """
-        print(s)
+        builtins.print(*objects, sep=sep, end=end, file=file, flush=flush)
+
+    def exposed_input(self, prompt=None):
+        """
+        Get input locally
+        """
+        return input(prompt)
 
     def exposed_notify_result(self, result, error):
         """
@@ -323,9 +329,7 @@ class ProxyClientBase:
     SLEEP_INTERVAL = 0.1
     RECONNECT_INTERVAL = 3.0
 
-    def __init__(
-        self, admin=True, name=None, args=None, kwargs=None, clean=True, reconnect=True
-    ):
+    def __init__(self, admin=True, name=None, args=None, kwargs=None, clean=True, reconnect=True):
         """
         Base class for client proxy. Subclasses are created dynamically by the
         `proxydevice` decorator.
@@ -337,7 +341,7 @@ class ProxyClientBase:
                       been instantiated
         kwargs (dicts): same as args above
         clean (bool): If false, non-blocking calls will not "fake block"
-                      awaiting for result.
+                      awaiting result.
         reconnect(bool): If true, keep trying to reconnect when the server is lost.
         """
         self.name = self.__class__.__name__
@@ -665,6 +669,10 @@ class ProxyServerBase:
             disconnect_callback=self.del_client,
         )
 
+        # Replace print and input
+        sys.modules[self.instance.__class__.__module__].print = self._proxy_print
+        sys.modules[self.instance.__class__.__module__].input = self._proxy_input
+
         # Start server on separate thread
         self.serving_thread = threading.Thread(
             target=self.rpyc_server.start, daemon=True
@@ -676,6 +684,11 @@ class ProxyServerBase:
         Stop serving.
         """
         self.rpyc_server.close()
+
+        # Clean up
+        sys.modules[self.instance.__class__.__module__].print = builtins.print
+        sys.modules[self.instance.__class__.__module__].input = builtins.input
+
 
     def _create_service(self):
         """
@@ -762,6 +775,33 @@ class ProxyServerBase:
         """
         return self.admin == self.this_id
 
+    def _proxy_print(self, *objects, sep=' ', end='\n', file=None, flush=False):
+        """
+        Print locally and on client.
+        """
+        # Print to stdout
+        builtins.print(*objects, sep=sep, end=end, file=file, flush=flush)
+
+        # Print to client stdout
+        cl_conn = self.clients.get(self.admin, None)
+        if cl_conn is not None:
+            try:
+                cl_conn.root.print(*objects, sep=sep, end=end, file=file, flush=flush)
+            except:
+                builtins.print(traceback.format_exc())
+                self.logger.error('Remote printing failed.')
+
+    def _proxy_input(self, prompt=None):
+        """
+        Input through client.
+        """
+        cl_conn = self.clients.get(self.admin, None)
+        if cl_conn is None:
+            raise ProxyDeviceError("Cannot use input without admin client!")
+
+        return cl_conn.root.input(prompt=prompt)
+
+
     def new_client(self, id, conn):
         """
         Called by a service on a new client connection, from it's own thread. Stores
@@ -776,6 +816,9 @@ class ProxyServerBase:
         id = self.this_id
         if not self.clients.pop(id, None):
             self.logger.error("Disconnecting client not found!")
+        elif id == self.admin:
+            self.logger.info(f"Admin client {id} disconnected")
+            self.admin = None
         else:
             self.logger.info(f"Client {id} disconnected")
 
