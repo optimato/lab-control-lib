@@ -1,22 +1,42 @@
 """
-A simple threaded task wrapper.
+A threaded task wrapper.
+
+This module implements a single class: `Future`, quite similar to
+`concurrent.futures.Future`
+(https://docs.python.org/3/library/concurrent.futures.html#future-objects).
+
+Unlike the official library version, the thread is always daemon to allow
+smooth shutdowns.
+
+Callbacks are also implemented differently: a callback is always called by the
+task thread immediately after completion of the target function.
 """
+
 
 import threading
 
 
 class Future:
     """
-    Simple thread wrapper that provides the "result" like concurrent.futures.
+    Thread wrapper that provides the "result" like concurrent.futures.
 
-    concurrent.futures does not kill the threads with atexit, making processes hang.
+    `concurrent.futures` does not kill the threads with atexit, making processes hang.
+
+    A callback method can be provided to manage exceptions or process the result.
     """
 
     def __init__(self, target, args=(), kwargs=None, callback=None):
         """
-        Run function "target" with provided arg and kwargs
-        callback can be a function of the form f(result, error), which manages
-        either the result at task completion or an error (in which case the error is not raised)
+        Run function "target" on a separate thread, with provided arg and kwargs.
+        If callback is not None, call callback after completion of target or
+        if an exception in raised.
+
+        Parameters:
+            target (callable): the function or method to run on a thread
+            args (tuple): args to pass to the target method
+            kwargs (bool): kwargs to pass to the target method
+            callback (callable): a function of the form f(result, error) called
+            when the task completes (in error or not)
         """
         self._target = target
         self._done = False
@@ -30,6 +50,9 @@ class Future:
         self._thread.start()
 
     def _run(self, *args, **kwargs):
+        """
+        Run the target function on a separate thread.
+        """
         try:
             self._result = self._target(*args, **kwargs)
         except BaseException as error:
@@ -43,13 +66,32 @@ class Future:
             raise self._error
         self._done = True
 
-    def in_error(self):
-        return self._error is not None
+    def exception(self, timeout=None):
+        """
+        Return exception if the task ended in error. If the task is not completed yet,
+        wait up to timeout seconds. Raise TimeoutError if the call hasn’t completed in
+        timeout seconds. Wait forever if timeout is None (default).
+
+        If the task completed without raising, None is returned.
+        """
+        if not self.done():
+            self._thread.join(timeout=timeout)
+        if self._thread.is_alive():
+            raise TimeoutError
+        return self._error
 
     def done(self):
+        """
+        True if the task has completed (in error or not)
+        """
         return self._done
 
     def result(self, timeout=None):
+        """
+        Return result of the task. If the task is not completed yet,
+        wait up to timeout seconds. Raise TimeoutError if the task hasn’t completed in
+        timeout seconds. Wait forever if timeout is None (default).
+        """
         if not self.done():
             self._thread.join(timeout=timeout)
         if self._thread.is_alive():
@@ -57,4 +99,7 @@ class Future:
         return self._result
 
     def join(self, timeout=None):
+        """
+        Join the thread (see threading.Thread.join)
+        """
         self._thread.join(timeout=timeout)
