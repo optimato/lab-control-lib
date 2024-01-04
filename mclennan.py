@@ -172,6 +172,9 @@ class McLennan(SocketDriverBase):
                                'velocity': self.get_vel,
                                'microstep_resolution': self.get_microstep_resolution
                                })
+        
+        self.periodic_calls.update({'status': (self.get_status, 10)})
+        self.start_periodic_calls()
 
     def init_device(self):
         """
@@ -379,8 +382,7 @@ class McLennan(SocketDriverBase):
         """
         if microstep_resolution is None:
             microstep_resolution = self.config['microsteps']
-        else:
-            microstep_resolution = int(microstep_resolution)
+        microstep_resolution = int(microstep_resolution)
         if (microstep_resolution < 201) or (microstep_resolution > 51200):
             self.logger.critical(f'Microstep resolution should be between 200 and 51200.')
             return
