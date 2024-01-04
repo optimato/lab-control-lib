@@ -95,7 +95,9 @@ def start(name, loglevel, loglevel_global):
 
     # Start the server
     # with logging_muted():
-    s = Classes[name].Server(address=net_info['control'], instantiate=True)
+    # s = Classes[name].Server(address=net_info['control'], instantiate=True)
+    s = Classes[name].Server(instantiate=True)
+
 
     click.secho('RUNNING', fg='green')
 

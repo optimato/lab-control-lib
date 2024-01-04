@@ -718,6 +718,15 @@ class ProxyServerBase:
         )
         self.serving_thread.start()
 
+
+    def wait(self):
+        """
+        Wait until the server stops.
+        """
+        if self.serving_thread is not None and self.serving_thread.is_alive():
+            self.serving_thread.join()
+
+
     def stop(self):
         """
         Stop serving.
