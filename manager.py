@@ -183,10 +183,11 @@ class Manager(DriverBase):
         Return the metadata that has been accumulated since the last call to request_meta.
         """
         # Pop the request (use ... instead of None, which is a valid key)
-        request = self.requests.pop(request_ID, ...)
-        if request is ...:
+        if request_ID not in self.requests:
             self.logger.error(f'Unknown request ID {request_ID}!')
-
+        request = self.requests.pop(request_ID, {})
+        if not request:
+            self.logger.warning(f'Empty request: {request_ID}!')
         meta = {}
         times = {}
         for name, future in request.items():
