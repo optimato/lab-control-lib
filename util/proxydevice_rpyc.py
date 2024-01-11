@@ -80,12 +80,12 @@ import builtins
 import pickle
 
 from .future import Future
+from .logs import logger as rootlogger
 
 
 __all__ = ['proxydevice', 'proxycall', 'ProxyDeviceError']
 
 logger = logging.getLogger(__name__)
-rootlogger = logger
 
 
 def _m(obj):
@@ -103,6 +103,11 @@ def _um(s):
 
 class ProxyDeviceError(Exception):
     pass
+
+
+# Register custom error
+rpyc.core.vinegar._generic_exceptions_cache[
+    "labcontrol.util.proxydevice_rpyc.ProxyDeviceError"] = ProxyDeviceError
 
 
 class ThreadedServer(rpyc.ThreadedServer):
@@ -228,7 +233,11 @@ class WrapServiceBase(rpyc.Service):
                     def callback(result, error):
                         # Send result or error to client
                         result = _m({"result": result})
-                        c.root.notify_result(result, error)
+                        try:
+                            c.root.notify_result(result, error)
+                        except EOFError:
+                            # This happens if keyboard interrupt killed the client
+                            pass
 
                         # Either way we are done with this call so we reset the
                         # attribute holding the thread.
@@ -788,7 +797,7 @@ class ProxyServerBase:
         if admin is None:
             if self.admin is None:
                 rlogger.warning("No client is currently admin")
-                return None
+                return False
             is_admin = self.admin == id
             if is_admin:
                 rlogger.info("Client is admin")
