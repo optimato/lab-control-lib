@@ -149,11 +149,11 @@ class Xlam(CameraBase):
 
         pair = []
 
-        # Trigger metadata collection
-        self.grab_metadata.set()
-
         frame_counter = 0
         while True:
+            # Trigger metadata collection
+            self.grab_metadata.set()
+
             # Wait for frame
             time.sleep(exp_time - .1)
             frame = rec.get_frame(2000*exp_time)
@@ -214,9 +214,6 @@ class Xlam(CameraBase):
 
             if self.abort_flag.is_set():
                 break
-
-            # Trigger metadata collection for next frame
-            self.grab_metadata.set()
 
         # Out of loop
         self.det.stop_acquisition()
