@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 
 __all__ = ['FileDict']
 
@@ -10,9 +11,12 @@ class FileDict(dict):
     """
     def __init__(self, filename, *args, **kwargs):
         self.filename = filename
+        self.access_lock = threading.Lock()
+
         if not os.path.exists(filename):
             os.makedirs(os.path.split(filename)[0], exist_ok=True)
         dict.__init__(self, *args, **kwargs)
+
         try:
             self._load()
         except IOError:
@@ -55,9 +59,11 @@ class FileDict(dict):
         return dict.get(self, k, *args)
 
     def _load(self):
-        with open(self.filename, 'r') as f:
-            self.update(json.load(f))
+        with self.access_lock:
+            with open(self.filename, 'r') as f:
+                self.update(json.load(f))
 
     def _save(self):
-        with open(self.filename, 'w') as f:
-            json.dump(dict(self), f)
+        with self.access_lock:
+            with open(self.filename, 'w') as f:
+                json.dump(dict(self), f)
