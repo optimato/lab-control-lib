@@ -370,7 +370,7 @@ class CameraBase(DriverBase):
             if man is None:
                 self.logger.error("Not connected to manager! Cannot request metadata!")
             else:
-                man.request_meta(exclude_list=[self.name])
+                man.request_meta(request_ID=self.name, exclude_list=[self.name])
 
             # Local metadata
             self.localmeta = self.get_meta()

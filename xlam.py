@@ -191,7 +191,7 @@ class Xlam(CameraBase):
                 self.logger.error("Not connected to manager! No metadata will available!")
                 self.metadata = {}
             else:
-                self.metadata = man.return_meta()
+                self.metadata = man.return_meta(request_ID=self.name)
 
             # Create metadata
             m = {'shape': sh,

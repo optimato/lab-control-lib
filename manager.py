@@ -169,7 +169,7 @@ class Manager(DriverBase):
         exclude_list is a list of clients to exclude for the metadata requests.
         """
         # Check for duplicate
-        duplicate = self.requests.get(request_ID)
+        duplicate = self.requests.get(request_ID, None)
         if duplicate is not None:
             self.logger.warning(f'Requests ID {request_ID} has not been claimed and will be overwritten.')
 
