@@ -512,9 +512,9 @@ class Mecademic(SocketDriverBase):
         code, reply = self.send_cmd('ResetError')
         if code == 2006:
             # Already cleared
-            self.logger.warning(reply)
+            self.logger.warning(f'ResetError reply: {reply}')
         else:
-            self.logger.info(reply)
+            self.logger.info(f'ResetError reply: {reply}')
 
         self.clear_motion()
         print('Error cleared')
@@ -530,16 +530,16 @@ class Mecademic(SocketDriverBase):
         # First clear
         code, reply = self.send_cmd('ClearMotion')
         if code == 2044:
-            self.logger.info(reply)
+            self.logger.info(f'ClearMotion reply: {reply}')
         else:
-            self.logger.warning(reply)
+            self.logger.warning(f'ClearMotion reply: {reply}')
 
         # Resume
         code, reply = self.send_cmd('ResumeMotion')
         if code == 2043:
-            self.logger.info(reply)
+            self.logger.info(f'ResumeMotion reply: {reply}')
         else:
-            self.logger.warning(reply)
+            self.logger.warning(f'ResumeMotion reply: {reply}')
 
         print('Motion cleared')
         return
