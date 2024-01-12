@@ -232,9 +232,9 @@ class WrapServiceBase(rpyc.Service):
                     # Define callback function
                     def callback(result, error):
                         # Send result or error to client
-                        result = _m({"result": result})
+                        result_and_error = _m({"result": result, "error": error})
                         try:
-                            c.root.notify_result(result, error)
+                            c.root.notify_result(result_and_error)
                         except EOFError:
                             # This happens if keyboard interrupt killed the client
                             pass
@@ -326,17 +326,13 @@ class ClientServiceBase(rpyc.Service):
         """
         return input(prompt)
 
-    def exposed_notify_result(self, result, error):
+    def exposed_notify_result(self, result_and_error):
         """
         Called by server's "awaiting_result" thread when done.
         """
         self.client.logger.debug("Non-blocking call finished.")
+        self.client.awaited_result = _um(result_and_error)
         self.client.result_flag.set()
-        if error is not None:
-            # Something happened
-            raise error
-        # Store result
-        self.client.awaited_result = _um(result)
 
 
 class ProxyClientBase:
@@ -624,6 +620,10 @@ class ProxyClientBase:
                             client_self.result_flag.clear()
                             # Grab the result
                             reply = client_self.awaited_result
+                            error = reply.pop("error", None)
+                            if error:
+                                raise error
+
                             # return the result
                             return reply["result"]
                     except KeyboardInterrupt:
