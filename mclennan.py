@@ -224,8 +224,6 @@ class McLennan(SocketDriverBase):
         # Try to split around '='
         rs = r.split('=')
 
-        print(f'rs = {rs}')
-
         # If it failed, the controller returned a success/fail symbol
         if len(rs) == 1:
             return rs[0], None
