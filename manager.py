@@ -132,8 +132,9 @@ class Manager(DriverBase):
                     try:
                         cl = self.clients[name]
                         cl.conn.ping()                        
-                    except EOFError:
+                    except (EOFError, TimeoutError) as error:
                         # Client is dead for some reason. We clean this up and restart it
+                        self.logger.warning(f'Closing client to {name} because of failed ping: {repr(error)}')
                         cl = self.clients.pop(name)
                         try:
                             cl.disconnect()
