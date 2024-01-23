@@ -37,7 +37,7 @@ class XPS(SocketDriverBase):
 
         # Start periodic calls
         self.periodic_calls.update({'position': (self.get_pos, 20),
-                                    'status' : (self.controller_status, 20)})
+                                    'status' : (self.motion.get_pos, 20)})
         self.start_periodic_calls()
 
     def init_device(self):
@@ -48,13 +48,6 @@ class XPS(SocketDriverBase):
         self.logger.info(f'Motor at position {pos}')
         self.initialized = True
         return
-
-    @proxycall()
-    def controller_status(self):
-        """
-        Controller status (not tested)
-        """
-        self.send_cmd('ControllerStatusGet(int *)')
 
     def send_cmd(self, cmd, parse_error=True):
         """
@@ -89,6 +82,20 @@ class XPS(SocketDriverBase):
             error_string = self.get_error_string(code)
             raise RuntimeError(error_string)
 
+    @proxycall()
+    def controller_status(self):
+        """
+        Controller status
+        """
+        self.send_cmd('ControllerStatusGet(int *)')
+
+    @proxycall()
+    def group_status(self):
+        """
+        Group status
+        """
+        self.send_cmd(f'GroupStatusGet({self.group}, int *)')
+        
     def get_error_string(self, error_code):
         """
         Get string explaining error code.
@@ -128,9 +135,7 @@ class XPS(SocketDriverBase):
         """
         Get position of the group.
         """
-        command = f'GroupPositionCurrentGet({self.axis}, double *)'
-        #self.logger.debug(f'Sending command: {command}')
-        reply = self.send_cmd(command)
+        reply = self.send_cmd(f'GroupPositionCurrentGet({self.axis}, double *)')
         return float(reply)
 
     @proxycall(admin=True)
@@ -180,6 +185,7 @@ class XPS(SocketDriverBase):
         """
         Abort call
         """
+        print('Calling motion abort')
         try:
             self.send_cmd(f'GroupMoveAbort({self.group})')
         except RuntimeError:
@@ -260,6 +266,13 @@ class XPSMotion(SocketDriverBase):
         """
         self.initialized = True
 
+    def get_pos(self):
+        """
+        Get position of the group.
+        """
+        reply = self.send_cmd(f'GroupPositionCurrentGet({self.axis}, double *)')
+        return float(reply)
+
     def move_rel(self, disp):
         """
         Move by requested displacement disp (mm). This call blocks until done or
@@ -272,8 +285,6 @@ class XPSMotion(SocketDriverBase):
         Move to requested position (mm)
         """
         return self.send_cmd(f'GroupMoveAbsolute({self.axis}, {pos})')
-
-
 
 
 class Motor(MotorBase):
