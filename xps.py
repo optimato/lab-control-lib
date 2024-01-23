@@ -4,6 +4,7 @@ from . import register_proxy_client
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .network_conf import NETWORK_CONF
 from .util.proxydevice import proxydevice, proxycall
+from .util.future import Future
 from .util.logs import logger as rootlogger
 
 __all__ = ['XPS1', 'XPS2', 'XPS3', 'Motor']
@@ -26,7 +27,8 @@ class XPS(SocketDriverBase):
         self.name = name
         device_address = device_address or self.DEFAULT_DEVICE_ADDRESS
 
-        self.monitor = XPSMonitor(device_address=device_address, axis=self.axis)
+        # A second light-weight connection used for motion (blocking)
+        self.motion = XPSMotion(device_address=device_address, axis=self.axis)
 
         super().__init__(device_address=device_address)
 
@@ -124,9 +126,12 @@ class XPS(SocketDriverBase):
     @proxycall()
     def get_pos(self):
         """
-        Call the monitor method in case the socket is blocked by a motion command
+        Get position of the group.
         """
-        return self.monitor.get_pos()
+        command = f'GroupPositionCurrentGet({self.axis}, double *)'
+        #self.logger.debug(f'Sending command: {command}')
+        reply = self.send_cmd(command)
+        return float(reply)
 
     @proxycall(admin=True)
     def home(self, pos=None):
@@ -142,16 +147,16 @@ class XPS(SocketDriverBase):
         """
         Move to requested position (mm)
         """
-        future = Future(self.send_cmd, args=(f'GroupMoveAbsolute({self.axis}, {pos})',))
+        future = Future(self.motion.move_abs, args=(pos,))
         self.check_done()
         return future.result()
 
-    @proxycall(admin=True, block=False))
+    @proxycall(admin=True, block=False)
     def move_rel(self, disp):
         """
         Move by requested displacement disp (mm)
         """
-        future = Future(self.send_cmd, args=(f'GroupMoveRelative({self.axis}, {disp})',))
+        future = Future(self.motion.move_rel, args=(disp,))
         self.check_done()
         return future.result()
 
@@ -173,9 +178,13 @@ class XPS(SocketDriverBase):
     @proxycall(admin=True, interrupt=True)
     def abort(self):
         """
-        Emergency abort call
+        Abort call
         """
-        self.monitor.abort()
+        try:
+            self.send_cmd(f'GroupMoveAbort({self.group})')
+        except RuntimeError:
+            # Error -27 means successfully aborted
+            pass
 
     @proxycall()
     def motion_status(self):
@@ -184,7 +193,7 @@ class XPS(SocketDriverBase):
         0: not moving
         1: moving
         """
-        return self.monitor.motion_status()
+        return int(self.send_cmd(f'GroupMotionStatusGet({self.group}, int *)'))
 
 
 NET_INFO = NETWORK_CONF['xps1']
@@ -227,9 +236,9 @@ class XPS3(XPS):
         super().__init__(name='xps3', axis='Group3.Pos')
 
 
-class XPSMonitor(SocketDriverBase):
+class XPSMotion(SocketDriverBase):
     """
-    A second pseudo-driver that connects only to probe real-time status.
+    A second pseudo-driver that connects to send blocking motion commands.
     """
 
     DEFAULT_LOGGING_ADDRESS = None
@@ -237,9 +246,7 @@ class XPSMonitor(SocketDriverBase):
 
     def __init__(self, device_address, axis):
         self.axis = axis
-
         device_address = device_address or self.DEFAULT_DEVICE_ADDRESS
-
         super().__init__(device_address=device_address)
 
     # Borrow methods defined above...
@@ -253,32 +260,19 @@ class XPSMonitor(SocketDriverBase):
         """
         self.initialized = True
 
-    def get_pos(self):
+    def move_rel(self, disp):
         """
-        Get position of the group.
+        Move by requested displacement disp (mm). This call blocks until done or
+        until motion is aborted
         """
-        command = f'GroupPositionCurrentGet({self.axis}, double *)'
-        self.logger.debug(f'Sending command: {command}')
-        reply = self.send_cmd(command)
-        return float(reply)
+        return self.send_cmd(f'GroupMoveRelative({self.axis}, {disp})')
 
-    def motion_status(self):
+    def move_abs(self, pos):
         """
-        Get current motion status
-        0: not moving
-        1: moving
+        Move to requested position (mm)
         """
-        return int(self.send_cmd(f'GroupMotionStatusGet({self.group}, int *)'))
+        return self.send_cmd(f'GroupMoveAbsolute({self.axis}, {pos})')
 
-    def abort(self):
-        """
-        Abort call
-        """
-        try:
-            self.send_cmd(f'GroupMoveAbort({self.group})')
-        except RuntimeError:
-            # Error -27 means successfully aborted
-            pass
 
 
 
