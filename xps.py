@@ -1,3 +1,4 @@
+import time
 
 from . import register_proxy_client
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
@@ -16,6 +17,8 @@ class XPS(SocketDriverBase):
     XPS Driver. Name and axis are defined in the subclasses below.
     """
     EOL = EOL
+    POLL_INTERVAL = 0.05     # temporization for rapid status checks during moves.
+
 
     def __init__(self, name, axis, device_address=None):
         self.axis = axis
@@ -31,8 +34,9 @@ class XPS(SocketDriverBase):
         self.metacalls.update({})
 
         # Start periodic calls
-        # self.periodic_calls.update({'status': (self.controller_status, 20)})
-        # self.start_periodic_calls()
+        self.periodic_calls.update({'position': (self.get_pos, 20),
+                                    'status' : (self.controller_status, 20)})
+        self.start_periodic_calls()
 
     def init_device(self):
         """
@@ -48,7 +52,7 @@ class XPS(SocketDriverBase):
         """
         Controller status (not tested)
         """
-        self.send_cmd('ControllerStatusGet()')
+        self.send_cmd('ControllerStatusGet(int *)')
 
     def send_cmd(self, cmd, parse_error=True):
         """
@@ -133,19 +137,54 @@ class XPS(SocketDriverBase):
         pos = pos or self.get_pos()
         return self.send_cmd(f'GroupHomeSearchAndRelativeMove({self.group}, {pos})')
 
-    @proxycall(admin=True)
+    @proxycall(admin=True, block=False)
     def move_abs(self, pos):
         """
         Move to requested position (mm)
         """
-        return self.send_cmd(f'GroupMoveAbsolute({self.axis}, {pos})')
+        future = Future(self.send_cmd, args=(f'GroupMoveAbsolute({self.axis}, {pos})',))
+        self.check_done()
+        return future.result()
 
-    @proxycall(admin=True)
+    @proxycall(admin=True, block=False))
     def move_rel(self, disp):
         """
         Move by requested displacement disp (mm)
         """
-        return self.send_cmd(f'GroupMoveRelative({self.axis}, {disp})')
+        future = Future(self.send_cmd, args=(f'GroupMoveRelative({self.axis}, {disp})',))
+        self.check_done()
+        return future.result()
+
+    @proxycall(admin=True)
+    def check_done(self):
+        """
+        Poll until movement is complete.
+        """
+        with emergency_stop(self.abort):
+            while True:
+                # query axis status
+                moving = self.motion_status()
+                if not moving:
+                    break
+                # Temporise
+                time.sleep(self.POLL_INTERVAL)
+        self.logger.debug("Finished moving stage.")
+
+    @proxycall(admin=True, interrupt=True)
+    def abort(self):
+        """
+        Emergency abort call
+        """
+        self.monitor.abort()
+
+    @proxycall()
+    def motion_status(self):
+        """
+        Get current motion status
+        0: not moving
+        1: moving
+        """
+        return self.monitor.motion_status()
 
 
 NET_INFO = NETWORK_CONF['xps1']
@@ -222,6 +261,25 @@ class XPSMonitor(SocketDriverBase):
         self.logger.debug(f'Sending command: {command}')
         reply = self.send_cmd(command)
         return float(reply)
+
+    def motion_status(self):
+        """
+        Get current motion status
+        0: not moving
+        1: moving
+        """
+        return int(self.send_cmd(f'GroupMotionStatusGet({self.group}, int *)'))
+
+    def abort(self):
+        """
+        Abort call
+        """
+        try:
+            self.send_cmd(f'GroupMoveAbort({self.group})')
+        except RuntimeError:
+            # Error -27 means successfully aborted
+            pass
+
 
 
 class Motor(MotorBase):
