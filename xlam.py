@@ -101,7 +101,14 @@ class Xlam(CameraBase):
         self.det = det
         self.rec = rec
 
-        self.operation_mode = self.operation_mode # Calls getter and then setter.
+        # The Lambda "forgets" parameters after reboots. We load the latest saved
+        # on file
+        operation_mode = {k: self.config[k] for k in ['beam_energy',
+                                                      'bit_depth',
+                                                      'charge_summing',
+                                                      'counter_mode',
+                                                      'thresholds']}
+        self.operation_mode = operation_mode
         self.exposure_time = self.config['exposure_time']
         self.exposure_number = self.config['exposure_number']
 
