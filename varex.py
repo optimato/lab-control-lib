@@ -122,7 +122,7 @@ class Varex(CameraBase):
 
             # Wait for end of acquisition
             # det.wait_image is a busy wait! So we sleep for exposure_time - 50 ms, and only then we wait
-            time.sleep(exp_time - .05)
+            time.sleep(max(exp_time - .05, 0))
             while True:
                 try:
                     det.wait_image(50.)
