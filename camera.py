@@ -136,6 +136,7 @@ class CameraBase(DriverBase):
         self.rolling = False
         self.auto_armed = False
         self.filename = None
+        self.tags = None
         self.end_acquisition = False
         self._scan_path = None
         self.abort_flag = threading.Event()
@@ -209,14 +210,19 @@ class CameraBase(DriverBase):
     #
 
     @proxycall(admin=True, block=False)
-    def snap(self, exp_time=None, exp_num=None):
+    def snap(self, exp_time=None, exp_num=None, tags=None):
         """
         Capture one or multiple images
 
-        exp_time and exp_num are optional values
-        that change self.exposure_time and self.exposure_number
-        before proceeding with the acquisition. NOTE: the previous
-        values of these parameters are not reset aftwerwards.
+        Parameters:
+        exp_time (float): exposure time
+        exp_num (int): number of exposures
+        tags (list or str): optional tags to add to the metadata
+
+        If specified, exp_time and exp_num change self.exposure_time and
+        self.exposure_number before proceeding with the acquisition.
+        NOTE: These parameters are ignored if the camera is already armed.
+        Otherwise, the new parameters persist as the end of the acquisition.
         """
         if self.rolling:
             self.logger.warning("Cannot snap while in rolling mode.")
@@ -234,6 +240,9 @@ class CameraBase(DriverBase):
             self.logger.debug('Camera was not armed when calling snap. Arming first.')
             self.auto_armed = True
             self.arm(exp_time=exp_time, exp_num=exp_num)
+
+        # Set new tags
+        self.tags = tags
 
         # Camera is now armed and acquisition loop is waiting
 
@@ -258,6 +267,9 @@ class CameraBase(DriverBase):
         if self.auto_armed:
             self.logger.debug('Camera was auto-armed. Disarming')
             self.disarm()
+
+        # Forget tags
+        self.tags = None
 
         return
 
@@ -440,7 +452,8 @@ class CameraBase(DriverBase):
                 'operation_mode': self.operation_mode,
                 'filename': self.filename,
                 'snap_counter': self.counter,
-                'scan_counter': scan_counter}
+                'scan_counter': scan_counter,
+                'tags': self.tags}
         return meta
 
     def enqueue_frame(self, frame, meta):
