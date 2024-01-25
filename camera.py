@@ -177,15 +177,6 @@ class CameraBase(DriverBase):
         """
         raise NotImplementedError
 
-    def _readout(self, *args, **kwargs):
-        """
-        The device-specific readout (and possible reset) procedure.
-
-        * Executed after self.trigger returns
-        * returns frame, meta
-        """
-        raise NotImplementedError
-
     def _arm(self):
         """
         The device-specific arming procedure. Sets up everything so that self._trigger()
