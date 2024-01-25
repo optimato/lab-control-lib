@@ -66,11 +66,6 @@ class Varex(CameraBase):
         super().__init__(broadcast_port=broadcast_port)
 
         self.detector = None
-        self.cont_acq_future = None      # Will be set with future created by init_rolling
-        self._stop_continuous_acquisition = False
-        self.cont_buffer = []
-        self.cont_flag = Event()
-        self.cont_flag.clear()
         self.init_device()
 
     def init_device(self):
