@@ -48,6 +48,8 @@ class Pco(CameraBase):
     LOCAL_DEFAULT_CONFIG = {'binning':(1, 1),
                             'roi': None,
                             'pixel_rate': 'slow',
+                            'interface': 'Camera Link Silicon Software',
+                            'camera_number': 0,
                             'acquisition_mode': 'ring buffer',
                             'debug_level': 'off',
                             'print_timestamp': 'off'}
@@ -73,10 +75,35 @@ class Pco(CameraBase):
         """
         Initialize camera
         """
-
+        # Create PCO objects
         self.sdk = sdk(debuglevel=self.debug_level, print_timestamp=self.print_timestamp, name=self.name)
         self.rec = recorder(self.sdk, self.sdk.get_camera_handle(), debuglevel=self.debug_level,
                             print_timestamp=self.print_timestamp, name=self.name)
+
+        # Open camera
+        interface = self.config['interface']
+        camera_number = self.config['camera_number']
+        error = self.sdk.open_camera_ex(interface=interface, camera_number=camera_number)
+
+        # FIXME: is the camera number always going to be the same?
+        if error:
+            self.logger.warning(f'Camera number {camera_number} not found. Looking for others.')
+            for number in range(10):
+                error = self.sdk.open_camera_ex(interface=interface, camera_number=number)
+                if error == 0:
+                    self.logger.warning(f'Camera number is {number}.')
+                    self.config['camera_number'] = number
+                    break
+        if error:
+            raise RuntimeError('No camera could be found.')
+
+        self.logger.info('Camera is now open')
+
+        # Reset settings
+        self.sdk.reset_settings_to_default()
+
+        # Apply configuration
+
 
         # FIXME: >>>>>>>>>>>>>>>>> THIS IS OLD VAREX CODE
 
@@ -99,6 +126,17 @@ class Pco(CameraBase):
         Prepare the camera for acquisition
         """
         self.logger.debug('Detector going live.')
+
+        # Allocate
+        max_num_imgs = self.rec.create('memory')['maximum available images']
+
+        self.rec.init(number_of_images, mode)
+        self.rec.set_compression_parameter()
+        t = datetime.datetime.now()
+        self.rec.start_record()
+
+
+
         self.detector.go_live()
         self.count_start = self.detector.get_field_count()
 
@@ -189,24 +227,35 @@ class Pco(CameraBase):
         self.detector.go_live()
 
     def _get_exposure_time(self):
-        # Convert from milliseconds to seconds
-        return self.config['exposure_time']   # self.detector.get_exposure_time()
+        # FIXME: is there a scenario for which the config will be out of sync with the camera?
+        return self.config['exposure_time']
 
     def _set_exposure_time(self, value):
-        # From seconds to milliseconds
-        etime = int(value*1000)
-        if self.detector.is_live():
-            raise RuntimeError('Cannot set exposure time while the detector is armed.')
-        self.detector.set_exposure_time(etime)
+        """
+        Set exposure time.
+
+        Parameters:
+        value (float): exposure time (seconds)
+        """
+        if self.is_recording:
+            raise RuntimeError('Cannot set exposure time while camera is recording')
+
+        if value > 1e-1:
+            # millisecond precision is good enough
+            self.sdk.set_delay_exposure_time(0, 'ms', int(1000*value), 'ms')
+        else:
+            # Use microseconds
+            self.sdk.set_delay_exposure_time(0, 'ms', int(1000000*value), 'us')
+
         self.config['exposure_time'] = value
 
     def _get_exposure_number(self):
-        return self.config['exposure_number']  # self.detector.get_num_of_exposures()
+        return self.config['exposure_number']
 
     def _set_exposure_number(self, value):
-        if self.detector.is_live():
-            raise RuntimeError('Cannot set exposure number while the detector is armed.')
-        self.detector.set_num_of_exposures(value)
+        if self.is_recording:
+            raise RuntimeError('Cannot set exposure time while camera is recording')
+
         self.config['exposure_number'] = value
 
     def _get_operation_mode(self):
@@ -281,6 +330,58 @@ class Pco(CameraBase):
             raise RuntimeError("Unknown (or not implemented) binning for shape calculation.")
 
     # FIXME: >>>>>>>>>>>>>>>>>>>>> END OF OLD VAREX CODE
+
+    @property
+    def is_recording(self):
+        """
+        Recording state
+        """
+        return self.sdk.get_recording_state()['recording state'] == 'on'
+
+    @proxycall()
+    @property
+    def temperature(self):
+        """
+        Temperatures of 'sensor', 'camera' and 'power' unit
+        """
+        return self.sdk.get_temperature()
+
+    @proxycall()
+    @property
+    def recording_status(self):
+        """
+        Recording status.
+
+        The output contains a variety of information, including the number of images
+        already acquired, a boolean telling if the buffer is full, a boolean telling
+        if there has been an overflow in "fifo" mode, and so on... It can be called
+        only after a pco.Camera().record() and before a pco.Camera().clear().
+        """
+        # FIXME: document better (and possibly reformat) the output ot this call.
+        return self.rec.get_status()
+
+    @proxycall()
+    @property
+    def status(self):
+        """
+        Camera health status
+        """
+        return self.sdk.get_camera_health_status()
+
+    @proxycall()
+    @property
+    def info(self):
+        """
+        Extract information from camera interface.
+        """
+        info = self.sdk.get_camera_description()
+        firmware = self.sdk.get_firmware_info(self.config['camera_number'])
+        info['firmware'] = (firmware['name'], '{major}.{minor}.{variant}'.format(**firmware))
+        info['camera'] = self.sdk.get_info_string('INFO_STRING_CAMERA')['info string']
+        info['sensor'] = self.sdk.get_info_string('INFO_STRING_SENSOR')['info string']
+        info['material'] = self.sdk.get_info_string('INFO_STRING_PCO_MATERIALNUMBER')['info string']
+
+        return info
 
     def shutdown(self):
         """
