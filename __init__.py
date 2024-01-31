@@ -1,12 +1,13 @@
 """
-OptImaTo control package
+Lab control package
 
 Terminology
 -----------
 "Device": an instrument with which it is necessary to communicate for motion, detection, etc.
-"Driver": a python object that can be instantiated to manage a device. In practice, a client to the corresponding device server.
-"Device Server": a process that manages and interacts with a given device, through commands sent by one or more clients
-"Socket Device Server": a device server that connects to a device through a TCP socket.
+"Driver": a python object that can be instantiated to manage a device.
+"Socket Driver": a driver that communicates with a device through a socket connection.
+"Proxy Server": an object that manages one driver and accepts connection from proxy clients to control this driver.
+"Proxy Client": a client that connects to a Proxy Server and reproduces the driver interface through method calls.
 
 General principle
 -----------------
@@ -18,15 +19,15 @@ The design of this software is made to address these limitations:
 - Running all drivers in a single software might overload the computer resources
 - Some devices must run on their own machine (Windows), so at the very least these devices need to be "remote controlled".
 
-The solution is to decentralize the device management. Each device has a unique process running a corresponding Device
-Server. Control and data access is done through one or more clients to these servers. Since all communication is through
-TCP sockets, Device Servers can run on different computers, as long as they are on the same network. An "admin" status
-is conferred only to one client at a time to ensure that no two processes attempt at controlling a device
+The solution is a distributed device management. Each device is managed by a driver that runs on a unique process, and is
+wrapped by a proxy server. Control and data access is done through one or more proxy clients to the proxy server. Since
+all communication is through TCP sockets, drivers can run on different computers, as long as they are on the same network.
+An "admin" status is conferred only to one client at a time to ensure that no two processes attempt at controlling a device
 simultaneously (all "read-only" methods are however allowed by non-admin clients).
 
 In practice, each driver is implemented as if it is meant to be the single instance connected to the device. The base class
-`DriverBase` takes care of few things (logging, metadata collection), while `SocketDriverBase` has all what is needed to
-connect to devices that have socket connections.
+`DriverBase` takes care of few things (logging, configuration, metadata collection, periodic calls), while `SocketDriverBase`
+has all what is needed to connect to devices that have socket connections.
 The module `proxydevice` provides server/client classes as well as decorators that transform all drivers into a
 server/client pair. Any method of the driver can be "exposed" as remotely accessible with the method decorator
 `@proxycall`. See the module doc for more info.
@@ -45,6 +46,9 @@ import platform
 import json
 import subprocess
 import multiprocessing
+
+# This is currently needed because filewriter and filestreamer use multiprocessing
+# and must run on both linux and windows.
 try:
     multiprocessing.set_start_method('spawn')
 except RuntimeError:
