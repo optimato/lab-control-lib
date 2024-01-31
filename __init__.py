@@ -41,6 +41,13 @@ subclass of DriverBase. The hope is to make instances of `Motor` and `CameraBase
 use.
 
 """
+
+# The name of this lab
+LABORATORY = "OptImaTo"
+
+# The base path for data saving
+data_path = '/data3/lab/'
+
 import os
 import platform
 import json
@@ -60,15 +67,12 @@ from .util import FileDict
 from ._version import version
 
 # Basic configuration
-conf_path = os.path.expanduser("~/.optimato-labcontrol/")
+conf_path = os.path.expanduser(f"~/.{LABORATORY.lower()}-labcontrol/")
 os.makedirs(conf_path, exist_ok=True)
 conf_file = os.path.join(conf_path, 'config.json')
 
 # Persistent configuration and parameters
 config = util.FileDict(conf_file)
-
-# Data paths
-data_path = '/data3/lab/'
 
 #
 # SETUP LOGGING
@@ -107,7 +111,7 @@ except IndexError:
     print('Host IP not part of the control network.')
     THIS_HOST = 'unknown'
 
-print('\n'.join(['*{:^64s}*'.format(f"OptImaTo Lab Control"),
+print('\n'.join(['*{:^64s}*'.format(f"{LABORATORY} Lab Control"),
                  '*{:^64s}*'.format(f"Running on host '{LOCAL_HOSTNAME}'"),
                  '*{:^64s}*'.format(f"a.k.a. '{THIS_HOST}' with IP {LOCAL_IP_LIST}")
                  ])
@@ -115,7 +119,7 @@ print('\n'.join(['*{:^64s}*'.format(f"OptImaTo Lab Control"),
 
 # Log to file interactive sessions
 if util.uitools.is_interactive():
-    log_file_name = os.path.join(LOG_DIR, 'optimato-labcontrol.log')
+    log_file_name = os.path.join(LOG_DIR, f'{LABORATORY.lower()}-labcontrol.log')
     logs.log_to_file(log_file_name)
     print('*{0:^64}*'.format('[Logging to file on this host]'))
 else:
@@ -123,18 +127,14 @@ else:
 
 print()
 
-# Errors
-class ControllerRunningError(RuntimeError):
-    pass
-
 # Dictionary for driver classes (populated when drivers module load)
 Classes = {}
 
 
 def register_proxy_client(cls):
     """
-    A simple decorator to store all proxydriver clients in the `Clients` dictrionary. Then
-    Starting a clients can be done based on names, e.g. Clients['varex']()
+    A simple decorator to store all proxydriver clients in the `Clients` dictionary. Then
+    Starting a clients can be done based on names, e.g. Clients['varex'].Client()
     """
     Classes[cls.__name__.lower()] = cls
     return cls
@@ -142,8 +142,18 @@ def register_proxy_client(cls):
 
 def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
     """
-    Client creation.
+    Helper function to create a client to a named driver
+
+    Args:
+        name (str): driver name
+        admin (bool): try to connect as admin [default True]
+        client_name: an identifier for the client
+        inexistent_ok: if True, ignore unknown names.
+
+    Returns:
+        An instance of the proxy client connected to named driver, or None if connection failed.
     """
+
     from .util.proxydevice import ProxyDeviceError
     d = None
     if name not in Classes:
