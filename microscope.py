@@ -98,17 +98,37 @@ from .util.uitools import ask_yes_no
 logger = logging.getLogger("Microscope driver")
 
 
-class Microscope:
-    
-    def __init__(self, host='192.168.0.20', port=13000):
+import time
+
+from . import register_proxy_client
+from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
+from .network_conf import AEROTECH as NET_INFO
+from .util.proxydevice import proxydevice, proxycall
+
+__all__ = ['Microscope', 'Motor']
+
+@register_proxy_client
+@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+class Microscope(SocketDriverBase):
+    """
+    Optique Peter microscope driver. Talks to tango box througy pyserial.
+    """
+    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
+    POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
+    EOL = b'\n'
+
+    def __init__(self):
         """
-        Connect to the TANGO control box, homes the focus motor and sets
-        soft limits close to the hard limit switches.
-        The scintillator mount limit switches are ignored.
-        Takes the name of the ipand port where the controller is connected
-        as optional input parameter.
+        Connect to the TANGO control box.
         """
 
+        self.periodic_calls.update({'status': (self.status, 10.)})
+
+        super().__init__()
+
+        # self.metacalls.update({'focus': self.get_focus})
+
+        """
         # some variables that will be used by other functions
         self.cal_done_y = False
         self.rm_done_y = False
@@ -119,8 +139,8 @@ class Microscope:
         self.pos_y = None  # current motor position
         self.pos_z = None
         self.timeout_t = 30
+        """
 
-        self._lock = threading.Lock()
 
         logger.info('Initializing microscope')
 
