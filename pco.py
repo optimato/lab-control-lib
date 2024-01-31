@@ -28,6 +28,39 @@ else:
 __all__ = ['Pco']
 
 
+class Camera(pco.Camera):
+    """
+    A monkey patched Camera object that overrides the actual start of acquisition
+    to "trigger" it. The "software trigger" option was rejected because this
+    requires triggering each exposure, wich produces an overhead of 30-50 ms per frame.
+    """
+    _start_record = None
+
+    def record(self, number_of_images=1, mode="sequence", file_path=None):
+        if self._start_record is None:
+            # This replaces "self.rec.start_record" with a function that does
+            # Nothing. start_record must then be called manually.
+            self._start_record = self.rec.start_record
+            self.rec.start_record = lambda: None
+        super().record(number_of_images=number_of_images,
+                       mode=mode,
+                       file_path=file_path)
+
+    def start_record(self):
+        self._start_record()
+
+cam.start_record()
+
+for i in range(num_exp):
+    t1.append(time.time())
+    cam.wait_for_new_image()
+    t2.append(time.time())
+    f = cam.image(image_index=0xFFFFFFFF)
+    frames.append(f)
+    t3.append(time.time())
+cam.stop()
+
+
 @register_proxy_client
 @proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class Pco(CameraBase):
@@ -46,7 +79,7 @@ class Pco(CameraBase):
                             'roi': None,                       # ROI
                             'pixel_rate': 286000000,           # FIXME: is this the only option?
                             'timestamp': 'off',                # Print timestamp on frames
-                            'trigger mode': 'software trigger' # FIXME: is it what we need?
+                            'trigger mode': 'auto sequence'    # automatic trigger
                             }
     # python <3.9
     DEFAULT_CONFIG = CameraBase.DEFAULT_CONFIG.copy()
@@ -69,7 +102,7 @@ class Pco(CameraBase):
         Initialize camera
         """
         # Create PCO camera
-        self.cam = pco.Camera()
+        self.cam = Camera()
 
         d = self.cam.description
         self.info = {'serial_number': d['serial'],
@@ -120,7 +153,8 @@ class Pco(CameraBase):
         # Apply configuration - this arms the PCO also
         self._set_configuration()
 
-        # Start recording
+        # Prepare recording
+        # NOTE: recording has not started yet
         self.cam.record(number_of_images=self.config['number_of_images'],
                         mode=self.config['record_mode'])
 
@@ -130,12 +164,14 @@ class Pco(CameraBase):
         """
         cam = self.cam
 
+        # Start acquisition now
+        cam.start_record()
+
         n_exp = self.exposure_number
 
         self.logger.debug('Starting acquisition loop.')
         frame_counter = 0
         while True:
-            cam.sdk.force_trigger()
             # Trigger metadata collection
             self.grab_metadata.set()
 
@@ -240,6 +276,15 @@ class Pco(CameraBase):
     def _get_psize(self):
         bx, by = self.binning
         return (self.PIXEL_SIZE*bx, self.PIXEL_SIZE*by)
+
+    @proxycall(admin=True)
+    def set_pco_log_level(self, level):
+        """
+        Untested - would be better to use our own handlers.
+        """
+        logger = logging.getLogger("pco")
+        logger.setLevel(level)
+        logger.addHandler(pco.stream_handler)
 
     @proxycall()
     @property
