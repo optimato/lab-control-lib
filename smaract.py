@@ -1,6 +1,8 @@
 """
 Driver for smaract piezos via ASCII programming interface over IP/TCP
 
+Original useful documentation
+'''
 Communication can be realized by using the python wrapper for TCP communication,
 socket, which basically can send/receive strings to/from an IP:port addressed
 see documentation on builtin python socket module, e.g.
@@ -51,6 +53,10 @@ METHODS LIST
  - move_rel --> move relative
  - referencemark_find --> search the encoder reference mark
  - parse_feedback --> helper function to read feedback from controller
+'''
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import time

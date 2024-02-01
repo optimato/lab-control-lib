@@ -1,5 +1,8 @@
 """
 Base classes.
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import threading
 import json
@@ -25,10 +28,6 @@ class MotorLimitsException(Exception):
 
 
 class DeviceException(Exception):
-    pass
-
-
-class DaemonException(Exception):
     pass
 
 

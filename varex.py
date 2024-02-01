@@ -1,5 +1,8 @@
 """
 Driver for Varex flat panel based on our home-grown "dexela" API wrapper.
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import time

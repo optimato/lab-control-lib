@@ -1,3 +1,9 @@
+"""
+Newport XPS control driver
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
+"""
 import time
 
 from . import register_proxy_client

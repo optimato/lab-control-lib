@@ -1,5 +1,8 @@
 """
 Driver for the PCO edge 4.2 scientific CMOS
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import importlib.util

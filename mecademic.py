@@ -3,13 +3,12 @@ Mecademic meca500 interface
 
 TODO: more documentation here.
 
-TODO: how to deal with pseudomotors.
-Especially: pseudo motors that emulate translation of the sample
-wrt the axis of rotation.
+TODO: define pseudo motors that emulate translation of the sample wrt the axis of rotation.
 
 TODO: how to better define "free moving zones".
 
-
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import logging
 import time
@@ -20,7 +19,6 @@ import threading
 from . import register_proxy_client
 from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException, _recv_all
 from .network_conf import MECADEMIC as NET_INFO, MECADEMIC_MONITOR
-from .util.uitools import ask_yes_no
 from .util.future import Future
 from .util.proxydevice import proxydevice, proxycall
 from .datalogger import datalogger
@@ -40,6 +38,7 @@ EOL = b'\0'
 # Default joint velocity: 5% of maximum ~= 18 degrees / s
 DEFAULT_VELOCITY = 5
 
+# Design maximum joint velocities (in degrees / s)
 MAX_JOINT_VELOCITY = [150., 150., 180., 300., 300., 500.]
 
 
@@ -198,6 +197,8 @@ class Mecademic(SocketDriverBase):
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
+
+    # This is centered on a roughly square area
     DEFAULT_JOINT_POSITION = (0.0,
                               -20.37038014,
                               16.28988378,
@@ -212,6 +213,7 @@ class Mecademic(SocketDriverBase):
                             (-15., 15.),
                             (-112., -24),
                             (-360., 360.))
+
     # Adding some time to make sure that we capture all the replies
     REPLY_WAIT_TIME = .01
 
@@ -222,6 +224,12 @@ class Mecademic(SocketDriverBase):
     DEFAULT_CONFIG.update({'joint_velocity':DEFAULT_VELOCITY})
 
     def __init__(self, device_address=None):
+        """
+        Initialize Mecademic driver
+
+        Args:
+            device_address: The address of the meca500 (if None use DEFAULT_DEVICE_ADDRESS)
+        """
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
         super().__init__(device_address=device_address)
@@ -297,12 +305,14 @@ class Mecademic(SocketDriverBase):
         Replies from the robot are of the form [code][data].
         This method returns a list of tuples (int(code), data)
 
-        args, if not none is tuple of arguments to pass as arguments
-        to the command.
-
-        cmd can be a single string, or a list of strings if multiple
-        commands are to be sent in a batch. In this case, args
-        should be a list of the same length.
+        Args:
+            cmd: a single string, or a list of strings if multiple
+                 commands are to be sent in a batch. In this case, args
+                 should be a list of the same length.
+            args: if not None, tuple of arguments to pass as arguments
+                  to the command.
+        Returns:
+            The processed reply (code, data)
         """
         if self.motion_paused:
             raise RuntimeError('Robot motion is paused')
@@ -310,7 +320,7 @@ class Mecademic(SocketDriverBase):
             raise RuntimeError('Robot in error')
 
         # This looks complicated because we need to manage the
-        # case of multiple commands. So in the case of single command.
+        # case of multiple commands. So in the case of single command
         # we convert to a list with a single element.
         if isinstance(cmd, str):
             cmds = [cmd.encode()]

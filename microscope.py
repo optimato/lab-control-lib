@@ -1,4 +1,8 @@
 """
+Optique Peter microscope driver
+
+Old docstring with a lot of important information:
+'''
 Communication with the TANGO controller for the Optique Peter microscope through
 a socket.
 version 0 17.03.2017, Hans
@@ -86,6 +90,10 @@ ATTENTION!!!
 Writing is fine, as python will always wait till the full string was sent to
 the port. Reading timing is tricky, as it might take some time for the return
 string to arrive. This must be taken into consideration
+'''
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import socket
 import os

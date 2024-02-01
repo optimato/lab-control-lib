@@ -1,4 +1,9 @@
+"""
+Live viewers. Base class + two implementations based on opencv and napari.
 
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
+"""
 import threading
 import re
 

@@ -66,6 +66,8 @@ a = A.Client()
 a.get_multiple(5)
  -> 5
 
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import logging

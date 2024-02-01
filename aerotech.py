@@ -38,6 +38,9 @@ complete.
 
 Initial Version: Hans Deyhle
 06-2018: Object oriented version (PT)
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import time

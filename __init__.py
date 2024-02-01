@@ -40,6 +40,8 @@ is therefore a high-level class `Motor` meant to provide access to the underlyin
 subclass of DriverBase. The hope is to make instances of `Motor` and `CameraBase` subclasses sufficient for everyday
 use.
 
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 # The name of this lab

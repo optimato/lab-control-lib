@@ -1,5 +1,8 @@
 """
 Driver for the Lambda 350 by xpectrum, built on top of their python interface.
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import time

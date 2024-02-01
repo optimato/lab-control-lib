@@ -1,9 +1,12 @@
 """
-Deriver to access and change the state of the Excillum source.
+Access and control Excillum source.
 
 Rough history:
 First version: Leo 2018
 Current version Pierre 2022
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import time
 

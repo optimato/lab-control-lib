@@ -1,12 +1,15 @@
 """
 Hard coded network values
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 # IPs of computer hosting some devices
 HOST_IPS = {
             'control': '172.19.248.40',
             'varex': '172.19.248.35',
-            'pco': '?.?.?.?',
+            'pco': '172.19.248.18',
             'lambda': '172.19.248.39',
             'xps': '10.19.48.4'
             }
@@ -56,49 +59,3 @@ PCO = NETWORK_CONF['pco']
 XLAM = NETWORK_CONF['xlam']
 DATALOGGER = NETWORK_CONF['datalogger']
 MANAGER = NETWORK_CONF['manager']
-
-"""
-################################
-# Device IPs/hostnames + ports #
-################################
-
-# Aerotech rotation stage
-AEROTECH = {'DAEMON': (HOST_IPS['control'], 15000),
-            'DEVICE': (DEVICE_IPS['aerotech'], 8000)
-            }
-
-SMARACT = {'DAEMON': (HOST_IPS['control'], 15001),
-           'DEVICE': (DEVICE_IPS['smaract'], 5000)
-           }
-
-# McLennan controller for bottom stages
-MCLENNAN1 = {'DAEMON': (HOST_IPS['control'], 15003),
-             'DEVICE': (DEVICE_IPS['mclennan1'], 7776)
-             }
-
-MCLENNAN2 = {'DAEMON': (HOST_IPS['control'], 15004),
-             'DEVICE': (DEVICE_IPS['mclennan2'], 7777)
-             }
-
-MECA_ADDRESS = "172.19.234.28"
-MECADEMIC = {'DAEMON': (HOST_IPS['control'], 15005),
-             #'DEVICE': ("172.19.248.34", 10000)
-             'DEVICE': (MECA_ADDRESS, 10000),
-             'MONITOR': (MECA_ADDRESS, 10001)
-             }
-
-EXCILLUM = {'DAEMON': (HOST_IPS['control'], 15100),
-            'DEVICE': ('10.19.48.3', 4944)
-            }
-
-XPS = {'DAEMON': (HOST_IPS['control'], 15006),
-       'DEVICE': ("?.?.?.?", 5001)
-       }
-
-VAREX = {'DAEMON': (HOST_IPS['varex'], 15200),
-         'BROADCAST': ('0.0.0.0', 5555)}
-
-DUMMY = {'DAEMON': (HOST_IPS['control'], 16789),
-         'DEVICE': (HOST_IPS['control'], 6789)
-         }
-"""

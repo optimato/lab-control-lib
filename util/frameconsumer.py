@@ -8,6 +8,9 @@ Example
 
 h5w = H5FileWriter.start_process()   # This starts the process and returns the class that can be used to interact
 h5w.store(filename, data, meta) # This copies the data to shared memory and flags the process to save it.
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import multiprocessing

@@ -1,3 +1,10 @@
+"""
+Lab control CLI entry point.
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
+"""
+
 import time
 import sys
 import os
@@ -6,7 +13,6 @@ import logging
 
 from . import THIS_HOST, LOCAL_HOSTNAME, client_or_None, Classes, LOG_DIR
 from .network_conf import NETWORK_CONF, HOST_IPS
-from .util.future import Future
 from .util.logs import logging_muted, DisplayLogger, log_to_file, logger as rootlogger
 
 

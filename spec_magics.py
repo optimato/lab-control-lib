@@ -25,6 +25,9 @@ piezo
 OTHER TO DO
 think about more inputs
 actually implement
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import os.path
 import threading
