@@ -10,13 +10,12 @@ import logging
 
 from . import manager, register_proxy_client
 from .camera import CameraBase
-from .network_conf import XLAM as NET_INFO
+from .network_conf import PCO as NET_INFO
 from .util.proxydevice import proxycall, proxydevice
 
 logger = logging.getLogger(__name__)
 
-# FIXME: this needs to be the local path on the PCO host
-BASE_PATH = "C:\\data\\"
+BASE_PATH = "D:\\data\\"
 
 # Try to import pco sdk
 if importlib.util.find_spec('pco') is not None:
