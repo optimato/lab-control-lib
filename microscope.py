@@ -95,139 +95,178 @@ string to arrive. This must be taken into consideration
 This file is part of labcontrol
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
-import socket
-import os
-import time
+import serial
 import logging
 import threading
 
-from .util.uitools import ask_yes_no
-
-logger = logging.getLogger("Microscope driver")
-
-
-import time
-
 from . import register_proxy_client
-from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
-from .network_conf import AEROTECH as NET_INFO
+from .base import MotorBase, SocketDriverBase
+from .network_conf import MICROSCOPE as NET_INFO
 from .util.proxydevice import proxydevice, proxycall
+from .util.future import Future
 
-__all__ = ['Microscope', 'Motor']
+__all__ = ['Microscope']
+
 
 @register_proxy_client
 @proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
 class Microscope(SocketDriverBase):
     """
-    Optique Peter microscope driver. Talks to tango box througy pyserial.
+    Optique Peter microscope driver. Talks to tango box through pyserial.
+
+    Much of the SocketDriverBase mechanics is the same, so we reuse this.
     """
+
     DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
-    EOL = b'\n'
+    EOL = b'\r'                         # End of API sequence
+    DEVICE_TIMEOUT = None               # Device socket timeout
+    KEEPALIVE_INTERVAL = 10.            # Default Polling (keep-alive) interval
+    logger = None
+    REPLY_WAIT_TIME = 0.1               # Time before reading reply (needed for asynchronous connections)
+    REPLY_TIMEOUT = 60.                 # Maximum time allowed for the reception of a reply
+
+    LOCAL_DEFAULT_CONFIG = {'port_name':'COM3',
+                            'baudrate':'57600',
+                            'bytesize':8,
+                            'parity':'N',
+                            'stopbits':2,
+                            'timeout':1,
+                            'write_timeout':1
+                            }
+    DEFAULT_CONFIG = SocketDriverBase.DEFAULT_CONFIG.copy()
+    DEFAULT_CONFIG.update(LOCAL_DEFAULT_CONFIG)
 
     def __init__(self):
         """
         Connect to the TANGO control box.
+
+        NOTE: there are only two axes enabled:
+        Y: represents the focus
+        Z: represents the scintillator wheel.
         """
+        # Pass "fake" device address for logging purposes
+        super().__init__(device_address=('localhost', self.config['port_name']))
 
         self.periodic_calls.update({'status': (self.status, 10.)})
 
-        super().__init__()
 
-        # self.metacalls.update({'focus': self.get_focus})
-
+    def connect_device(self):
         """
-        # some variables that will be used by other functions
-        self.cal_done_y = False
-        self.rm_done_y = False
-        self.hard_limit_lo_y = None  # store maximum possible values for soft limits
-        self.hard_limit_hi_y = None
-        self.soft_limit_lo_y = None  # store soft limits
-        self.soft_limit_hi_y = None
-        self.pos_y = None  # current motor position
-        self.pos_z = None
-        self.timeout_t = 30
+        Device connection. Shadows SocketDriverBase.connect_device
         """
+        # Prepare device socket connection
+        # We call the Serial object a "socket" to reuse the
+        self.device_sock = serial.Serial(port=self.config['port_name'],
+                                        baudrate=self.config['baudrate'],
+                                        bytesize=self.config['bytesize'],
+                                        parity=self.config['parity'],
+                                        stopbits=self.config['stopbits'],
+                                        timeout=self.config['timeout'],
+                                        write_timeout=self.config['write_timeout']
+                                        )
+
+        # Alias write -> sendall
+        self.device_sock.sendall = self.device_sock.write
+
+        # Start receiving data
+        self.recv_buffer = b''
+        self.recv_flag = threading.Event()
+        self.recv_flag.clear()
+        self.recv_thread = Future(target=self._listen_recv)
+        self.connected = True
+
+    def _listen_recv(self):
+        """
+        This also shadows SocketDriverBase._listen_recv because we can't use
+        select on the serial device.
+        """
+        while True:
+            with self.recv_lock:
+                d = self.device_sock.read_until(expected=self.EOL)
+                self.recv_buffer += d
+                self.recv_flag.set()
+            if self.shutdown_requested:
+                    break
+
+    @proxycall(admin=True)
+    def send_cmd(self, cmd: str, replycmd=None):
+        """
+        Send properly formatted request to the driver
+        and parse the reply.
+
+        if replycmd is not None, cmd and replycmd are sent
+        one after the other. This is a simple way to deal with
+        'cmd' that do not return anything.
+
+        cmd and replycmd should not include the EOL (\r)
+        """
+        # Convert to bytes
+        try:
+            cmd = cmd.encode()
+            replycmd = replycmd.encode()
+        except AttributeError:
+            pass
+
+        # Format arguments
+        cmd += self.EOL
+        if replycmd is not None:
+            cmd += replycmd + self.EOL
+
+        reply = self.device_cmd(cmd)
+
+        self.logger.debug(f'Sent: "{cmd}"')
+        self.logger.debug(f'Received: "{reply}"')
+
+        return reply.strip(self.EOL).decode('utf-8', errors='ignore')
 
 
-        logger.info('Initializing microscope')
-
-        # open the port
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.settimeout(self.timeout_t)
-
-        # connect
-        conn_errno = self.sock.connect_ex((host, port))
-        retry_count = 0 # counter for retries, limit to 10 retries
-        while conn_errno != 0:
-            print(os.strerror(conn_errno))
-            time.sleep(.05)
-            conn_errno = self.sock.connect_ex((host,port))
-            retry_count += 1
-            if retry_count > 10:
-                print('connection refused, aborting...')
-                return
+    def init_device(self):
+        """
+        Initialization procedure for the microscope.
+        """
 
         # read back some controller info to see if it is displayed correctly
-        ver = self._send_cmd('?ver')
+        ver = self.send_cmd('?ver')
 
         # display output just for fun...
-        logger.info('Tango controller %s' % ver)
+        self.logger.info(f'Tango controller version: {ver}')
 
         # check which axes are active. Enable Y and Z, disable X
-        # 0 disables axis, but doesnt switch off motor
+        # 0 disables axis, but doesn't switch off motor
         # -1 disables axis and turns motor off
         logger.info('Enabling  motors...')
-        self._send_cmd('!axis -1 1 1', reply=False)
+        reply = self.send_cmd('!axis -1 1 1', '?axis')
+        logger.info(f'Axis status is {reply}')
 
-        # read back axis status
-        axis_active = self._send_cmd('?axis')
-        logger.info('Axis status is %s' % axis_active)
+    @proxycall()
+    def focus_hard_limits(self):
+        """
+        Return whether focus hard limits (low, high) are set
+        """
+        status_limit = self.send_cmd('?statuslimit')
+        return status_limit[1] == 'A', status_limit[5] == 'D'
 
-        # check if the axes are already calibrated before driving
-        status_limit = self._send_cmd('?statuslimit')
-        # The status information is arranged in 4 groups.
-        # The ASCII character string positions are:
-        #  0 ...  3: Group 1 => cal state of axis 0-3 (x,y,z,a) '-' or 'A'
-        #  4 ...  7: Group 2 => rm state of axis 0-3 (x,y,z,a) '-' or 'D'
-        #  8 ... 11: Group 3 => lower soft limit state of axis 0-3 (x,y,z,a) -,L
-        # 12 ... 15: Group 4 => upper soft limit state of axis 0-3 (x,y,z,a) -,L
-        #
-        # We want y-axis
-        is_y_cal = status_limit[1]
-        is_y_rm = status_limit[5]
-        is_y_sl_lo = status_limit[9]
-        is_y_sl_hi = status_limit[13]
-        # and z axis which has only a lower limit switch (cal)
-        # however this is ignored
+    @proxycall()
+    def wheel_hard_limits(self):
+        """
+        Return whether focus hard limits (low, high) are set
+        """
+        status_limit = self.send_cmd('?statuslimit')
+        return status_limit[2] == 'A', status_limit[6] == 'D'
 
-        # print status
-        y_cal_set = (is_y_cal == 'A')
-        y_rm_set = (is_y_rm == 'D')
-        logger.info('Focus low hard limit is ' + ('' if y_cal_set else 'not') + ' set')
-        logger.info('Focus high hard limit is ' + ('' if y_rm_set else 'not') + ' set')
-
+    @proxycall(admin=True)
+    def home(self):
+        """
+        Find hard limits through homing.
+        """
         # Each time TANGO is restarted, it needs to home the motors. It will store
         # 'hard limits' in its memory. The soft limits are for user definition within python.
-        if not y_cal_set or not y_rm_set:
-            reset = ask_yes_no("""Hard limits not set. Perform initialization?
-            ATTENTION!!! Please remove scintillator cap before proceeding!!!""",
-                               yes_is_default=False,
-                               help="""This will result in a !reset command being sent to the control box,
-               which will force a restart similar to a power on.
-               The controller will be unresponsive for a couple of seconds,
-               then start re-initialization.""")
-
-            if not reset:
-                logger.warn('Homing not performed.')
-                return
-            else:
-                logger.warn('Resetting...')
-                self._send_cmd('!reset', reply=False)
-                # wait a bit for the controller to respond again
-                time.sleep(5)
-                # Proceed with calibration...
-                self._perform_focus_calibration()
+        """
+        self.send_cmd('!reset', reply=)
+        time.sleep(5)
+        """
+        raise RuntimeError('This can break the scintillator wheel so currently deactivated')
 
         # read and store the soft limits
         lim = self._send_cmd('?lim y')
@@ -243,19 +282,6 @@ class Microscope(SocketDriverBase):
 
         # Current focus position
         self.pos_y = self.get_pos_focus()
-
-    def _send_cmd(self, cmd, reply=True):
-        """
-        Send command through socket and return reply if reply=True
-        """
-        r = None
-        with self._lock:
-            self.sock.sendall(cmd + '\r')
-            if reply:
-                r = self.sock.recv(128)
-                while r[-1:] != '\r':
-                    r += self.sock.recv(128)
-        return r
 
     def _perform_focus_calibration(self):
         """
