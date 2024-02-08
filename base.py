@@ -51,30 +51,6 @@ def _recv_all(sock, EOL=b'\n'):
     return ret
 
 
-def _send_all(sock, msg):
-    """
-    Convert str to byte (if needed) and send on socket.
-    """
-    if isinstance(msg, str):
-        msg = msg.encode()
-    sock.sendall(msg)
-
-
-def nonblock(fin):
-    """
-    Decorator to make any function or method non-blocking
-    """
-    def fout(*args, **kwargs):
-        block = 'block' not in kwargs or kwargs.pop('block')
-        if block:
-            return fin(*args, **kwargs)
-        else:
-            t = threading.Thread(target=fin, args=args, kwargs=kwargs)
-            t.start()
-            return t
-    return fout
-
-
 class emergency_stop:
 
     stop_method = None
@@ -337,7 +313,9 @@ class SocketDriverBase(DriverBase):
             reply = self.get_recv_buffer()
 
             # Pass command to device
-            _send_all(self.device_sock, cmd)
+            if isinstance(cmd, str):
+                cmd = cmd.encode()
+            self.device_sock.sendall(cmd)
 
             # Wait for reply
             time.sleep(self.REPLY_WAIT_TIME)
