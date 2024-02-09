@@ -106,6 +106,8 @@ from .util.future import Future
 
 __all__ = ['Microscope']
 
+PORT_NAME = 'COM3'
+
 
 @register_proxy_client
 @proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
@@ -125,12 +127,12 @@ class Microscope(SocketDriverBase):
     REPLY_WAIT_TIME = 0.01              # Time before reading reply (needed for asynchronous connections)
     REPLY_TIMEOUT = 60.                 # Maximum time allowed for the reception of a reply
 
-    LOCAL_DEFAULT_CONFIG = {'port_name':'COM3',
+    LOCAL_DEFAULT_CONFIG = {'port_name':PORT_NAME,
                             'baudrate':'57600',
                             'bytesize':8,
                             'parity':'N',
                             'stopbits':2,
-                            'timeout':1,
+                            'timeout':0.5,
                             'write_timeout':1
                             }
     DEFAULT_CONFIG = SocketDriverBase.DEFAULT_CONFIG.copy()
@@ -145,7 +147,7 @@ class Microscope(SocketDriverBase):
         Z: represents the scintillator wheel.
         """
         # Pass "fake" device address for logging purposes
-        super().__init__(device_address=('localhost', self.config['port_name']))
+        super().__init__(device_address=('localhost', PORT_NAME))
 
         # TODO: add periodic call
         #self.periodic_calls.update({'status': (self.status, 10.)})
@@ -166,6 +168,8 @@ class Microscope(SocketDriverBase):
                                         write_timeout=self.config['write_timeout']
                                         )
 
+        self.logger.debug(f'Connected to serial port')
+
         # Alias write -> sendall so that SocketDriverBase.device_cmd works also here
         self.device_sock.sendall = self.device_sock.write
 
@@ -181,13 +185,16 @@ class Microscope(SocketDriverBase):
         This also shadows SocketDriverBase._listen_recv because we can't use
         select on the serial device.
         """
+        self.logger.debug(f'Entering listen loop')
         while True:
             with self.recv_lock:
                 d = self.device_sock.read_until(expected=self.EOL)
-                self.recv_buffer += d
+            if d:
+                self.logger.debug(f'Received "{d}"')
+                self.recv_buffer += d.strip(self.EOL)
                 self.recv_flag.set()
             if self.shutdown_requested:
-                    break
+                break
 
     @proxycall(admin=True)
     def send_cmd(self, cmd: str, reply=True):
@@ -200,7 +207,7 @@ class Microscope(SocketDriverBase):
         EOL (\r) is appended to cmd so should not be part of cmd.
         """
         # Convert to bytes
-        if type(cmd, str):
+        if type(cmd) is str:
             cmd = cmd.encode()
 
         # Format arguments
