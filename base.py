@@ -298,9 +298,16 @@ class SocketDriverBase(DriverBase):
             if self.shutdown_requested:
                 break
 
-    def device_cmd(self, cmd: bytes) -> bytes:
+    def device_cmd(self, cmd: bytes, reply=True) -> bytes:
         """
         Send command to the device, NOT adding EOL and return the reply.
+
+        Args:
+            cmd: (bytes) pre-formatted command to send.
+            reply: (bool) if False, do not wait for reply (default: True)
+
+        Returns:
+            reply (bytes) or None
         """
         if not self.connected:
             raise RuntimeError('Device not connected.')
@@ -310,22 +317,24 @@ class SocketDriverBase(DriverBase):
         with self.cmd_lock:
 
             # Flush the replies
-            reply = self.get_recv_buffer()
+            response = self.get_recv_buffer()
 
             # Pass command to device
             if isinstance(cmd, str):
                 cmd = cmd.encode()
             self.device_sock.sendall(cmd)
 
-            # Wait for reply
-            time.sleep(self.REPLY_WAIT_TIME)
-            if not self.recv_flag.wait(timeout=self.REPLY_TIMEOUT):
-                raise RuntimeError('Device reply timed out.')
+            if reply:
+                # Wait for reply
+                time.sleep(self.REPLY_WAIT_TIME)
+                if not self.recv_flag.wait(timeout=self.REPLY_TIMEOUT):
+                    raise TimeoutError('Device reply timed out.')
 
-            # Concatenate replies
-            reply += self.get_recv_buffer()
-
-        return reply
+                # Concatenate replies
+                response += self.get_recv_buffer()
+            else:
+                response = None
+        return response
 
     def get_recv_buffer(self):
         """

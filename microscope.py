@@ -96,7 +96,6 @@ This file is part of labcontrol
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import serial
-import logging
 import threading
 
 from . import register_proxy_client
@@ -123,7 +122,7 @@ class Microscope(SocketDriverBase):
     DEVICE_TIMEOUT = None               # Device socket timeout
     KEEPALIVE_INTERVAL = 10.            # Default Polling (keep-alive) interval
     logger = None
-    REPLY_WAIT_TIME = 0.1               # Time before reading reply (needed for asynchronous connections)
+    REPLY_WAIT_TIME = 0.01              # Time before reading reply (needed for asynchronous connections)
     REPLY_TIMEOUT = 60.                 # Maximum time allowed for the reception of a reply
 
     LOCAL_DEFAULT_CONFIG = {'port_name':'COM3',
@@ -148,8 +147,8 @@ class Microscope(SocketDriverBase):
         # Pass "fake" device address for logging purposes
         super().__init__(device_address=('localhost', self.config['port_name']))
 
-        self.periodic_calls.update({'status': (self.status, 10.)})
-
+        # TODO: add periodic call
+        #self.periodic_calls.update({'status': (self.status, 10.)})
 
     def connect_device(self):
         """
@@ -157,6 +156,7 @@ class Microscope(SocketDriverBase):
         """
         # Prepare device socket connection
         # We call the Serial object a "socket" to reuse the
+        # object in other calls
         self.device_sock = serial.Serial(port=self.config['port_name'],
                                         baudrate=self.config['baudrate'],
                                         bytesize=self.config['bytesize'],
@@ -166,7 +166,7 @@ class Microscope(SocketDriverBase):
                                         write_timeout=self.config['write_timeout']
                                         )
 
-        # Alias write -> sendall
+        # Alias write -> sendall so that SocketDriverBase.device_cmd works also here
         self.device_sock.sendall = self.device_sock.write
 
         # Start receiving data
@@ -190,36 +190,28 @@ class Microscope(SocketDriverBase):
                     break
 
     @proxycall(admin=True)
-    def send_cmd(self, cmd: str, replycmd=None):
+    def send_cmd(self, cmd: str, reply=True):
         """
         Send properly formatted request to the driver
         and parse the reply.
 
-        if replycmd is not None, cmd and replycmd are sent
-        one after the other. This is a simple way to deal with
-        'cmd' that do not return anything.
+        If reply is False, do not expect a reply.
 
-        cmd and replycmd should not include the EOL (\r)
+        EOL (\r) is appended to cmd so should not be part of cmd.
         """
         # Convert to bytes
-        try:
+        if type(cmd, str):
             cmd = cmd.encode()
-            replycmd = replycmd.encode()
-        except AttributeError:
-            pass
 
         # Format arguments
         cmd += self.EOL
-        if replycmd is not None:
-            cmd += replycmd + self.EOL
 
-        reply = self.device_cmd(cmd)
+        resp = self.device_cmd(cmd, reply=reply)
 
-        self.logger.debug(f'Sent: "{cmd}"')
-        self.logger.debug(f'Received: "{reply}"')
-
-        return reply.strip(self.EOL).decode('utf-8', errors='ignore')
-
+        if resp is not None:
+            return resp.decode('utf-8', errors='ignore')
+        else:
+            return None
 
     def init_device(self):
         """
@@ -235,12 +227,12 @@ class Microscope(SocketDriverBase):
         # check which axes are active. Enable Y and Z, disable X
         # 0 disables axis, but doesn't switch off motor
         # -1 disables axis and turns motor off
-        logger.info('Enabling  motors...')
+        self.logger.info('Enabling  motors...')
         reply = self.send_cmd('!axis -1 1 1', '?axis')
-        logger.info(f'Axis status is {reply}')
+        self.logger.info(f'Axis status is {reply}')
 
     @proxycall()
-    def focus_hard_limits(self):
+    def focus_hl_status(self):
         """
         Return whether focus hard limits (low, high) are set
         """
@@ -248,7 +240,7 @@ class Microscope(SocketDriverBase):
         return status_limit[1] == 'A', status_limit[5] == 'D'
 
     @proxycall()
-    def wheel_hard_limits(self):
+    def wheel_hl_status(self):
         """
         Return whether focus hard limits (low, high) are set
         """
@@ -267,259 +259,3 @@ class Microscope(SocketDriverBase):
         time.sleep(5)
         """
         raise RuntimeError('This can break the scintillator wheel so currently deactivated')
-
-        # read and store the soft limits
-        lim = self._send_cmd('?lim y')
-        self.soft_limit_lo_y, self.soft_limit_hi_y = [float(x) for x in lim.split()]
-
-        # hard_limits are set only if homing was performed
-        if self.hard_limit_lo_y is None:
-            self.hard_limit_lo_y = self.soft_limit_lo_y
-        if self.hard_limit_hi_y is None:
-            self.hard_limit_hi_y = self.soft_limit_hi_y
-        assert self.soft_limit_hi_y <= self.hard_limit_hi_y
-        assert self.soft_limit_lo_y >= self.hard_limit_lo_y
-
-        # Current focus position
-        self.pos_y = self.get_pos_focus()
-
-    def _perform_focus_calibration(self):
-        """
-        Drive the focus (TANGO y axis) to lower and higher limit switches for calibration
-        TANGO should software limit 100 um away from the lower limit switch and
-        sets the absolute 0 position there.
-        The motor will drive very slowly, and there is a hard timeout limit of 120 s.
-        """
-        # set socket to non-blocking while driving calibration
-        self.sock.settimeout(None)
-        logger.info('Driving focus-axis to lower limit switch...')
-        while True:
-            res = self._send_cmd('!cal y')
-            # this returns: 'A' after a successful calibration or
-            #               'E' if an error occurred (cal was unsuccessful)
-            #               'T' if a timeout occurred (cal was unsuccessful)
-            #               '-' the axis is not present
-            res = res[1]  # only y-axis
-            if res == 'A':
-                # Success
-                logger.info('Successfully reached lower limit')
-                focus_pos = self._send_cmd('?pos y')
-                self.hard_limit_lo_y = float(focus_pos)
-                break
-            elif res == 'T':
-                # Time out. Try again.
-                logger.warn('Focus lower limit calibration timed out, retrying...')
-            elif res == 'E':
-                # An error occurred, get error
-                h = self._send_cmd('?help')
-                # reset timeout before raising
-                self.sock.settimeout(self.timeout_t)
-                raise RuntimeError(h)
-            else:
-                # reset timeout before raising
-                self.sock.settimeout(self.timeout_t)
-                raise RuntimeError('Unknown error. "!cal y" returned "%s".' % res)
-
-        # High limit
-        logger.info('Driving focus-axis to higher limit switch...')
-        while True:
-            res = self._send_cmd('!rm y')
-            # this returns: 'A' after a successful calibration or
-            #               'E' if an error occurred (cal was unsuccessful)
-            #               'T' if a timeout occurred (cal was unsuccessful)
-            #               '-' the axis is not present
-            res = res[1]  # only y-axis
-            if res == 'D':
-                logger.info('Successfully reached higher limit')
-                focus_pos = self._send_cmd('?pos y')
-                self.hard_limit_hi_y = float(focus_pos)
-                break
-            elif res == 'T':
-                # move timeout, drive again
-                logger.warn('Focus higher limit calibration timed out, retrying...')
-            elif res == 'E':
-                # an error occurred, get error
-                h = self._send_cmd('?help')
-                # reset timeout
-                self.sock.settimeout(self.timeout_t)
-                raise RuntimeError(h)
-            else:
-                # reset timeout
-                self.sock.settimeout(self.timeout_t)
-                raise RuntimeError('Unknown error. "!rm y" returned "%s".' % res)
-
-        # reset timeout
-        self.sock.settimeout(self.timeout_t)
-
-        # Recenter focus
-        self.move_to_center_position_focus()
-
-        return
-
-    def hard_lim_focus(self):
-        """
-        Focus hard limits
-        """
-        return self.hard_limit_lo_y, self.hard_limit_hi_y
-
-    def get_soft_lim_focus(self):
-        """
-        Get the soft limits of the focus motor.
-        ATTENTION! This gets the python internal soft limits.
-        It does NOT read the soft limits inside the Tango controller!
-        """
-        return self.soft_limit_lo_y, self.soft_limit_hi_y
-
-    def set_soft_lim_focus(self, lo=None, hi=None):
-        """
-        Set the soft limits of the focus motor.
-        ATTENTION! This sets the python internal soft limits.
-        It does NOT change the soft limits inside the Tango controller!
-           Example:
-               self.soft_lim_focus(lo=0.5) sets lower limit to 0.5 mm
-        """
-        if lo is not None:
-            if type(lo) is not float and type(lo) is not int:
-                raise RuntimeError('Invalid input "%s" for low soft limit.' % lo)
-            if lo < self.hard_limit_lo_y:
-                raise RuntimeError('Low limit out of bounds')
-            self.soft_limit_lo_y = lo
-
-        if hi is not None:
-            if type(lo) is not float and type(lo) is not int:
-                raise RuntimeError('Invalid input "%s" for high soft limit.' % hi)
-            if hi > self.hard_limit_hi_y:
-                raise RuntimeError('Low limit out of bounds')
-            self.soft_limit_hi_y = hi
-
-    def get_pos_focus(self):
-        """
-        Read the current position of the focus from the controller
-        """
-        # get position from hardware
-        pos = self._send_cmd('?pos y')
-        self.pos_y = float(pos)
-        return self.pos_y
-
-    def move_to_center_position_focus(self):
-        """
-        Move the microscope to the center between low and high hard limits.
-        Will perform move even if outside of soft limits (needs user confirmation)!!!
-        """
-        # check if center position is outside of soft limits# prompt for user confirmation if it is
-        center_pos = (self.hard_limit_lo_y + self.hard_limit_hi_y) / 2.
-        if center_pos < self.soft_limit_lo_y or center_pos > self.soft_limit_hi_y:
-            logger.warn('Center position outside soft limits')
-            if not ask_yes_no("Center position outside soft limits. Proceed anyway?", yes_is_default=False):
-                logger('Aborted move to center position')
-                return
-
-        # Proceed
-        self.sock.settimeout(None)
-        print('moving focus to center position...')
-        while True:
-            status = self._send_cmd('!moc y')[1]
-            # check if successful
-            if status == '@':
-                # success
-                # reset timeout
-                self.sock.settimeout(self.timeout_t)
-                return
-            elif status == 'T':
-                logger.warn('Move timeout, retrying...')
-            elif status == 'E':
-                h = self._send_cmd('?help')
-                # reset timeout
-                self.sock.settimeout(self.timeout_t)
-                raise RuntimeError(h)
-            else:
-                # reset timeout
-                self.sock.settimeout(self.timeout_t)
-                raise RuntimeError('Unknown error. "!moc y" returned "%s".' % status)
-
-    def move_abs_focus(self, y):
-        """
-        Move the focus absolute, units in [mm]
-        """
-        # check if input is a scalar
-        if type(y) is not int and type(y) is not float:
-            raise RuntimeError('Invalid input %s.' % y)
-
-        # check if value is within limits
-        if y < self.soft_limit_lo_y or y > self.soft_limit_hi_y:
-            raise RuntimeError('Move value outside bounds.')
-
-        moay = self._send_cmd('!moa y %s' % y)
-        if moay[1] == '@':
-            # success. store new positions
-            self.pos_y = y
-            return self.pos_y
-        elif moay[1] == 'E':
-            # get error description
-            h = self._send_cmd('?help')
-            raise RuntimeError(h)
-        else:
-            raise RuntimeError('Unknown error. "!moa y" returned %s' % moay[1])
-
-    def move_to_lo_position_focus(self):
-        """
-        Move focus to high software limit
-        """
-        return self.move_abs_focus(self.soft_limit_lo_y)
-
-    def move_to_hi_position_focus(self):
-        """
-        Move focus to high software limit
-        """
-        return self.move_abs_focus(self.soft_limit_hi_y)
-
-    def move_rel_focus(self, dy):
-        """
-        Move the focus relative, units in [mm]
-        """
-        return self.move_abs_focus(self.get_pos_focus() + dy)
-
-
-    def move_rel_scinti(self, deg):
-        """
-        Move the scintillator wheel relative, units in [deg]
-
-        TODO: figure out exactly the relation between motor steps and position.
-        For the moment (after quick test), assume 4132 motor revolutions are needed
-        per 360 rotation. Each revolution has 59648 (micro-) steps.
-
-        ATTENTION! These numbers do not really mean anything, as I got them from the
-        SwitchBoard software. They make the motor work with the Joystick, however it
-        is unclear what the actual motor specs are and the gear to scintillator wheel.
-        """
-        # check if input is a scalar
-        if type(deg) is not int and type(deg) is not float:
-            raise RuntimeError('Invalid input: %s.' % deg)
-
-        # check if objective are moved back
-        if not ask_yes_no('Is the objective moved back (needed for 20x and 40x)?', yes_is_default=False):
-            print('Aborted')
-            return
-
-        # Move.
-        # For the scinti wheel modulo mode is active, meaning no limit switches.
-        # Motor position seems to go from 0 to about 246465536. Using relative
-        # movement here instead of absolute ,removes the need for modulo calculation.
-        # Transform input (deg) into motor steps
-        mostp_z = int(deg*246465536/360.)
-        morz = self._send_cmd('!mor z %s' % mostp_z)
-        if morz[2] == '@':
-            # success
-            pass
-        elif morz[1] == 'E': # error
-            # get error description
-            h = self._send_cmd('?help')
-            raise RuntimeError(h)
-        else:
-            raise RuntimeError('Unknown error. "!mor z" returned %s' % morz[2])
-
-        # get absolute pposition of the scinti wheel
-        # not sure if this is useful or even works, needs testing
-        pos = self._send_cmd('?pos z')
-        self.pos_z = float(pos)
-        return self.pos_z
