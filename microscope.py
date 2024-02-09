@@ -124,7 +124,7 @@ class Microscope(SocketDriverBase):
     DEVICE_TIMEOUT = None               # Device socket timeout
     KEEPALIVE_INTERVAL = 10.            # Default Polling (keep-alive) interval
     logger = None
-    REPLY_WAIT_TIME = 0.01              # Time before reading reply (needed for asynchronous connections)
+    REPLY_WAIT_TIME = .01              # Time before reading reply (needed for asynchronous connections)
     REPLY_TIMEOUT = 60.                 # Maximum time allowed for the reception of a reply
 
     LOCAL_DEFAULT_CONFIG = {'port_name':PORT_NAME,
@@ -187,12 +187,12 @@ class Microscope(SocketDriverBase):
         """
         self.logger.debug(f'Entering listen loop')
         while True:
-            with self.recv_lock:
-                d = self.device_sock.read_until(expected=self.EOL)
+            d = self.device_sock.read_until(expected=self.EOL)
             if d:
                 self.logger.debug(f'Received "{d}"')
-                self.recv_buffer += d.strip(self.EOL)
-                self.recv_flag.set()
+                with self.recv_lock:
+                    self.recv_buffer += d.strip(self.EOL)
+                    self.recv_flag.set()
             if self.shutdown_requested:
                 break
 
@@ -224,7 +224,6 @@ class Microscope(SocketDriverBase):
         """
         Initialization procedure for the microscope.
         """
-
         # read back some controller info to see if it is displayed correctly
         ver = self.send_cmd('?ver')
 
@@ -235,8 +234,10 @@ class Microscope(SocketDriverBase):
         # 0 disables axis, but doesn't switch off motor
         # -1 disables axis and turns motor off
         self.logger.info('Enabling  motors...')
-        reply = self.send_cmd('!axis -1 1 1', '?axis')
+        self.send_cmd('!axis -1 1 1', reply=False)
+        reply = self.send_cmd('?axis')
         self.logger.info(f'Axis status is {reply}')
+        self.initialized = True
 
     @proxycall()
     def focus_hl_status(self):

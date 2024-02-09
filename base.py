@@ -322,6 +322,7 @@ class SocketDriverBase(DriverBase):
             # Pass command to device
             if isinstance(cmd, str):
                 cmd = cmd.encode()
+
             self.device_sock.sendall(cmd)
 
             if reply:
@@ -332,6 +333,7 @@ class SocketDriverBase(DriverBase):
 
                 # Concatenate replies
                 response += self.get_recv_buffer()
+
             else:
                 response = None
         return response
