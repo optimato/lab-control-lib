@@ -267,3 +267,21 @@ class Microscope(SocketDriverBase):
         time.sleep(5)
         """
         raise RuntimeError('This can break the scintillator wheel so currently deactivated')
+
+    @proxycall(admin=True)
+    def focus_move_abs(self, y):
+        """
+        Move the focus to absolute position, units in [mm]
+        """
+        y = float(y)
+        moay = self.send_cmd(f'!moa y {y}')
+        if moay[1] == '@':
+            # success. store new positions
+            self.pos_y = y
+            return self.pos_y
+        elif moay[1] == 'E':
+            # get error description
+            h = self._send_cmd('?help')
+            raise RuntimeError(h)
+        else:
+            raise RuntimeError('Unknown error. "!moa y" returned %s' % moay[1])

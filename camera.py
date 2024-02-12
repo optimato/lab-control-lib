@@ -124,7 +124,6 @@ class CameraBase(DriverBase):
         else:
             self.broadcast_port = broadcast_port
 
-        self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
         self._stop_roll = False       # To interrupt rolling
 
