@@ -97,6 +97,7 @@ class CameraBase(DriverBase):
 
     LOCAL_DEFAULT_CONFIG = {'do_save':True,
                             'file_format':DEFAULT_FILE_FORMAT,
+                            'file_prefix': "snap_{0:04d}",
                             'do_broadcast':True,
                             'magnification':1.,
                             'counter':0,
@@ -839,7 +840,6 @@ class CameraBase(DriverBase):
     @exposure_time.setter
     def exposure_time(self, value):
         self._set_exposure_time(value)
-        self.config['settings']['exposure_time'] = value
 
     @proxycall(admin=True)
     @property
@@ -864,7 +864,6 @@ class CameraBase(DriverBase):
     @exposure_number.setter
     def exposure_number(self, value):
         self._set_exposure_number(value)
-        self.config['settings']['exposure_number'] = value
 
     @proxycall(admin=True)
     @property
@@ -877,7 +876,6 @@ class CameraBase(DriverBase):
     @binning.setter
     def binning(self, value):
         self._set_binning(value)
-        self.config['settings']['binning'] = value
 
     @proxycall()
     @property

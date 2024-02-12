@@ -127,7 +127,6 @@ class Pco(CameraBase):
                 'pixel rate': opmode['pixel_rate'],
                 'trigger': opmode['trigger_mode'],
                 'acquire': 'auto',
-                'noise filter': opmode['noise_filter'],
                 'metadata': 'off',
                 'binning': self.binning}
         self.cam.configuration = conf
@@ -274,7 +273,7 @@ class Pco(CameraBase):
 
         """
         opmode = {'record_mode': self.config['record_mode'],
-                  'roi': self.conifg['roi'],
+                  'roi': self.config['roi'],
                   'timestamp': self.config['timestamp'],
                   'pixel_rate': self.config['pixel_rate'],
                   'trigger_mode': self.config['trigger_mode']}
@@ -310,23 +309,23 @@ class Pco(CameraBase):
         # Recompute roi if necessary
         roi_steps = self.info['roi_steps']
         old_roi = self.roi
-        x0, x1, y0, y1 = old_roi
+        x0, y0, x1, y1 = old_roi
 
         # recompute horizontal roi if horizontal binning changed
         if new_bin[0] != old_bin[0]:
-            x0 = 1 + ((x0-1)*new_bin[0])//old_bin[0]
-            x1 = (x1*new_bin[0])//old_bin[0]
+            x0 = 1 + ((x0-1)*old_bin[0])//new_bin[0]
+            x1 = (x1*old_bin[0])//new_bin[0]
             x0 = 1 + roi_steps[0]*((x0-1)//roi_steps[0])
             x1 = roi_steps[0]*(x1//roi_steps[0])
 
         # recompute vertical roi if vertical binning changed
         if new_bin[1] != old_bin[1]:
-            y0 = 1 + ((y0-1)*new_bin[1])//old_bin[1]
-            y1 = (y1*new_bin[1])//old_bin[1]
+            y0 = 1 + ((y0-1)*old_bin[1])//new_bin[1]
+            y1 = (y1*old_bin[1])//new_bin[1]
             y0 = 1 + roi_steps[1]*((y0-1)//roi_steps[1])
             y1 = roi_steps[1]*(y1//roi_steps[1])
 
-        new_roi = (x0, x1, y0, y1)
+        new_roi = (x0, y0, x1, y1)
         self.config['roi'] = new_roi
         self.config['binning'] = new_bin
         self.logger.info(f'Binning: {old_bin} -> {new_bin}')
@@ -357,8 +356,8 @@ class Pco(CameraBase):
             roi_steps = self.info['roi_steps']
             return (1,
                     1,
-                    roi_steps[1]*(self.SHAPE[1]//(b[1]*roi_steps[1])),
-                    roi_steps[0]*(self.SHAPE[0]//(b[0]*roi_steps[0])))
+                    roi_steps[0]*(self.SHAPE[1]//(b[0]*roi_steps[0])),
+                    roi_steps[1]*(self.SHAPE[0]//(b[1]*roi_steps[1])))
         else:
             return self.config['roi']
 
