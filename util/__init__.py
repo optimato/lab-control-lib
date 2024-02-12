@@ -8,6 +8,7 @@ from datetime import datetime
 
 from . import uitools
 from .filedict import FileDict
+from .h5rw import h5write
 #from .fake_device import FakeDevice
 from .imstream import FramePublisher, FrameSubscriber
 #from .filewriter import H5FileWriter
