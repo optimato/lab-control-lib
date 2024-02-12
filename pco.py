@@ -55,7 +55,7 @@ class Pco(CameraBase):
     EXP_TIME_TOLERANCE = .01
     INTERFACE = 'Camera Link ME4'
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
-    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
+    DEFAULT_LOGGING_ADDRESS = None #NET_INFO['logging']
     LOCAL_DEFAULT_CONFIG = {'number_of_images': 16,            # The size of the ring buffer
                             'record_mode': 'ring buffer',      # Acquisition mode - always ring buffer
                             'binning':(1, 1),                  # binning
