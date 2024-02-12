@@ -51,30 +51,6 @@ def _recv_all(sock, EOL=b'\n'):
     return ret
 
 
-def _send_all(sock, msg):
-    """
-    Convert str to byte (if needed) and send on socket.
-    """
-    if isinstance(msg, str):
-        msg = msg.encode()
-    sock.sendall(msg)
-
-
-def nonblock(fin):
-    """
-    Decorator to make any function or method non-blocking
-    """
-    def fout(*args, **kwargs):
-        block = 'block' not in kwargs or kwargs.pop('block')
-        if block:
-            return fin(*args, **kwargs)
-        else:
-            t = threading.Thread(target=fin, args=args, kwargs=kwargs)
-            t.start()
-            return t
-    return fout
-
-
 class emergency_stop:
 
     stop_method = None
@@ -322,9 +298,16 @@ class SocketDriverBase(DriverBase):
             if self.shutdown_requested:
                 break
 
-    def device_cmd(self, cmd: bytes) -> bytes:
+    def device_cmd(self, cmd: bytes, reply=True) -> bytes:
         """
         Send command to the device, NOT adding EOL and return the reply.
+
+        Args:
+            cmd: (bytes) pre-formatted command to send.
+            reply: (bool) if False, do not wait for reply (default: True)
+
+        Returns:
+            reply (bytes) or None
         """
         if not self.connected:
             raise RuntimeError('Device not connected.')
@@ -334,20 +317,26 @@ class SocketDriverBase(DriverBase):
         with self.cmd_lock:
 
             # Flush the replies
-            reply = self.get_recv_buffer()
+            response = self.get_recv_buffer()
 
             # Pass command to device
-            _send_all(self.device_sock, cmd)
+            if isinstance(cmd, str):
+                cmd = cmd.encode()
 
-            # Wait for reply
-            time.sleep(self.REPLY_WAIT_TIME)
-            if not self.recv_flag.wait(timeout=self.REPLY_TIMEOUT):
-                raise RuntimeError('Device reply timed out.')
+            self.device_sock.sendall(cmd)
 
-            # Concatenate replies
-            reply += self.get_recv_buffer()
+            if reply:
+                # Wait for reply
+                time.sleep(self.REPLY_WAIT_TIME)
+                if not self.recv_flag.wait(timeout=self.REPLY_TIMEOUT):
+                    raise TimeoutError('Device reply timed out.')
 
-        return reply
+                # Concatenate replies
+                response += self.get_recv_buffer()
+
+            else:
+                response = None
+        return response
 
     def get_recv_buffer(self):
         """

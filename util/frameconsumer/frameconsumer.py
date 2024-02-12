@@ -14,6 +14,7 @@ from queue import SimpleQueue, Empty
 
 from ..future import Future
 from ..logs import logger as rootlogger
+from .. import h5write
 
 __all__ = ['FrameWriter', 'FrameStreamer']
 
@@ -86,8 +87,6 @@ class HDF5Worker(FrameWorker):
     logger = rootlogger.getChild('HDF5Worker')
 
     def __init__(self, filename):
-        from optimatools.io import h5write
-        self.h5write = h5write
 
         # Prepare path on the main thread to catch errors.
         b, f = os.path.split(filename)
@@ -115,7 +114,7 @@ class HDF5Worker(FrameWorker):
         Store to file
         """
         data = np.array(self.frames)
-        self.h5write(filename=self.filename, meta=self.meta, data=data)
+        h5write(filename=self.filename, meta=self.meta, data=data)
         self.logger.debug(f"{len(self.frames)} frames saved to {self.filename}")
 
 
