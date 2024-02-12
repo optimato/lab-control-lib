@@ -50,7 +50,7 @@ class Pco(CameraBase):
 
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
     PIXEL_SIZE = 6.5     # Physical pixel pitch in micrometers
-    SHAPE = (2160, 2560)   # Native array shape (vertical, horizontal)
+    SHAPE = (2048, 2060)   # Native array shape (vertical, horizontal)
     IDLE_EXPOSURE_TIME = .001 # Exposure time while the camera is running "idle"
     EXP_TIME_TOLERANCE = .01
     INTERFACE = 'Camera Link ME4'
@@ -62,7 +62,7 @@ class Pco(CameraBase):
                             'roi': None,                       # ROI
                             'pixel_rate': 95333333,           # FIXME: is this the only option?
                             'timestamp': 'off',                # Print timestamp on frames
-                            'trigger mode': 'auto sequence'    # automatic trigger
+                            'trigger_mode': 'auto sequence'    # automatic trigger
                             }
     # python <3.9
     DEFAULT_CONFIG = CameraBase.DEFAULT_CONFIG.copy()
@@ -274,7 +274,7 @@ class Pco(CameraBase):
 
         """
         opmode = {'record_mode': self.config['record_mode'],
-                  'roi': self.config['roi'],
+                  'roi': self.conifg['roi'],
                   'timestamp': self.config['timestamp'],
                   'pixel_rate': self.config['pixel_rate'],
                   'trigger_mode': self.config['trigger_mode']}
@@ -294,14 +294,48 @@ class Pco(CameraBase):
     def _get_binning(self):
         return self.config['binning']
 
-    def _set_binning(self, value):
+    def _set_binning(self, new_bin):
         if self.cam.is_recording:
             raise RuntimeError('Cannot change binning while the camera is running.')
-        self.config['binning'] = value
+
+        # This special case resets everything, no need to go further
+        if new_bin == (1, 1) and self.config['roi'] is None:
+            self.config['binning'] = new_bin
+            self._set_configuration()
+            return
+
+        # Get current binning
+        old_bin = self.binning
+
+        # Recompute roi if necessary
+        roi_steps = self.info['roi_steps']
+        old_roi = self.roi
+        x0, x1, y0, y1 = old_roi
+
+        # recompute horizontal roi if horizontal binning changed
+        if new_bin[0] != old_bin[0]:
+            x0 = 1 + ((x0-1)*new_bin[0])//old_bin[0]
+            x1 = (x1*new_bin[0])//old_bin[0]
+            x0 = 1 + roi_steps[0]*((x0-1)//roi_steps[0])
+            x1 = roi_steps[0]*(x1//roi_steps[0])
+
+        # recompute vertical roi if vertical binning changed
+        if new_bin[1] != old_bin[1]:
+            y0 = 1 + ((y0-1)*new_bin[1])//old_bin[1]
+            y1 = (y1*new_bin[1])//old_bin[1]
+            y0 = 1 + roi_steps[1]*((y0-1)//roi_steps[1])
+            y1 = roi_steps[1]*(y1//roi_steps[1])
+
+        new_roi = (x0, x1, y0, y1)
+        self.config['roi'] = new_roi
+        self.config['binning'] = new_bin
+        self.logger.info(f'Binning: {old_bin} -> {new_bin}')
+        self.logger.info(f'ROI: {old_roi} -> {new_roi}')
+        self._set_configuration()
 
     def _get_psize(self):
         bx, by = self.binning
-        return (self.PIXEL_SIZE*bx, self.PIXEL_SIZE*by)
+        return self.PIXEL_SIZE*bx, self.PIXEL_SIZE*by
 
     @proxycall(admin=True)
     def set_pco_log_level(self, level):
@@ -318,16 +352,30 @@ class Pco(CameraBase):
         """
         Camera ROI
         """
-        return self.config['roi']
+        if self.config['roi'] is None:
+            b = self.binning
+            roi_steps = self.info['roi_steps']
+            return (1,
+                    1,
+                    roi_steps[1]*(self.SHAPE[1]//(b[1]*roi_steps[1])),
+                    roi_steps[0]*(self.SHAPE[0]//(b[0]*roi_steps[0])))
+        else:
+            return self.config['roi']
 
     @roi.setter
     def roi(self, value):
+        if self.cam.is_recording:
+            raise RuntimeError('Cannot set ROI while camera is recording.')
 
+        # Store then retrieve value (this will convert None into a real roi)
         self.config['roi'] = value
 
+        # Apply to camera
+        self._set_configuration()
+
     def _get_shape(self) -> tuple:
-        # FIXME: CHECK THIS
-        raise RuntimeError("Not yet clear how shape is calculated with roi and binning")
+        roi = self.roi
+        return roi[3]-roi[1]+1, roi[2]-roi[0]+1
 
     @proxycall()
     @property
