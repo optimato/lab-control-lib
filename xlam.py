@@ -52,7 +52,8 @@ class Xlam(CameraBase):
                             'counter_mode':'single',
                             'thresholds':[7, 15],
                             'bit_depth':14,
-                            'voltage': 300.}
+                            'voltage': 300.,
+                            'save_path': '~/snaps/'}
 
     # python >3.9
     # DEFAULT_CONFIG = (CameraBase.DEFAULT_CONFIG | LOCAL_DEFAULT_CONFIG)
