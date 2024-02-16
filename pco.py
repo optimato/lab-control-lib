@@ -38,12 +38,11 @@ else:
             raise RuntimeError('Attempting to access "pco" on a system where it is not present!')
     globals().update({'pco': fake_pco()})
 
-__all__ = ['Pco']
-
+__all__ = ['PCO']
 
 @register_proxy_client
 @proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
-class Pco(CameraBase):
+class PCO(CameraBase):
     """
     PCO Edge Driver
     """
@@ -62,7 +61,8 @@ class Pco(CameraBase):
                             'roi': None,                       # ROI
                             'pixel_rate': 95333333,           # FIXME: is this the only option?
                             'timestamp': 'off',                # Print timestamp on frames
-                            'trigger_mode': 'auto sequence'    # automatic trigger
+                            'trigger_mode': 'auto sequence',    # automatic trigger
+                            'save_path': 'D:\\snaps\\',
                             }
     # python <3.9
     DEFAULT_CONFIG = CameraBase.DEFAULT_CONFIG.copy()
