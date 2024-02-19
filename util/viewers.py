@@ -154,7 +154,8 @@ class NapariViewer(ViewerBase):
         """
         Create the viewer and prepare the dock
         """
-        self.v = napari.viewer.Viewer()
+        title = self.camera_name or 'Viewer'
+        self.v = napari.viewer.Viewer(title=title)
 
         # Napari thread worker
         self.worker = create_worker(self.yield_new_frame)
