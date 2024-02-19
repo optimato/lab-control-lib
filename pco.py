@@ -297,6 +297,9 @@ class PCO(CameraBase):
         if self.cam.is_recording:
             raise RuntimeError('Cannot change binning while the camera is running.')
 
+        if new_bin[0] != new_bin[1]:
+            raise RuntimeError('Different binning in x and y are not yet implemented!')
+
         # This special case resets everything, no need to go further
         if new_bin == (1, 1) and self.config['roi'] is None:
             self.config['binning'] = new_bin
@@ -333,8 +336,9 @@ class PCO(CameraBase):
         self._set_configuration()
 
     def _get_psize(self):
+        # Supporting only square pixels for now
         bx, by = self.binning
-        return self.PIXEL_SIZE*bx, self.PIXEL_SIZE*by
+        return self.PIXEL_SIZE*bx
 
     @proxycall(admin=True)
     def set_pco_log_level(self, level):
