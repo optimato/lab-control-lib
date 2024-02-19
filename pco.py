@@ -248,6 +248,9 @@ class PCO(CameraBase):
     def _disarm(self):
         self._acquisition_ready_flag.clear()
         self._stop_pco_acquisition = True
+        # Wait until the camera has actually stopped.
+        while self.cam.is_recording:
+            time.sleep(.05)
 
     def _get_exposure_time(self):
         # We need to return the *wanted* exposure time, not the actual one, because
