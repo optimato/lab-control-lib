@@ -164,7 +164,9 @@ def viewer(name, loglevel, vtype, maxfps):
     viewer_addr = {'varex': (NETWORK_CONF['varex']['control'][0],
                              NETWORK_CONF['varex']['broadcast_port']),
                    'xlam': (NETWORK_CONF['xlam']['control'][0],
-                             NETWORK_CONF['xlam']['broadcast_port'])
+                             NETWORK_CONF['xlam']['broadcast_port']),
+                   'pco': (NETWORK_CONF['pco']['control'][0],
+                             NETWORK_CONF['pco']['broadcast_port'])
                    }
     name = name.lower()
     addr = viewer_addr.get(name, None)

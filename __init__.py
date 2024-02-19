@@ -194,6 +194,6 @@ from . import mecademic
 #from . import microscope
 #from . import smaract
 from . import varex
-#from . import pco
+from . import pco
 from . import xlam
 from . import xps
