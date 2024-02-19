@@ -52,6 +52,7 @@ class PCO(CameraBase):
     SHAPE = (2048, 2060)   # Native array shape (vertical, horizontal)
     IDLE_EXPOSURE_TIME = .001 # Exposure time while the camera is running "idle"
     EXP_TIME_TOLERANCE = .01
+    SHORT_EXPOSURE_TIME = 0.2 # Threshold below which we just "grab frame"
     INTERFACE = 'Camera Link ME4'
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
     DEFAULT_LOGGING_ADDRESS = None #NET_INFO['logging']
@@ -145,26 +146,48 @@ class PCO(CameraBase):
         # Start IDLE acquisition loop
         self.acq_future = Future(self._pco_acquisition_loop)
 
+    def _idle(self):
+        """
+        Set the camera idle exposure time to a short value to keep it responsive.
+        """
+        if not self._pco_is_acquiring:
+            # This should not happen
+            raise RuntimeError('_idle should be called only while acquiring')
+
+        exp_time = self.exposure_time
+        if exp_time < self.SHORT_EXPOSURE_TIME:
+            self.cam.exposure_time = exp_time
+        else:
+            self.cam.exposure_time = self.IDLE_EXPOSURE_TIME
+
     def _pco_acquisition_loop(self):
         """
         Acquisition loop that keeps the camera "ready" for a real acquisition.
         """
-
-        # Set fast ("idle") exposure time
-        self.cam.exposure_time = self.IDLE_EXPOSURE_TIME
+        self._pco_is_acquiring = True
+        self._idle()
 
         # start recording
         self.cam.record(number_of_images=self.config['number_of_images'],
                         mode=self.config['record_mode'])
 
-        # Set flags
-        self._pco_is_acquiring = True
         self._stop_pco_acquisition = False
 
+        # This allows triggering
         self._acquisition_ready_flag.set()
+
+        # Wait for the camera to be ready (needed for cam.wait_for_new_image to work)
+        while not self.cam.is_recording:
+            time.sleep(.01)
 
         t2 = time.perf_counter()
         while not self._stop_pco_acquisition:
+
+            exp_time = self.exposure_time
+
+            if self._start_grab:
+                self.start_grab = False
+                self.cam.exposure_time = exp_time
 
             # Wait for new image
             self.cam.wait_for_new_image()
@@ -173,7 +196,9 @@ class PCO(CameraBase):
             # Measure time since last exposure
             dt = t2 - t1
 
-            if dt < self.exposure_time - self.EXP_TIME_TOLERANCE:
+            if ((not self._do_grab) or
+                    ((exp_time > self.SHORT_EXPOSURE_TIME) and (dt < (self.exposure_time - self.EXP_TIME_TOLERANCE)))):
+                # Skip this frame
                 # Hack to make camera believe that we have read the buffer
                 self.cam._image_number = self.cam.recorded_image_count
                 continue
@@ -194,8 +219,8 @@ class PCO(CameraBase):
         if not self._pco_is_acquiring:
             raise RuntimeError('PCO should be acquiring continuously when triggered.')
 
-        # Triggering = set exposure time to expected one
-        self.cam.exposure_time = self.exposure_time
+        self._start_grab = True
+        self._do_grab = True
 
         n_exp = self.exposure_number
 
@@ -243,7 +268,8 @@ class PCO(CameraBase):
                 break
 
         # All frames have been collected. Change exposure time back to IDLE
-        self.cam.exposure_time = self.IDLE_EXPOSURE_TIME
+        self._do_grab = False
+        self._idle()
 
     def _disarm(self):
         self._acquisition_ready_flag.clear()
