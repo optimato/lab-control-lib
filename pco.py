@@ -82,6 +82,8 @@ class PCO(CameraBase):
         self._stop_pco_acquisition = False
         self._new_frame_flag = threading.Event()
         self._new_frame_flag.clear()
+        self._acquisition_ready_flag = threading.Event()
+        self._acquisition_ready_flag.clear()
 
         self.init_device()
 
@@ -147,6 +149,7 @@ class PCO(CameraBase):
         """
         Acquisition loop that keeps the camera "ready" for a real acquisition.
         """
+
         # Set fast ("idle") exposure time
         self.cam.exposure_time = self.IDLE_EXPOSURE_TIME
 
@@ -157,6 +160,8 @@ class PCO(CameraBase):
         # Set flags
         self._pco_is_acquiring = True
         self._stop_pco_acquisition = False
+
+        self._acquisition_ready_flag.set()
 
         t2 = time.perf_counter()
         while not self._stop_pco_acquisition:
@@ -183,6 +188,9 @@ class PCO(CameraBase):
         """
         Acquisition.
         """
+        # Eventually wait for the camera to be armed.
+        self._acquisition_ready_flag.wait()
+
         if not self._pco_is_acquiring:
             raise RuntimeError('PCO should be acquiring continuously when triggered.')
 
@@ -238,6 +246,7 @@ class PCO(CameraBase):
         self.cam.exposure_time = self.IDLE_EXPOSURE_TIME
 
     def _disarm(self):
+        self._acquisition_ready_flag.clear()
         self._stop_pco_acquisition = True
 
     def _get_exposure_time(self):
@@ -297,6 +306,9 @@ class PCO(CameraBase):
         if self.cam.is_recording:
             raise RuntimeError('Cannot change binning while the camera is running.')
 
+        if new_bin[0] != new_bin[1]:
+            raise RuntimeError('Different binning in x and y are not yet implemented!')
+
         # This special case resets everything, no need to go further
         if new_bin == (1, 1) and self.config['roi'] is None:
             self.config['binning'] = new_bin
@@ -333,8 +345,9 @@ class PCO(CameraBase):
         self._set_configuration()
 
     def _get_psize(self):
+        # Supporting only square pixels for now
         bx, by = self.binning
-        return self.PIXEL_SIZE*bx, self.PIXEL_SIZE*by
+        return self.PIXEL_SIZE*bx
 
     @proxycall(admin=True)
     def set_pco_log_level(self, level):
