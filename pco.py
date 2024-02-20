@@ -248,7 +248,10 @@ class PCO(CameraBase):
 
             time.sleep(min(.1*self.exposure_time, 1.))
             if frame_counter == n_exp-1:
-                self._idle()
+                if self.rolling:
+                    frame_counter = 0
+                else:
+                    self._idle()
 
             # Wait for new frame notification
             self._new_frame_flag.wait()
