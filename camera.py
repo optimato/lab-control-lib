@@ -4,37 +4,41 @@ Base Camera for all detectors.
 Highlights: The CameraBase class wraps detector operations in a uniform API.
 
 ** Main methods:
-    *  snap(self, exp_time=None, exp_num=None)
-    *  roll(self, switch)
-    *  live_on(self)
-    *  live_off(self)
+    *  snap(self, exp_time=None,
+            exp_num=None)        : Acquire frames
+    *  roll_on(self, fps=None)   : Start infinite acquisition loop (without saving) for viewer
+    *  roll_off(self)            : Stop infinite acquisition loop
+    *  live_on(self)             : Turn on broadcasting of images (for external viewer)
+    *  live_off(self)            : Turn off broadcasting of images (for external viewer)
 
 ** Properties:
-    *  file_format (g/s)
-    *  file_prefix (g/s)
-    *  save_path (g/s)
-    *  exposure_time (g/s)
-    *  operation_mode (g/s)
-    *  exposure_number (g/s)
-    *  binning (g/s)
-    *  psize (g)
-    *  shape (g)
-    *  magnification (g/s)
-    *  epsize (g/s)
-    *  live_fps (g/s)
-    *  acquiring (g)
-    *  storing (g)
-    *  is_live (g)
-    *  save (g/s)
+    *  file_format (get/set)  : currently only 'hdf5'
+    *  file_prefix (get/set)  : prefix used by snap (out of scans)
+    *  save_path (g/s)        : out of scans save path
+    *  exposure_time (g/s)    : exposure time in seconds
+    *  operation_mode (g/s)   : camera-specific operation mode
+    *  exposure_number (g/s)  : number of frames to take at each trigger
+    *  binning (g/s)          : binning mode if available
+    *  psize (g)              : native pixel size in microns
+    *  shape (g)              : frame shape (taking count of binning)
+    *  magnification (g/s)    : geometric magnification factor
+    *  epsize (g/s)           : effective pixel size (if set, changes magnification)
+    *  counter (g)            : internal counter for the snap images (out of scan numbering)
+    *  roll_fps (g/s)         : fps for rolling mode
+    *  live_fps (g/s)         : fps for broadcasting
+    *  is_live (g)            : True if currently broadcasting
+    *  save (g/s)             : boolean: if False, do not save files
 
-The following methods have to be implemented
+The following methods have to be implemented bu subclasses
 
- * grab_frame(self, *args, **kwargs):
-  The actual operation of grabbing one or multiple frames with currently stored parameters.
+ * _arm(self):
+  Detector-specific preparation step before acquisition
 
- * roll(self, switch=None):
-  If available: start/stop endless continuous acquisition, e.g. for live view.
-  ! NOT READY
+ * _trigger(self):
+  The actual frame acquisition step (see existing examples)
+
+ * _disarm(self):
+  Detector-specific shutdown of acquisition mode
 
  * getters and setters
     *  _get_exposure_time(self):
@@ -48,9 +52,6 @@ The following methods have to be implemented
     *  _get_psize(self)
     *  _get_shape(self) -> tuple
 
-** File saving
-
-File saving is enabled/disabled with CaneraBase.save = True/False
 File naming uses the following recipe:
 
  filename = CameraBase.BASE_PATH + CameraBase.save_path + file_prefix + [extension]
@@ -59,10 +60,8 @@ File naming uses the following recipe:
   file_prefix is either CameraBase.file_prefix or CameraBase.file_prefix.format(self.counter)
   extension depends on CameraBase.file_format
 
-** Within a SCAN (see manager.Scan object)
-
-
-
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import os
 import json
@@ -98,6 +97,7 @@ class CameraBase(DriverBase):
 
     LOCAL_DEFAULT_CONFIG = {'do_save':True,
                             'file_format':DEFAULT_FILE_FORMAT,
+                            'file_prefix': "snap_{0:04d}",
                             'do_broadcast':True,
                             'magnification':1.,
                             'counter':0,
@@ -125,7 +125,6 @@ class CameraBase(DriverBase):
         else:
             self.broadcast_port = broadcast_port
 
-        self.acq_future = None        # Will be replaced with a future when starting to acquire.
         self.store_future = None      # Will be replaced with a future when starting to store.
         self._stop_roll = False       # To interrupt rolling
 
@@ -841,7 +840,6 @@ class CameraBase(DriverBase):
     @exposure_time.setter
     def exposure_time(self, value):
         self._set_exposure_time(value)
-        self.config['settings']['exposure_time'] = value
 
     @proxycall(admin=True)
     @property
@@ -866,7 +864,6 @@ class CameraBase(DriverBase):
     @exposure_number.setter
     def exposure_number(self, value):
         self._set_exposure_number(value)
-        self.config['settings']['exposure_number'] = value
 
     @proxycall(admin=True)
     @property
@@ -879,7 +876,6 @@ class CameraBase(DriverBase):
     @binning.setter
     def binning(self, value):
         self._set_binning(value)
-        self.config['settings']['binning'] = value
 
     @proxycall()
     @property

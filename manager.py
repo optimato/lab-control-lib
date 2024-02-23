@@ -1,22 +1,21 @@
 """
 Management of experiment data, labeling, metadata, etc.
 
-Suggested structure similar to Elettra's
+The structure is inspired from Elettra's storage structure
  - Investigation : highest category (e.g. speckle_long_branch)
  - Experiment : Typically an experiment run (over days, possibly in multiple parts)
  - Scan : (instead of Elettra's "dataset") a numbered (and possibly labeled) dataset
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
-import logging
 import os
-import queue
 from datetime import datetime
 import time
 import threading
-from queue import SimpleQueue, Empty
 
 from . import data_path, register_proxy_client, Classes, client_or_None, THIS_HOST
-from .network_conf import NETWORK_CONF, MANAGER as NET_INFO
-from .util.uitools import ask, user_prompt
+from .network_conf import MANAGER as NET_INFO
 from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
 from .base import DriverBase
@@ -68,9 +67,9 @@ class Manager(DriverBase):
         *concurrently* from all other drivers. This is accomplished by creating
         clients to each driver. These clients are instantiated (and re-instantiated)
         on a separate thread running `self.client_loop`. For each client, the
-        method `meta_loop` is started on a separate thread, and waits for a flag to
-        start metadata collection. All this is done to ensure that metadata is obtained
-        as quickly as possible after is has been requested.
+        method `fetch_meta` is started on a separate thread as soon as metadata collection
+        is requested. All this is done to ensure that metadata is obtained
+        as quickly as possible after it has been requested.
         """
         super().__init__()
 
@@ -79,6 +78,7 @@ class Manager(DriverBase):
         self._scan_name = None
         self._label = None
         self._base_file_name = None
+        self._next_scan = None
 
         try:
             self._scan_number = self.next_scan()
@@ -88,13 +88,14 @@ class Manager(DriverBase):
 
         self.metacalls = {'investigation': lambda: self.investigation,
                           'experiment': lambda: self.experiment,
-                          'last_scan': lambda: self.next_scan() or None}
+                          'last_scan': lambda: self._scan_number or None}
 
         self.requests = {}      # Dictionary to accumulate requests in case many are made before returning
         self.stop_flag = threading.Event()
         self.clients = {}
 
         # HACK (kind of): On the process where this class is instantiated, getManager must return this instance, not a client.
+        global _client
         _client.clear()
         _client.append(self)
 
@@ -166,8 +167,11 @@ class Manager(DriverBase):
 
         This method returns immediately. The metadata itself will be obtained when calling return_meta.
 
-        request_ID is a (hopefully unique) ID to tag and store the request until self.return_meta is called. It can be None.
-        exclude_list is a list of clients to exclude for the metadata requests.
+        Args:
+            request_ID: a (hopefully unique) ID to tag and store the request until self.return_meta is called. It can be None.
+            exclude_list: a list of clients to exclude for the metadata requests.
+        Returns:
+            None
         """
         # Check for duplicate
         duplicate = self.requests.get(request_ID, None)
@@ -182,13 +186,21 @@ class Manager(DriverBase):
     def return_meta(self, request_ID=None):
         """
         Return the metadata that has been accumulated since the last call to request_meta.
+
+        Args:
+            request_ID: The ID of the request made.
+
+        Returns:
+            A dictionary with all metadata.
         """
-        # Pop the request (use ... instead of None, which is a valid key)
         if request_ID not in self.requests:
             self.logger.error(f'Unknown request ID {request_ID}!')
+
+        # Pop the request
         request = self.requests.pop(request_ID, {})
         if not request:
             self.logger.warning(f'Empty request: {request_ID}!')
+
         meta = {}
         times = {}
         for name, future in request.items():
@@ -233,7 +245,12 @@ class Manager(DriverBase):
     @datalogger.meta(field_name='scan_start', tags=logtags)
     def start_scan(self, label=None):
         """
-        Start a new scan.
+                Start a new scan.
+        Args:
+            label: an optional label to be used for directory and file naming.
+
+        Returns:
+            `scan_info` dict with scan information.
         """
         if self._running:
             raise RuntimeError(f'Scan {self.scan_name} already running')
@@ -286,7 +303,7 @@ class Manager(DriverBase):
     @proxycall()
     def status(self):
         """
-        Summary of current configuration.
+        Summary of current configuration as a string
         """
         s = f' * Investigation: {self.investigation}\n'
         s += f' * Experiment: {self.experiment}\n'

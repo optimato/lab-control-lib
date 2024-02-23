@@ -2,6 +2,9 @@
 Transport numpy arrays or byte buffers via ZMQ for real-time visualization.
 
 Code adapted from https://github.com/jeffbass/imagezmq
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import zmq

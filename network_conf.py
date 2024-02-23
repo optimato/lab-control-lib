@@ -1,12 +1,15 @@
 """
 Hard coded network values
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 # IPs of computer hosting some devices
 HOST_IPS = {
             'control': '172.19.248.40',
             'varex': '172.19.248.35',
-            'pco': '?.?.?.?',
+            'pco': '172.19.248.18',
             'lambda': '172.19.248.39',
             'xps': '10.19.48.4'
             }
@@ -33,6 +36,7 @@ NETWORK_CONF = {
     'dummy':     {'control': ('127.0.0.1', 5060), 'device': ('127.0.0.1', 6789),   'logging': ('127.0.0.1', 7060), 'stream': (cIP, 5560)},
     'varex':     {'control': (vIP, 5070),         'device': None,                  'logging': (vIP, 7070),         'stream': (vIP, 5570), 'broadcast_port': 8070},
     'pco':       {'control': (pIP, 5080),         'device': None,                  'logging': (pIP, 7080),         'stream': (pIP, 5580), 'broadcast_port': 8080},
+    'microscope':{'control': (pIP, 5085),         'device': None,                  'logging': (pIP, 7085),         'stream': (pIP, 5585)},
     'xlam':      {'control': (lIP, 5090),         'device': None,                  'logging': (lIP, 7090),         'stream': (lIP, 5590), 'broadcast_port': 8090},
     'datalogger': {'control': (cIP, 8086)},
     'manager':   {'control': (cIP, 5100),          'device': None,                  'logging': (cIP, 7100),         'stream': (cIP, 5600)}
@@ -53,52 +57,7 @@ MCLENNAN3 = NETWORK_CONF['mclennan3']
 DUMMY = NETWORK_CONF['dummy']
 VAREX = NETWORK_CONF['varex']
 PCO = NETWORK_CONF['pco']
+MICROSCOPE = NETWORK_CONF['microscope']
 XLAM = NETWORK_CONF['xlam']
 DATALOGGER = NETWORK_CONF['datalogger']
 MANAGER = NETWORK_CONF['manager']
-
-"""
-################################
-# Device IPs/hostnames + ports #
-################################
-
-# Aerotech rotation stage
-AEROTECH = {'DAEMON': (HOST_IPS['control'], 15000),
-            'DEVICE': (DEVICE_IPS['aerotech'], 8000)
-            }
-
-SMARACT = {'DAEMON': (HOST_IPS['control'], 15001),
-           'DEVICE': (DEVICE_IPS['smaract'], 5000)
-           }
-
-# McLennan controller for bottom stages
-MCLENNAN1 = {'DAEMON': (HOST_IPS['control'], 15003),
-             'DEVICE': (DEVICE_IPS['mclennan1'], 7776)
-             }
-
-MCLENNAN2 = {'DAEMON': (HOST_IPS['control'], 15004),
-             'DEVICE': (DEVICE_IPS['mclennan2'], 7777)
-             }
-
-MECA_ADDRESS = "172.19.234.28"
-MECADEMIC = {'DAEMON': (HOST_IPS['control'], 15005),
-             #'DEVICE': ("172.19.248.34", 10000)
-             'DEVICE': (MECA_ADDRESS, 10000),
-             'MONITOR': (MECA_ADDRESS, 10001)
-             }
-
-EXCILLUM = {'DAEMON': (HOST_IPS['control'], 15100),
-            'DEVICE': ('10.19.48.3', 4944)
-            }
-
-XPS = {'DAEMON': (HOST_IPS['control'], 15006),
-       'DEVICE': ("?.?.?.?", 5001)
-       }
-
-VAREX = {'DAEMON': (HOST_IPS['varex'], 15200),
-         'BROADCAST': ('0.0.0.0', 5555)}
-
-DUMMY = {'DAEMON': (HOST_IPS['control'], 16789),
-         'DEVICE': (HOST_IPS['control'], 6789)
-         }
-"""

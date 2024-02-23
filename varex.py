@@ -1,5 +1,8 @@
 """
 Driver for Varex flat panel based on our home-grown "dexela" API wrapper.
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import time
@@ -46,6 +49,7 @@ class Varex(CameraBase):
     MAX_FPS = 5           # The real max FPS is higher (especially in binning mode) but this seems sufficient.
     LOCAL_DEFAULT_CONFIG = {'binning':'x11',
                             'full_well_mode': 'high',
+                            'save_path': 'C:\\snaps\\',
                             'exposure_mode': 'sequence_exposure',
                             'readout_mode': 'continuousreadout'}
     

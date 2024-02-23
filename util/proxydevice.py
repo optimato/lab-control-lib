@@ -66,6 +66,8 @@ a = A.Client()
 a.get_multiple(5)
  -> 5
 
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import logging
@@ -727,7 +729,6 @@ class ProxyServerBase:
         )
         self.serving_thread.start()
 
-
     def wait(self):
         """
         Wait until the server stops.
@@ -735,17 +736,19 @@ class ProxyServerBase:
         if self.serving_thread is not None and self.serving_thread.is_alive():
             self.serving_thread.join()
 
-
     def stop(self):
         """
         Stop serving.
         """
-        self.rpyc_server.close()
+        try:
+            self.rpyc_server.close()
+        except AttributeError:
+            # rpyc_server might already be None
+            pass
 
         # Clean up
         sys.modules[self.instance.__class__.__module__].print = builtins.print
         sys.modules[self.instance.__class__.__module__].input = builtins.input
-
 
     def _create_service(self):
         """
@@ -857,7 +860,6 @@ class ProxyServerBase:
             raise ProxyDeviceError("Cannot use input without admin client!")
 
         return cl_conn.root.input(prompt=prompt)
-
 
     def new_client(self, id, conn):
         """

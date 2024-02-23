@@ -1,3 +1,9 @@
+"""
+Data logging
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
+"""
 from . import manager
 from .util import datalogger as dl
 from .network_conf import DATALOGGER as NET_INFO

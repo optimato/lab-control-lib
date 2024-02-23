@@ -8,12 +8,16 @@ Example
 
 h5w = H5FileWriter.start_process()   # This starts the process and returns the class that can be used to interact
 h5w.store(filename, data, meta) # This copies the data to shared memory and flags the process to save it.
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import multiprocessing
 import os.path
 import threading
 import atexit
+import os
 try:
     multiprocessing.set_start_method('spawn')
 except RuntimeError:
@@ -32,8 +36,8 @@ import traceback
 
 from .future import Future
 from .logs import logger as rootlogger
+from . import h5write
 
-import os
 
 #from inspect import currentframe, getframeinfo
 """
@@ -334,10 +338,6 @@ class H5FileWriter(FrameConsumerProcess):
         [subprocess]
         A continuation of __init__ but running only on the sub-process.
         """
-        from optimatools.io import h5write, h5append
-        self.h5append = h5append
-        self.h5write = h5write
-
         # Request to finish accumulating frames and save
         self.close_flag = threading.Event()
         self.worker_flag = threading.Event()
@@ -448,7 +448,7 @@ class H5FileWriter(FrameConsumerProcess):
         self.worker_flag.set()
         data = np.array(frames)
         self.logger.debug(f'Saving with h5write')
-        self.h5write(filename=filename, meta=metadata, data=data)
+        h5write(filename=filename, meta=metadata, data=data)
         _p(f'_worker: Saved to {filename}.')
 
         return {'status': 'ok', 'store_times': store_times, 'complete_time':time.time()}

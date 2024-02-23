@@ -1,5 +1,8 @@
 """
 Driver for the Lambda 350 by xpectrum, built on top of their python interface.
+
+This file is part of labcontrol
+(c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import time
@@ -49,7 +52,8 @@ class Xlam(CameraBase):
                             'counter_mode':'single',
                             'thresholds':[7, 15],
                             'bit_depth':14,
-                            'voltage': 300.}
+                            'voltage': 300.,
+                            'save_path': '~/snaps/'}
 
     # python >3.9
     # DEFAULT_CONFIG = (CameraBase.DEFAULT_CONFIG | LOCAL_DEFAULT_CONFIG)
