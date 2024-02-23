@@ -78,6 +78,7 @@ class Manager(DriverBase):
         self._scan_name = None
         self._label = None
         self._base_file_name = None
+        self._next_scan = None
 
         try:
             self._scan_number = self.next_scan()
@@ -87,7 +88,7 @@ class Manager(DriverBase):
 
         self.metacalls = {'investigation': lambda: self.investigation,
                           'experiment': lambda: self.experiment,
-                          'last_scan': lambda: self.next_scan() or None}
+                          'last_scan': lambda: self._scan_number or None}
 
         self.requests = {}      # Dictionary to accumulate requests in case many are made before returning
         self.stop_flag = threading.Event()
