@@ -75,7 +75,6 @@ from .util import now, FramePublisher
 from .util.proxydevice import proxydevice, proxycall
 from .util.future import Future
 from .util import frameconsumer
-from .util import framestreamer
 
 DEFAULT_FILE_FORMAT = 'hdf5'
 DEFAULT_BROADCAST_PORT = 5555
@@ -146,7 +145,7 @@ class CameraBase(DriverBase):
         self._exposure_number_before_roll = None
 
         # File writing process
-        self.file_writer = frameconsumer.H5FileWriter.start_process()
+        self.frame_writer = frameconsumer.FrameWriter()
 
         # Prepare metadata collection
         self.metadata = {}
@@ -163,7 +162,7 @@ class CameraBase(DriverBase):
         self.frame_future = Future(self.frame_management_loop)
 
         # Broadcasting process
-        self.frame_streamer = framestreamer.FrameStreamer.start_process(self.broadcast_port)
+        self.frame_streamer = frameconsumer.FrameStreamer(self.broadcast_port)
         if self.config['do_broadcast']:
             self.frame_streamer.on()
 
@@ -302,7 +301,7 @@ class CameraBase(DriverBase):
             # Prepare next acquisition on the file writing process
             if not self.rolling:
                 self.logger.debug('Requesting opening to file writer.')
-                self.file_writer.open(filename=filename)
+                self.frame_writer.open(filename=filename)
 
             # trigger acquisition with subclassed method and wait until it is done
             self.logger.debug('Calling the subclass trigger.')
@@ -313,7 +312,7 @@ class CameraBase(DriverBase):
                 self.acquire_done.set()
                 if not self.rolling:
                     self.logger.warning(f'File {filename} likely incomplete or corrupt because of an error in _trigger.')
-                    self.file_writer.close(filename=filename)
+                    self.frame_writer.close()
                 else:
                     self.roll_off()
                 break
@@ -340,7 +339,7 @@ class CameraBase(DriverBase):
                 # Finalize saving
                 #self.frame_queue_empty_flag.wait()
                 self.logger.debug('Calling file_writer.close()')
-                self.file_writer.close(filename=filename)
+                self.frame_writer.close()
 
             # Automatically armed - this is a single shot
             if self.auto_armed:
@@ -403,7 +402,7 @@ class CameraBase(DriverBase):
             if not self.rolling:
                 self.logger.debug('Calling file_writer.store() with frame')
                 try:
-                    self.file_writer.store(meta=meta, data=data)
+                    self.frame_writer.store(meta=meta, data=data)
                 except RuntimeError:
                     self.logger.exception("Problem sending data to the file_writer process")
                 self.logger.debug('file_writer.store() returned')
@@ -490,24 +489,6 @@ class CameraBase(DriverBase):
             raise RuntimeError(f'Unknown file format: {self.file_format}.')
         return filename
 
-    @proxycall(admin=True)
-    @property
-    def save_mode(self):
-        """
-        Saving mode. `save_mode` has to be one of the three following options:
-        1) 'ram': all frames are accumulated in RAM and saved to disk at the end in a single file
-        2) 'append': frames are appended gradually in a single file
-        3) 'single': frames are saved individually (a number suffix is inserted at the end of the file name)
-        """
-        return self.config['save_mode']
-    
-    @save_mode.setter
-    def save_mode(self, mode):
-        mode = mode.lower()
-        if mode not in ['ram', 'append', 'single']:
-            raise RuntimeError(f'Unknown saving mode "{mode}"')
-        self.config['save_mode'] = mode
-        self.file_writer.set_mode(mode)
 
     @proxycall(admin=True)
     def arm(self, exp_time=None, exp_num=None):
@@ -694,14 +675,14 @@ class CameraBase(DriverBase):
         Set logging level - also for the filewriter process.
         """
         super().set_log_level(level)
-        self.file_writer.set_log_level(level)
-        self.frame_streamer.set_log_level(level)
+        #self.frame_writer.set_log_level(level)
+        #self.frame_streamer.set_log_level(level)
 
     def shutdown(self):
         # Stop rolling
         self.roll_off()
         # Stop file_writer process
-        self.file_writer.stop()
+        self.frame_writer.stop()
         # Stop file_streamer process
         self.frame_streamer.stop()
         # Stop metadata loop
