@@ -5,16 +5,15 @@ This file is part of labcontrol
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 from . import manager
-from .util import datalogger as dl
-from .network_conf import DATALOGGER as NET_INFO
-from . import config, THIS_HOST
+from .util import DataLogger
+from . import NETWORK_CONF, THIS_HOST
 
 __all__ = ['datalogger']
 
 
-class DataLogger(dl.DataLogger):
+class LCDataLogger(DataLogger):
 
-    DEFAULT_ADDRESS = NET_INFO['control']
+    DEFAULT_ADDRESS = NETWORK_CONF['datalogger']['control']
 
     def __init__(self, address=None):
         """
@@ -29,7 +28,6 @@ class DataLogger(dl.DataLogger):
         """
         Add tags related to current scan
         """
-        from . import manager
         man = manager.getManager()
 
         if man is None:
@@ -42,4 +40,4 @@ class DataLogger(dl.DataLogger):
         return tags
 
 
-datalogger = DataLogger()
+datalogger = LCDataLogger()

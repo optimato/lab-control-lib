@@ -11,11 +11,11 @@ import inspect
 import os
 import logging
 
-from . import drivers, motors, data_path, client_or_None, THIS_HOST
-from .util import uitools
-from .util.uitools import ask, ask_yes_no, user_prompt
-from .util.logs import logger as rootlogger
-from . import manager
+from .. import drivers, motors, DATA_PATH, client_or_None, THIS_HOST
+from . import uitools
+from . import ask, ask_yes_no, user_prompt
+from ..logs import logger as rootlogger
+from .. import manager
 
 logger = rootlogger.getChild(__name__)
 
@@ -41,12 +41,12 @@ def init(yes=None):
 
     # Excillum
     if ask_yes_no("Connect to Excillum?"):
-        driver =client_or_None('excillum', client_name=f'main-client-{THIS_HOST}')
+        driver = client_or_None('excillum', client_name=f'main-client-{THIS_HOST}')
         if driver:
             drivers['excillum'] = driver
 
     # Smaract
-    if ask_yes_no('Initialise smaracts?',
+    if ask_yes_no('Connect to smaracts?',
                   help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
         driver = client_or_None('smaract', client_name=f'main-client-{THIS_HOST}')
         if driver:
@@ -57,7 +57,7 @@ def init(yes=None):
             motors['sz'] = smaract.Motor('sz', driver, axis=1)
 
     # Coarse stages
-    if ask_yes_no('Initialise short branch coarse stages?'):
+    if ask_yes_no('Connect to short branch coarse stages?'):
         # McLennan 1 (sample coarse x translation)
         driver = client_or_None('mclennan1', client_name=f'main-client-{THIS_HOST}')
         if driver:
@@ -72,6 +72,7 @@ def init(yes=None):
             from . import mclennan
             motors['dsx'] = mclennan.Motor('dsx', driver)
 
+    if ask_yes_no('Connect to long branch coarse stages?'):
         # McLennan 3 (long branch detector coarse x translation)
         driver = client_or_None('mclennan3', client_name=f'main-client-{THIS_HOST}')
         if driver:
@@ -79,33 +80,29 @@ def init(yes=None):
             from . import mclennan
             motors['dsx'] = mclennan.Motor('dsx', driver)
 
-    if ask_yes_no('Initialise Varex detector?'):
+    if ask_yes_no('Connect to Varex detector?'):
         driver =  client_or_None('varex', client_name=f'main-client-{THIS_HOST}')
         if driver:
             drivers['varex'] = driver
 
-    if ask_yes_no('Initialise Lambda detector?'):
+    if ask_yes_no('Connect to Lambda detector?'):
         driver = client_or_None('xlam', client_name=f'main-client-{THIS_HOST}')
         if driver:
             drivers['xlam'] = driver
 
-    #if ask_yes_no('Initialise PCO camera?'):
-    #    pass
+    if ask_yes_no('Connect to PCO detector?'):
+        driver = client_or_None('pco', client_name=f'main-client-{THIS_HOST}')
+        if driver:
+            drivers['pco'] = driver
 
-    #if ask_yes_no('Initialise Andor camera?'):
-    #    pass
-
-    #if ask_yes_no('Initialise microscope?'):
-    #    pass
-
-    if ask_yes_no('Initialise rotation stage?'):
+    if ask_yes_no('Connect to Aerotech rotation stage?'):
         driver =  client_or_None('aerotech', client_name=f'main-client-{THIS_HOST}')
         if driver:
             drivers['aerotech'] = driver
             from . import aerotech
             motors['rot'] = aerotech.Motor('rot', driver)
 
-    if ask_yes_no('Initialise Newport XPS motors?'):
+    if ask_yes_no('Connect to Newport XPS motors?'):
         driver =  client_or_None('xps1', client_name=f'main-client-{THIS_HOST}')
         if driver:
             drivers['xps1'] = driver
@@ -124,7 +121,7 @@ def init(yes=None):
             from . import xps
             motors['xps3'] = xps.Motor('xps3', driver)
 
-    if ask_yes_no('Initialize mecademic robot?'):
+    if ask_yes_no('Connect to mecademic robot?'):
         driver =  client_or_None('mecademic', client_name=f'main-client-{THIS_HOST}')
         if driver:
             drivers['mecademic'] = driver
@@ -215,7 +212,7 @@ def load_past_investigations(path=None):
     Scan data_path directory structure and extract past investigations/experiments.
 
     """
-    path = path or data_path
+    path = path or DATA_PATH
 
     investigations = {}
 
@@ -249,7 +246,7 @@ def choose_investigation(name=None):
     """
     # Load past investigations if needed
     if not INVESTIGATIONS:
-        load_past_investigations(data_path)
+        load_past_investigations(DATA_PATH)
 
     if name is not None:
         inv = name
@@ -279,7 +276,7 @@ def choose_experiment(name=None, inv=None):
     """
     # Load past investigations if needed
     if not INVESTIGATIONS:
-        load_past_investigations(data_path)
+        load_past_investigations(DATA_PATH)
 
     # Use global investigation name if none was provided
     if inv is None:
@@ -304,7 +301,7 @@ def choose_experiment(name=None, inv=None):
                 exp = user_prompt('Enter new experiment name:')
             else:
                 exp = expkeys[ichoice - 1]
-    exp_path = os.path.join(os.path.join(data_path, inv), exp)
+    exp_path = os.path.join(os.path.join(DATA_PATH, inv), exp)
     print(f'Experiment: {exp} at {exp_path}')
     os.makedirs(exp_path, exist_ok=True)
     manager.getManager().experiment = exp

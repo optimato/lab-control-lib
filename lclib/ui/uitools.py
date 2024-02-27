@@ -6,7 +6,6 @@ This file is part of labcontrol
 """
 import sys
 
-
 __all__ = ['is_interactive', 'ask', 'ask_yes_no', 'user_prompt']
 
 # Would be better to check if a client is connected...

@@ -17,12 +17,10 @@ from select import select
 
 import zmq.log.handlers
 
-from . import conf_path, FileDict
-from .util.future import Future
-from .util.proxydevice import proxycall
-from .util.logs import logger as rootlogger
-from .util.logs import json_formatter
-
+from . import conf_path, proxycall
+from .util import FileDict, Future
+from .logs import logger as rootlogger
+from .logs import json_formatter
 
 class MotorLimitsException(Exception):
     pass

@@ -14,8 +14,6 @@ task thread immediately after completion of the target function.
 This file is part of labcontrol
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
-
-
 import threading
 
 

@@ -11,10 +11,8 @@ This file is part of labcontrol
 from functools import wraps
 from datetime import datetime
 import logging
-import time
 import importlib.util
 from . import utcnow
-from .future import Future
 
 DEFAULT_BUCKET = 'labcontrol'
 

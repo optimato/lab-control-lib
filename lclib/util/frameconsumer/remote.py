@@ -7,8 +7,10 @@ that shared_memory is faster than passing the data through a socket.
 
 Example
 
-h5w = H5FileWriter.start_process()   # This starts the process and returns the class that can be used to interact
-h5w.store(filename, data, meta) # This copies the data to shared memory and flags the process to save it.
+fw = FrameWriterProcess()   # This starts the process and returns the class that can be used to interact
+fw.open(filename)           # Prepare to save a new file
+fw.store(data, meta)        # Pass data through shared memory
+fw.close()                  # Store data to file.
 
 This file is part of labcontrol
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
@@ -28,7 +30,7 @@ try:
 except ImportError:
     import shared_memory
 
-from labcontrol.util.logs import logger as rootlogger
+from labcontrol.lclib.logs import logger as rootlogger
 
 # 100 varex full frames
 BUFFERSIZE = 100 * 2 * 1536 * 1944
@@ -252,11 +254,12 @@ class FrameStreamerRemoteService(FrameConsumerRemoteService):
 
 
 if __name__ == "__main__":
-    # Entry point for the process
+    # Entry point for the process spawned by FrameConsumerProcess._start_server()
     import sys
 
     cname = sys.argv[1]
-    # Serve the service.
+
+    # Serve the service. There might be a more elegant way to treat the different cases...
     if cname == 'FrameWriterProcess':
         t = rpyc.ThreadedServer(
             service=FrameWriterRemoteService,
@@ -279,13 +282,18 @@ if __name__ == "__main__":
         )
     else:
         raise(f'Unknown process name "{sys.argv[1]}"')
+
+    # Create of access the shared memory buffer
     data_buffer = create_shared_buffer(cname)
-    print('Server is starting now')
+
+    # Start serving
     try:
         t.start()
     except KeyboardInterrupt:
-        print('received sigint')
-    print('done')
+        # sigint is sent from main process to terminate
+        pass
+
+    # Unlink shared memory
     try:
         data_buffer.unlink()
     except FileNotFoundError:

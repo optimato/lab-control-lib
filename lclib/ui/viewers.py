@@ -12,11 +12,10 @@ from napari.qt.threading import create_worker
 import napari.utils.notifications
 import numpy as np
 import time
-import logging
 
-from .imstream import FrameSubscriber
-from .logs import logger as rootlogger
-from .guitools import LiveView, FrameCorrection, StatusBar, Signal, Options, CAMERA_NAMES
+from ..util import FrameSubscriber
+from ..logs import logger as rootlogger
+from .guitools import LiveView, FrameCorrection, StatusBar, Signal, Options
 
 
 class ViewerBase:

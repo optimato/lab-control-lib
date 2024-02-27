@@ -14,7 +14,7 @@ import threading
 import time
 import datetime
 
-from .future import Future
+from .util import Future
 
 # This adds another debug level but it is not well managed by
 # zmq.logs.PubHandler so for now not used.

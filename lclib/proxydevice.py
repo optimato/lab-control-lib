@@ -81,9 +81,8 @@ import traceback
 import builtins
 import pickle
 
-from .future import Future
+from .util import Future
 from .logs import logger as rootlogger
-
 
 __all__ = ['proxydevice', 'proxycall', 'ProxyDeviceError']
 
@@ -109,7 +108,7 @@ class ProxyDeviceError(Exception):
 
 # Register custom error
 rpyc.core.vinegar._generic_exceptions_cache[
-    "labcontrol.util.proxydevice_rpyc.ProxyDeviceError"] = ProxyDeviceError
+    "lclib.util.proxydevice.ProxyDeviceError"] = ProxyDeviceError
 
 
 class ThreadedServer(rpyc.ThreadedServer):

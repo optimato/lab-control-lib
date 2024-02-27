@@ -1,6 +1,6 @@
 """
 FrameConsumer: passing frames to a thread for I/O and other operations.
-See frameconsumer_mp or frameconsumer_th for versions that use another process.
+See remote for a version that runs also on a separate process.
 
 This file is part of labcontrol
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
@@ -12,9 +12,10 @@ import numpy as np
 import copy
 from queue import SimpleQueue, Empty
 
-from ..future import Future
-from ..logs import logger as rootlogger
-from .. import h5write
+from labcontrol.lclib.util.imstream import FramePublisher
+from labcontrol.lclib.util.future import Future
+from labcontrol.lclib.logs import logger as rootlogger
+from labcontrol.lclib.util.h5rw import h5write
 
 __all__ = ['FrameWriter', 'FrameStreamer']
 
@@ -33,7 +34,6 @@ class FrameWorker:
     def _loop(self):
         """
         Run on a thread, wait for new frame to process
-        Returns:
         """
         self.logger.debug("Entered worker loop")
         while True:
@@ -125,7 +125,6 @@ class StreamWorker(FrameWorker):
     logger = rootlogger.getChild('StreamWorker')
 
     def __init__(self, broadcast_port):
-        from ..imstream import FramePublisher
 
         self.broadcast_port = broadcast_port
         self.broadcaster = FramePublisher(port=self.broadcast_port)

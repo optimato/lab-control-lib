@@ -12,7 +12,7 @@ import numpy as np
 import logging
 import threading
 import time
-from .future import Future
+from . import Future
 
 class FramePublisher:
     """

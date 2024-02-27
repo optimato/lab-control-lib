@@ -69,12 +69,9 @@ import threading
 from queue import SimpleQueue, Empty
 import time
 
-from . import manager
+from . import manager, proxycall
 from .base import DriverBase
-from .util import now, FramePublisher
-from .util.proxydevice import proxydevice, proxycall
-from .util.future import Future
-from .util import frameconsumer
+from .util import now, Future, frameconsumer
 
 DEFAULT_FILE_FORMAT = 'hdf5'
 DEFAULT_BROADCAST_PORT = 5555
