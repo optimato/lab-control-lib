@@ -15,17 +15,16 @@ import time
 import threading
 
 from . import (DATA_PATH,
-               NETWORK_CONF,
+               MANAGER_ADDRESS,
                Classes,
                client_or_None,
                THIS_HOST,
                register_proxy_client,
                proxycall,
                proxydevice)
-from .util import Future, datalogger
+from .util import Future
 from .base import DriverBase
 from .logs import logging_muted
-NET_INFO = NETWORK_CONF['manager']
 
 logtags = {'type': 'manager',
            'branch': 'both'
@@ -47,7 +46,7 @@ def getManager():
 
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=MANAGER_ADDRESS)
 class Manager(DriverBase):
     """
     Management of experiment structures and metadata.
@@ -247,7 +246,6 @@ class Manager(DriverBase):
         self.clients_loop_future.join()
 
     @proxycall()
-    @datalogger.meta(field_name='scan_start', tags=logtags)
     def start_scan(self, label=None):
         """
                 Start a new scan.
@@ -289,7 +287,6 @@ class Manager(DriverBase):
         return scan_info
 
     @proxycall()
-    @datalogger.meta(field_name='scan_stop', tags=logtags)
     def end_scan(self):
         """
         Finalize the scan

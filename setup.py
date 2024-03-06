@@ -39,7 +39,7 @@ setup(
     package_dir={'lclib': 'lclib'},
     packages=['lclib',
              'lclib.ui',
-             'lclib.util'
+             'lclib.util',
              'lclib.util.frameconsumer'],
     scripts=[
         'bin/lc'

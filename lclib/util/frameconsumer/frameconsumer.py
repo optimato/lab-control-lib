@@ -12,10 +12,10 @@ import numpy as np
 import copy
 from queue import SimpleQueue, Empty
 
-from labcontrol.lclib.util.imstream import FramePublisher
-from labcontrol.lclib.util.future import Future
-from labcontrol.lclib.logs import logger as rootlogger
-from labcontrol.lclib.util.h5rw import h5write
+from .. import FramePublisher
+from .. import Future
+from . import logger as rootlogger
+from .. import h5write
 
 __all__ = ['FrameWriter', 'FrameStreamer']
 

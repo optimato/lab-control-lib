@@ -15,9 +15,7 @@ import socket
 import signal
 from select import select
 
-import zmq.log.handlers
-
-from . import conf_path, proxycall
+from . import CONF_PATH, proxycall
 from .util import FileDict, Future
 from .logs import logger as rootlogger
 from .logs import json_formatter
@@ -84,7 +82,6 @@ class DriverBase:
     """
 
     logger = None                       # Place-holder. Gets defined at construction.
-    DEFAULT_LOGGING_ADDRESS = None      # The default address for logging broadcast
     DEFAULT_CONFIG = {}
 
     def __init__(self):
@@ -104,15 +101,8 @@ class DriverBase:
         if not hasattr(self, 'name'):
             self.name = self.__class__.__name__
 
-        if self.DEFAULT_LOGGING_ADDRESS is not None:
-            pub_interface = f'tcp://*:{self.DEFAULT_LOGGING_ADDRESS[1]}'
-            pub_handler = zmq.log.handlers.PUBHandler(pub_interface, root_topic=self.name)
-            pub_handler.setFormatter(json_formatter)
-            self.logger.addHandler(pub_handler)
-            self.logger.info(f'Driver {self.name} publishing logs on {pub_interface} (topic: "{self.name}").')
-
         # Load (or create) config dictionary
-        self.config_filename = os.path.join(conf_path, 'drivers', self.name + '.json')
+        self.config_filename = os.path.join(CONF_PATH, 'drivers', self.name + '.json')
         self.config = FileDict(self.config_filename)
 
         # Make sure all default keys are present
@@ -431,7 +421,7 @@ class MotorBase:
         self.logger = logging.getLogger(name)
 
         # File name for motor configuration
-        self.config_file = os.path.join(conf_path, 'motors', name + '.json')
+        self.config_file = os.path.join(CONF_PATH, 'motors', name + '.json')
 
         # Load offset configs
         self._load_config()

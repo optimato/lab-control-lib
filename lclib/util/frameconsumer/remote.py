@@ -30,7 +30,7 @@ try:
 except ImportError:
     import shared_memory
 
-from labcontrol.lclib.logs import logger as rootlogger
+from . import logger as rootlogger
 
 # 100 varex full frames
 BUFFERSIZE = 100 * 2 * 1536 * 1944
