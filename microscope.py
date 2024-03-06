@@ -98,11 +98,11 @@ This file is part of labcontrol
 import serial
 import threading
 
-from . import register_proxy_client
-from .base import MotorBase, SocketDriverBase
+from lclib import register_proxy_client, proxycall, proxydevice
+from labcontrol.lclib.util.future import Future
+from lclib.base import SocketDriverBase
 from .network_conf import MICROSCOPE as NET_INFO
-from .util.proxydevice import proxydevice, proxycall
-from .util.future import Future
+
 
 __all__ = ['Microscope']
 
@@ -110,7 +110,7 @@ PORT_NAME = 'COM3'
 
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class Microscope(SocketDriverBase):
     """
     Optique Peter microscope driver. Talks to tango box through pyserial.
@@ -118,7 +118,6 @@ class Microscope(SocketDriverBase):
     Much of the SocketDriverBase mechanics is the same, so we reuse this.
     """
 
-    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
     EOL = b'\r'                         # End of API sequence
     DEVICE_TIMEOUT = None               # Device socket timeout

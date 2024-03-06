@@ -16,12 +16,11 @@ import socket
 import os
 import threading
 
-from . import register_proxy_client
-from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException, _recv_all
+from lclib import register_proxy_client, proxycall, proxydevice
+from lclib.base import MotorBase, SocketDriverBase, emergency_stop, DeviceException, _recv_all
+from labcontrol.lclib.util.future import Future
 from .network_conf import MECADEMIC as NET_INFO, MECADEMIC_MONITOR
-from .util.future import Future
-from .util.proxydevice import proxydevice, proxycall
-from .datalogger import datalogger
+from labcontrol.lclib.datalogger import datalogger
 
 __all__ = ['Mecademic', 'create_motors', 'MecademicMonitor']#, 'Motor']
 
@@ -185,7 +184,7 @@ class MecademicMonitorLog(MecademicMonitor):
 
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class Mecademic(SocketDriverBase):
     """
     Mecademic robot arm driver

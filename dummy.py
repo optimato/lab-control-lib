@@ -10,21 +10,22 @@ import time
 import socket
 
 from . import register_proxy_client
-from .base import MotorBase, SocketDriverBase, emergency_stop, _recv_all
+from labcontrol.lclib.base import MotorBase, SocketDriverBase, emergency_stop, _recv_all
 from .network_conf import DUMMY as NET_INFO
-from .datalogger import datalogger
-from .util.proxydevice import proxydevice, proxycall
+from labcontrol.lclib.datalogger import datalogger
+from labcontrol.util import proxycall
+from .lclib import proxydevice
 
 __all__ = ['Dummy', 'Motor']
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class Dummy(SocketDriverBase):
     """
     Dummy Daemon
     """
     DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
-    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
+
     # temporization for rapid status checks during moves.
     POLL_INTERVAL = 0.01
 

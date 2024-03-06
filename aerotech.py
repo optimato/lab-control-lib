@@ -45,23 +45,21 @@ This file is part of labcontrol
 
 import time
 
-from . import register_proxy_client
-from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
+from lclib import register_proxy_client, proxycall, proxydevice
+from lclib.base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .network_conf import AEROTECH as NET_INFO
-from .util.proxydevice import proxydevice, proxycall
-from .util.uitools import ask_yes_no
+from lclib.ui import ask_yes_no
 
 __all__ = ['Aerotech', 'Motor']
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class Aerotech(SocketDriverBase):
     """
     Aerotech socket driver.
     """
 
     DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
-    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     POLL_INTERVAL = 0.01     # temporization for rapid status checks during moves.
     EOL = b'\n'
 

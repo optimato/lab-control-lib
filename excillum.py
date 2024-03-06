@@ -10,12 +10,11 @@ This file is part of labcontrol
 """
 import time
 
-from . import register_proxy_client
-from .base import SocketDriverBase
+from lclib import register_proxy_client, proxycall, proxydevice
+from lclib.base import SocketDriverBase
 from .network_conf import EXCILLUM as NET_INFO
-from .util.uitools import ask_yes_no
-from .util.proxydevice import proxydevice, proxycall
-from .datalogger import datalogger
+from lclib.ui import ask_yes_no
+from labcontrol.lclib.datalogger import datalogger
 
 logtags = {'type': 'source',
            'branch': 'both',
@@ -46,14 +45,13 @@ def float_or_None(value):
 
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class Excillum(SocketDriverBase):
     """
     Excillum Driver.
     """
 
     DEFAULT_DEVICE_ADDRESS = NET_INFO['device']
-    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     EOL = EOL
     KEEPALIVE_INTERVAL = 60
 

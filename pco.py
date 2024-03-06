@@ -18,11 +18,10 @@ import logging
 import time
 import threading
 
-from . import manager, register_proxy_client
-from .camera import CameraBase
+from lclib import register_proxy_client, proxycall, proxydevice, manager
+from lclib.camera import CameraBase
+from labcontrol.lclib.util.future import Future
 from .network_conf import PCO as NET_INFO
-from .util.proxydevice import proxycall, proxydevice
-from .util.future import Future
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,7 @@ else:
 __all__ = ['PCO']
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class PCO(CameraBase):
     """
     PCO Edge Driver
@@ -55,7 +54,6 @@ class PCO(CameraBase):
     SHORT_EXPOSURE_TIME = 0.2 # Threshold below which we just "grab frame"
     INTERFACE = 'Camera Link ME4'
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
-    DEFAULT_LOGGING_ADDRESS = None #NET_INFO['logging']
     LOCAL_DEFAULT_CONFIG = {'number_of_images': 16,            # The size of the ring buffer
                             'record_mode': 'ring buffer',      # Acquisition mode - always ring buffer
                             'binning':(1, 1),                  # binning

@@ -9,13 +9,11 @@ import time
 import importlib.util
 import logging
 import numpy as np
-from threading import Event
 
-from . import manager, register_proxy_client
-from .camera import CameraBase
+from lclib import register_proxy_client, proxycall, proxydevice, manager
+from lclib.camera import CameraBase
 from .network_conf import VAREX as NET_INFO
-from .util.proxydevice import proxydevice
-from .util.future import Future
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +33,7 @@ __all__ = ['Varex']
 
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class Varex(CameraBase):
     """
     Varex Driver
@@ -45,7 +43,6 @@ class Varex(CameraBase):
     PIXEL_SIZE = 74.8  # Physical pixel pitch in micrometers
     SHAPE = (1536, 1944)  # Native array shape (vertical, horizontal - after 90 degree cc rotation)
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
-    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     MAX_FPS = 5           # The real max FPS is higher (especially in binning mode) but this seems sufficient.
     LOCAL_DEFAULT_CONFIG = {'binning':'x11',
                             'full_well_mode': 'high',

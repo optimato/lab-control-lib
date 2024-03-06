@@ -11,11 +11,11 @@ import importlib.util
 import logging
 import numpy as np
 
-from . import manager, register_proxy_client
-from .camera import CameraBase
+from lclib import register_proxy_client, proxycall, proxydevice, manager
+from lclib.camera import CameraBase
+from labcontrol.lclib.util.future import Future
 from .network_conf import XLAM as NET_INFO
-from .util.proxydevice import proxycall, proxydevice
-from .util.future import Future
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ __all__ = ['Xlam']
 
 
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class Xlam(CameraBase):
     """
     X-Spectrum lambda 350 Driver
@@ -45,7 +45,6 @@ class Xlam(CameraBase):
     PIXEL_SIZE = 55     # Physical pixel pitch in micrometers
     SHAPE = (516, 772)   # Native array shape (vertical, horizontal)
     DEFAULT_BROADCAST_PORT = NET_INFO['broadcast_port']
-    DEFAULT_LOGGING_ADDRESS = NET_INFO['logging']
     SYSTEM_FILE = '/etc/opt/xsp/system.yml'
     LOCAL_DEFAULT_CONFIG = {'beam_energy': None,
                             'charge_summing':'on',

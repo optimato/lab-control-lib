@@ -93,13 +93,11 @@ and subsequently calling the relative movement function.
 """
 
 import time
-import json
 
-from . import register_proxy_client
-from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
-from .util.uitools import ask_yes_no
-from .util.proxydevice import proxydevice, proxycall
+from lclib import register_proxy_client, proxycall, proxydevice
+from lclib.base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
 from .network_conf import NETWORK_CONF
+
 
 __all__ = ['McLennan1', 'McLennan2', 'McLennan3', 'Motor']
 
@@ -592,7 +590,7 @@ class McLennan(SocketDriverBase):
 
 NET_INFO = NETWORK_CONF['mclennan1']
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class McLennan1(McLennan):
     """
     Driver for motor 1
@@ -607,7 +605,7 @@ class McLennan1(McLennan):
 
 NET_INFO = NETWORK_CONF['mclennan2']
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class McLennan2(McLennan):
     """
     Driver for motor 2
@@ -622,7 +620,7 @@ class McLennan2(McLennan):
 
 NET_INFO = NETWORK_CONF['mclennan3']
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class McLennan3(McLennan):
     """
     Driver for motor 3

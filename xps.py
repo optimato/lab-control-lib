@@ -6,12 +6,10 @@ This file is part of labcontrol
 """
 import time
 
-from . import register_proxy_client
-from .base import MotorBase, SocketDriverBase, emergency_stop, DeviceException
+from lclib import register_proxy_client, proxycall, proxydevice
+from lclib.base import MotorBase, SocketDriverBase, emergency_stop
+from labcontrol.lclib.util.future import Future
 from .network_conf import NETWORK_CONF
-from .util.proxydevice import proxydevice, proxycall
-from .util.future import Future
-from .util.logs import logger as rootlogger
 
 __all__ = ['XPS1', 'XPS2', 'XPS3', 'Motor']
 
@@ -210,39 +208,36 @@ class XPS(SocketDriverBase):
 
 NET_INFO = NETWORK_CONF['xps1']
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class XPS1(XPS):
     """
     Driver for motor 1
     """
     DEFAULT_DEVICE_ADDRESS = NETWORK_CONF['xps1']['device']
-    DEFAULT_LOGGING_ADDRESS = NETWORK_CONF['xps1']['logging']
 
     def __init__(self, device_address=None):
         super().__init__(name='xps1', axis='Group1.Pos')
 
 NET_INFO = NETWORK_CONF['xps2']
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class XPS2(XPS):
     """
     Driver for motor 2
     """
     DEFAULT_DEVICE_ADDRESS = NETWORK_CONF['xps2']['device']
-    DEFAULT_LOGGING_ADDRESS = NETWORK_CONF['xps2']['logging']
 
     def __init__(self, device_address=None):
         super().__init__(name='xps2', axis='Group2.Pos')
 
 NET_INFO = NETWORK_CONF['xps3']
 @register_proxy_client
-@proxydevice(address=NET_INFO['control'], stream_address=NET_INFO['stream'])
+@proxydevice(address=NET_INFO['control'])
 class XPS3(XPS):
     """
     Driver for motor 3
     """
     DEFAULT_DEVICE_ADDRESS = NETWORK_CONF['xps3']['device']
-    DEFAULT_LOGGING_ADDRESS = NETWORK_CONF['xps3']['logging']
 
     def __init__(self, device_address=None):
         super().__init__(name='xps3', axis='Group3.Pos')
@@ -253,7 +248,6 @@ class XPSMotion(SocketDriverBase):
     A second pseudo-driver that connects to send blocking motion commands.
     """
 
-    DEFAULT_LOGGING_ADDRESS = None
     EOL = EOL
 
     def __init__(self, device_address, axis):
