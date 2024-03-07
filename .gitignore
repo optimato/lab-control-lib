@@ -112,4 +112,4 @@ xnig.log
 .idea/
 
 #version file
-labcontrol/lclib/_version.py
+lclib/_version.py

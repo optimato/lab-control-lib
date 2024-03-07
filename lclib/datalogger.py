@@ -6,7 +6,7 @@ This file is part of labcontrol
 """
 from . import manager
 from .util import DataLogger
-from . import NETWORK_CONF, THIS_HOST
+from . import config
 
 __all__ = ['datalogger']
 
@@ -31,12 +31,12 @@ class LCDataLogger(DataLogger):
         man = manager.getManager()
 
         if man is None:
-            tags = {'host': THIS_HOST}
+            tags = {'host': config['this_host']}
         else:
             tags = {'investigation': man.investigation or 'undefined',
                     'experiment': man.experiment or 'undefined',
                     'scan_name': man.scan_name or 'undefined',
-                    'host': THIS_HOST}
+                    'host': config['this_host']}
         return tags
 
 

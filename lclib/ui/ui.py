@@ -11,7 +11,7 @@ import inspect
 import os
 import logging
 
-from .. import drivers, motors, DATA_PATH, client_or_None, THIS_HOST
+from .. import config, drivers, motors, client_or_None
 from . import uitools
 from . import ask, ask_yes_no, user_prompt
 from ..logs import logger as rootlogger
@@ -212,7 +212,7 @@ def load_past_investigations(path=None):
     Scan data_path directory structure and extract past investigations/experiments.
 
     """
-    path = path or DATA_PATH
+    path = path or config['data_path']
 
     investigations = {}
 
@@ -246,7 +246,7 @@ def choose_investigation(name=None):
     """
     # Load past investigations if needed
     if not INVESTIGATIONS:
-        load_past_investigations(DATA_PATH)
+        load_past_investigations(config['data_path'])
 
     if name is not None:
         inv = name
@@ -276,7 +276,7 @@ def choose_experiment(name=None, inv=None):
     """
     # Load past investigations if needed
     if not INVESTIGATIONS:
-        load_past_investigations(DATA_PATH)
+        load_past_investigations(config['data_path'])
 
     # Use global investigation name if none was provided
     if inv is None:
@@ -301,7 +301,7 @@ def choose_experiment(name=None, inv=None):
                 exp = user_prompt('Enter new experiment name:')
             else:
                 exp = expkeys[ichoice - 1]
-    exp_path = os.path.join(os.path.join(DATA_PATH, inv), exp)
+    exp_path = os.path.join(os.path.join(config['data_path'], inv), exp)
     print(f'Experiment: {exp} at {exp_path}')
     os.makedirs(exp_path, exist_ok=True)
     manager.getManager().experiment = exp

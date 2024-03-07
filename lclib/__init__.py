@@ -68,22 +68,34 @@ motors = {}  # dictionary of motor instances
 DEFAULT_MANAGER_PORT = 5001
 
 # Global variables set by init()
-LABORATORY = None
-LOCAL_HOSTNAME = None
-LOCAL_IP_LIST = []
-THIS_HOST = None
-HOST_IPS = None
-DATA_PATH = None
-MANAGER_ADDRESS = None
-CONF_PATH = None
+MANAGER_ADDRESS = ('control', DEFAULT_MANAGER_PORT)
 config = None
 LOG_DIR = None
+
+# Get computer name and IP addresses
+uname = platform.uname()
+local_hostname = uname.node
+if uname.system == "Linux":
+    iface_info = json.loads(subprocess.run(['ip', '-j', '-4', 'addr'], capture_output=True).stdout.decode())
+    local_ip_list = [iface['addr_info'][0]['local'] for iface in iface_info]
+elif uname.system == "Windows":
+    s = subprocess.run(['ipconfig', '/allcompartments'], capture_output=True).stdout.decode()
+    local_ip_list = [x.split(' ')[-1] for x in s.split('\r\n') if x.strip().startswith('IPv4')]
+else:
+    raise RuntimeError(f'Unknown system platform {uname.system}')
+
+# Remove localhost (not there under windows)
+try:
+    local_ip_list.remove('127.0.0.1')
+except ValueError:
+    pass
 
 from . import ui
 from .proxydevice import ProxyDeviceError, proxydevice, proxycall
 from .util import FileDict
 from . import logs
 from ._version import version
+
 
 def init(lab_name,
          host_ips=None,
@@ -98,41 +110,44 @@ def init(lab_name,
         data_path: Main path to save data (from control node)
         manager_address: the address for the manager.
     """
-    global LABORATORY, LOCAL_HOSTNAME, LOCAL_IP_LIST, THIS_HOST, HOST_IPS, DATA_PATH, CONF_PATH, config, LOG_DIR, MANAGER_ADDRESS
+    global config, LOG_DIR, MANAGER_ADDRESS
 
     #
     # Lab name
     #
 
     assert type(lab_name) is str, f'"lab_name" is not a string!'
-    LABORATORY = lab_name
 
     #
     # Persistent configuration file
     #
-    CONF_PATH = os.path.expanduser(f"~/.{LABORATORY.lower()}-labcontrol/")
-    os.makedirs(CONF_PATH, exist_ok=True)
-    conf_file = os.path.join(CONF_PATH, 'config.json')
+    conf_path = os.path.expanduser(f"~/.{lab_name.lower()}-labcontrol/")
+    os.makedirs(conf_path, exist_ok=True)
+    conf_file = os.path.join(conf_path, 'config.json')
     config = FileDict(conf_file)
+    config.setdefault('lab_name', lab_name)
+    config['conf_path'] = conf_path
+
+    # Store local info extracted already at import
+    config['local_hostname'] = local_hostname
+    config['local_ip_list'] = local_ip_list
 
     #
     # Host IP dictionary
     #
     if host_ips is None:
-        HOST_IPS = config['host_ips']
+        host_ips = config['host_ips']
     else:
-        HOST_IPS = host_ips
         config['host_ips'] = host_ips
 
-    assert 'control' in HOST_IPS, 'Mandatory "control" entry missing in "host_ips"!'
+    assert 'control' in host_ips, 'Mandatory "control" entry missing in "host_ips"!'
 
     #
     # Data path
     #
     if data_path is None:
-        DATA_PATH = config['data_path']
+        data_path = config['data_path']
     else:
-        DATA_PATH = 'data_path'
         config['data_path'] = data_path
 
     #
@@ -140,7 +155,7 @@ def init(lab_name,
     #
     if manager_address is None:
         # Get manager address from config file, or revert to default
-        MANAGER_ADDRESS = config.get('manager_address', (HOST_IPS['control'], DEFAULT_MANAGER_PORT))
+        MANAGER_ADDRESS = config.get('manager_address', (host_ips['control'], DEFAULT_MANAGER_PORT))
     else:
         MANAGER_ADDRESS = manager_address
     config['manager_address'] = MANAGER_ADDRESS
@@ -148,45 +163,29 @@ def init(lab_name,
     #
     # Identify this computer by matching IP with HOST_IPS
     #
-    uname = platform.uname()
-    LOCAL_HOSTNAME = uname.node
-    if uname.system == "Linux":
-        iface_info = json.loads(subprocess.run(['ip', '-j', '-4',  'addr'], capture_output=True).stdout.decode())
-        LOCAL_IP_LIST = [iface['addr_info'][0]['local'] for iface in iface_info]
-    elif uname.system == "Windows":
-        s = subprocess.run(['ipconfig', '/allcompartments'], capture_output=True).stdout.decode()
-        LOCAL_IP_LIST = [x.split(' ')[-1] for x in s.split('\r\n') if x.strip().startswith('IPv4')]
-    else:
-        raise RuntimeError(f'Unknown system platform {uname.system}')
-
-    # Remove localhost (not there under windows)
     try:
-        LOCAL_IP_LIST.remove('127.0.0.1')
-    except ValueError:
-        pass
-
-    # Check which machine this is
-    try:
-        THIS_HOST = [name for name, ip in HOST_IPS.items() if ip in LOCAL_IP_LIST][0]
+        this_host = [name for name, ip in host_ips.items() if ip in local_ip_list][0]
     except IndexError:
         print('Host IP not part of the control network.')
-        THIS_HOST = 'unknown'
+        this_host = 'unknown'
 
-    print('\n'.join(['*{:^64s}*'.format(f"{LABORATORY} Lab Control"),
-                     '*{:^64s}*'.format(f"Running on host '{LOCAL_HOSTNAME}'"),
-                     '*{:^64s}*'.format(f"a.k.a. '{THIS_HOST}' with IP {LOCAL_IP_LIST}")
+    config['this_host'] = this_host
+
+    print('\n'.join(['*{:^64s}*'.format(f"{lab_name} Lab Control"),
+                     '*{:^64s}*'.format(f"Running on host '{local_hostname}'"),
+                     '*{:^64s}*'.format(f"a.k.a. '{this_host}' with IP {local_ip_list}")
                      ])
           )
 
     #
     # SETUP LOGGING
     #
-    LOG_DIR = os.path.join(CONF_PATH, 'logs/')
+    LOG_DIR = os.path.join(conf_path, 'logs/')
     os.makedirs(LOG_DIR, exist_ok=True)
 
     # Log to file interactive sessions
     if ui.is_interactive():
-        log_file_name = os.path.join(LOG_DIR, f'{LABORATORY.lower()}-labcontrol.log')
+        log_file_name = os.path.join(LOG_DIR, f'{lab_name.lower()}-labcontrol.log')
         logs.log_to_file(log_file_name)
         print('*{0:^64}*'.format('[Logging to file on this host]'))
     else:

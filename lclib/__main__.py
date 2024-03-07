@@ -11,17 +11,20 @@ import os
 import click
 import logging
 
-from . import LABORATORY, THIS_HOST, LOCAL_HOSTNAME, client_or_None, Classes, LOG_DIR, LOCAL_IP_LIST
-from . import HOST_IPS
+from . import config, client_or_None, Classes, LOG_DIR
 from .camera import CameraBase
 from .logs import logging_muted, log_to_file, logger as rootlogger
 from . import ui
+
+# This computer
+this_host = config['this_host']
 
 # List of addresses to access registered devices
 DEVICE_ADDRESSES = {name: cls.Server.ADDRESS for name, cls in Classes.items()}
 
 # List of devices that can run on this host
-AVAILABLE = [name for name, address in DEVICE_ADDRESSES.items() if address[0] in LOCAL_IP_LIST]
+local_ip_list = config['local_ip_list']
+AVAILABLE = [name for name, address in DEVICE_ADDRESSES.items() if address[0] in local_ip_list]
 
 # List Camera devices
 CAMERAS = {name: cls for name, cls in Classes.items() if CameraBase in cls.__bases__}
@@ -41,7 +44,7 @@ def running():
     with logging_muted():
         for name in Classes.keys():
             click.echo(f' * {name+":":<20}', nl=False)
-            d = client_or_None(name, client_name=f'check-{THIS_HOST}')
+            d = client_or_None(name, client_name=f'check-{this_host}')
             if d is not None:
                 click.secho('YES', fg='green')
             else:
@@ -74,13 +77,13 @@ def start(name, loglevel, loglevel_global):
     name = name[0]
 
     if name not in AVAILABLE:
-        raise click.BadParameter(f'Driver {name} cannot be launched from host {THIS_HOST} ({LOCAL_HOSTNAME}).')
+        raise click.BadParameter(f'Driver {name} cannot be launched from host {this_host} ({config["local_hostname"]}).')
 
     click.echo(f'{name+":":<15}', nl=False)
 
     # Check if already running
     with logging_muted():
-        d = client_or_None(name, client_name=f'check-{THIS_HOST}')
+        d = client_or_None(name, client_name=f'check-{this_host}')
     if d is not None:
         click.secho('ALREADY RUNNING', fg='yellow')
         return
@@ -114,7 +117,7 @@ def start(name, loglevel, loglevel_global):
 @cli.command(help='Kill the server proxy of driver [name] if running.')
 @click.argument('name', nargs=-1)
 def kill(name):
-    d = client_or_None(name[0], client_name=f'killer-{THIS_HOST}')
+    d = client_or_None(name[0], client_name=f'killer-{this_host}')
     if d:
         time.sleep(.2)
         d.ask_admin(True, True)
@@ -125,7 +128,7 @@ def kill(name):
 @cli.command(help='Kill all running server proxy.')
 def killall():
     # First ask manager to kill all other servers
-    d = client_or_None('manager', client_name=f'killer-{THIS_HOST}')
+    d = client_or_None('manager', client_name=f'killer-{this_host}')
     if not d:
         click.Abort('Could not connect to manager!')
     time.sleep(.5)

@@ -14,11 +14,10 @@ from datetime import datetime
 import time
 import threading
 
-from . import (DATA_PATH,
+from . import (config,
                MANAGER_ADDRESS,
                Classes,
                client_or_None,
-               THIS_HOST,
                register_proxy_client,
                proxycall,
                proxydevice)
@@ -39,7 +38,7 @@ def getManager():
     """
     if _client and _client[0]:
         return _client[0]
-    d = client_or_None('manager', admin=False, client_name=f'client-{THIS_HOST}')
+    d = client_or_None('manager', admin=False, client_name=f'client-{config["this_host"]}')
     _client.clear()
     _client.append(d)
     return d
@@ -276,7 +275,7 @@ class Manager(DriverBase):
         self.counter = 0
 
         # Create path (ok even if on control host)
-        os.makedirs(os.path.join(DATA_PATH, self.path, scan_name), exist_ok=True)
+        os.makedirs(os.path.join(config['data_path'], self.path, scan_name), exist_ok=True)
 
         scan_info = {'scan_number': self._scan_number,
                 'scan_name': scan_name,
@@ -338,7 +337,7 @@ class Manager(DriverBase):
         experiment path.
         """
         try:
-            exp_path = os.path.join(DATA_PATH, self.path)
+            exp_path = os.path.join(config['data_path'], self.path)
         except RuntimeError as e:
             return None
         scan_numbers = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
@@ -349,7 +348,7 @@ class Manager(DriverBase):
         If the current investigation / experiment values are set, check if path exists.
         """
         try:
-            full_path = os.path.join(DATA_PATH, self.path)
+            full_path = os.path.join(config['data_path'], self.path)
             if os.path.exists(full_path):
                 self.logger.info(f'Path {full_path} selected (exists).')
             else:
