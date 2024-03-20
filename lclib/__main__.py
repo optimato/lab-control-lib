@@ -1,7 +1,7 @@
 """
 Lab control CLI entry point.
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
@@ -11,7 +11,7 @@ import os
 import click
 import logging
 
-from . import config, client_or_None, Classes, LOG_DIR
+from . import config, client_or_None, _driver_classes, LOG_DIR
 from .camera import CameraBase
 from .logs import logging_muted, log_to_file, logger as rootlogger
 from . import ui
@@ -20,14 +20,14 @@ from . import ui
 this_host = config['this_host']
 
 # List of addresses to access registered devices
-DEVICE_ADDRESSES = {name: cls.Server.ADDRESS for name, cls in Classes.items()}
+DEVICE_ADDRESSES = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
 
 # List of devices that can run on this host
 local_ip_list = config['local_ip_list']
 AVAILABLE = [name for name, address in DEVICE_ADDRESSES.items() if address[0] in local_ip_list]
 
 # List Camera devices
-CAMERAS = {name: cls for name, cls in Classes.items() if CameraBase in cls.__bases__}
+CAMERAS = {name: cls for name, cls in _driver_classes.items() if CameraBase in cls.__bases__}
 
 @click.group(help='Labcontrol proxy driver management')
 def cli():
@@ -42,7 +42,7 @@ def list():
 def running():
     click.echo('Running drivers:\n\n')
     with logging_muted():
-        for name in Classes.keys():
+        for name in _driver_classes.keys():
             click.echo(f' * {name+":":<20}', nl=False)
             d = client_or_None(name, client_name=f'check-{this_host}')
             if d is not None:
@@ -102,7 +102,7 @@ def start(name, loglevel, loglevel_global):
     # Start the server
     # with logging_muted():
     # s = Classes[name].Server(address=net_info['control'], instantiate=True)
-    s = Classes[name].Server(instantiate=True)
+    s = _driver_classes[name].Server(instantiate=True)
 
 
     click.secho('RUNNING', fg='green')

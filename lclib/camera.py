@@ -60,7 +60,7 @@ File naming uses the following recipe:
   file_prefix is either CameraBase.file_prefix or CameraBase.file_prefix.format(self.counter)
   extension depends on CameraBase.file_format
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import os

@@ -12,7 +12,7 @@ fw.open(filename)           # Prepare to save a new file
 fw.store(data, meta)        # Pass data through shared memory
 fw.close()                  # Store data to file.
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import rpyc

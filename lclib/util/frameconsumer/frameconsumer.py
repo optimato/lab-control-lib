@@ -2,7 +2,7 @@
 FrameConsumer: passing frames to a thread for I/O and other operations.
 See remote for a version that runs also on a separate process.
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 

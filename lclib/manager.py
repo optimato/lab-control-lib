@@ -6,7 +6,7 @@ The structure is inspired from Elettra's storage structure
  - Experiment : Typically an experiment run (over days, possibly in multiple parts)
  - Scan : (instead of Elettra's "dataset") a numbered (and possibly labeled) dataset
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import os
@@ -16,9 +16,9 @@ import threading
 
 from . import (config,
                MANAGER_ADDRESS,
-               Classes,
+               _driver_classes,
                client_or_None,
-               register_proxy_client,
+               register_driver,
                proxycall,
                proxydevice)
 from .util import Future
@@ -44,7 +44,7 @@ def getManager():
     return d
 
 
-@register_proxy_client
+@register_driver
 @proxydevice(address=MANAGER_ADDRESS)
 class Manager(DriverBase):
     """
@@ -118,7 +118,7 @@ class Manager(DriverBase):
                 break
 
             # Loop through all registered driver classes
-            for name in Classes.keys():
+            for name in _driver_classes.keys():
                 if name.lower() == self.name.lower():
                     continue
                 # If client does not exist

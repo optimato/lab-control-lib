@@ -3,7 +3,7 @@ User interface (CLI)
 
 To be imported only by the interactive controlling process.
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
@@ -11,7 +11,7 @@ import inspect
 import os
 import logging
 
-from .. import config, drivers, motors, client_or_None
+from .. import _driver_classes, config, drivers, motors, client_or_None
 from . import uitools
 from . import ask, ask_yes_no, user_prompt
 from ..logs import logger as rootlogger
@@ -39,11 +39,26 @@ def init(yes=None):
     print(man.status())
     load_past_investigations()
 
-    # Excillum
-    if ask_yes_no("Connect to Excillum?"):
-        driver = client_or_None('excillum', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['excillum'] = driver
+    client_name = f'main-client-{config["this_host"]}'
+
+    # Loop through declared layout elements
+    for name, c in layout['classes'].items():
+        if c.get('disabled'):
+            logger.info(f'{name} set to "disabled".')
+            continue
+
+        admin = c.get('admin', True)
+        if ask_yes_no(f"Connect to {name}?"):
+            driver = client_or_None(name, admin=admin, client_name=client_name)
+            if driver:
+                drivers[name] = driver
+            else:
+                logger.warning(f"Could not connect to {name}")
+                continue
+            for motorname, create_call in c['motors'].items():
+                new_motor = create_call(driver)
+                motors[motorname] = new_motor
+                logger.info(f'Created motor "{motorname}" ({name})')
 
     # Smaract
     if ask_yes_no('Connect to smaracts?',

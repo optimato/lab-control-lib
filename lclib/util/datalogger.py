@@ -4,7 +4,7 @@ Data logging module
 The object DataLogger provides the functionality to all drivers to add time-stamped data points
 to an influxdb database (this backend could be changed easily if needed)
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 

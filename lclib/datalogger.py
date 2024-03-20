@@ -1,7 +1,7 @@
 """
 Data logging
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 from . import manager

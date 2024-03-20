@@ -3,7 +3,7 @@ Wrapper to store nearly anything in an hdf5 file.
 
 Earlier versions found in PTYPY
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import h5py

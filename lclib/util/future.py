@@ -11,7 +11,7 @@ smooth shutdowns.
 Callbacks are also implemented differently: a callback is always called by the
 task thread immediately after completion of the target function.
 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import threading

@@ -50,7 +50,7 @@ The init() method has to called early to inform the library of the most importan
  * the name and IP address of the relevant computers on the LAN, to identify the platform where the package is being runned
  * the network addresses and ports of all proxy servers and devices. In principle this information could be managed
    outside the library, but command line operations (see __main__.py) 
-This file is part of labcontrol
+This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
@@ -61,9 +61,11 @@ import subprocess
 
 # Base attribute definitions have to be done before relative imports
 
-Classes = {}   # Dictionary for driver classes (populated when drivers module load)
-drivers = {}   # dictionary for driver instances
-motors = {}  # dictionary of motor instances
+_driver_classes = {}   # Dictionary for driver classes (populated through @register_driver when drivers module load)
+_motor_classes = {}   # Dictionary for motor classes (populated when drivers module load)
+drivers = {}   # Dictionary for driver instances
+motors = {}    # Dictionary of motor instances
+layouts = {}   # Dictionary for declared experiment layouts
 
 DEFAULT_MANAGER_PORT = 5001
 
@@ -94,6 +96,7 @@ from . import ui
 from .proxydevice import ProxyDeviceError, proxydevice, proxycall
 from .util import FileDict
 from . import logs
+from .logs import logger
 from ._version import version
 
 
@@ -131,6 +134,22 @@ def init(lab_name,
     # Store local info extracted already at import
     config['local_hostname'] = local_hostname
     config['local_ip_list'] = local_ip_list
+
+    #
+    # Setup logging on file for interactive sessions
+    #
+    LOG_DIR = os.path.join(conf_path, 'logs/')
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+    # Log to file interactive sessions
+    if ui.is_interactive():
+        log_file_name = os.path.join(LOG_DIR, f'{lab_name.lower()}-labcontrol.log')
+        logs.log_to_file(log_file_name)
+        print('*{0:^64}*'.format('[Logging to file on this host]'))
+    else:
+        print('*{0:^64}*'.format('[Not logging to file on this host]'))
+
+    print()
 
     #
     # Host IP dictionary
@@ -177,28 +196,21 @@ def init(lab_name,
                      ])
           )
 
-    #
-    # SETUP LOGGING
-    #
-    LOG_DIR = os.path.join(conf_path, 'logs/')
-    os.makedirs(LOG_DIR, exist_ok=True)
 
-    # Log to file interactive sessions
-    if ui.is_interactive():
-        log_file_name = os.path.join(LOG_DIR, f'{lab_name.lower()}-labcontrol.log')
-        logs.log_to_file(log_file_name)
-        print('*{0:^64}*'.format('[Logging to file on this host]'))
-    else:
-        print('*{0:^64}*'.format('[Not logging to file on this host]'))
-
-    print()
-
-def register_proxy_client(cls):
+def register_driver(cls):
     """
-    A simple decorator to store all proxydriver clients in the `Clients` dictionary. Then
-    Starting a clients can be done based on names, e.g. Clients['varex'].Client()
+    A simple decorator to store all drivers in a dictionary.
     """
-    Classes[cls.__name__.lower()] = cls
+    _driver_classes[cls.__name__.lower()] = cls
+    return cls
+
+
+def register_motor(cls):
+    """
+    A simple decorator to store all motors in a dictionary.
+    """
+    # For now we include the module names because all class names might be the same.
+    _motor_classes['.'.join([cls.__module__, cls.__name__.lower()])] = cls
     return cls
 
 
@@ -217,14 +229,14 @@ def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
     """
 
     d = None
-    if name not in Classes:
+    if name not in _driver_classes:
         if inexistent_ok:
             logs.logger.info(f'{name}: not imported so ignored')
             return d
         else:
             raise RuntimeError(f'Could not find class {name}. Has the corresponding module been imported?')
     try:
-        d = Classes[name].Client(admin=admin, name=client_name)
+        d = _driver_classes[name].Client(admin=admin, name=client_name)
     except ProxyDeviceError as e:
         logs.logger.info(str(e))
     return d
