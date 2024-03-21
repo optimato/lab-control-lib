@@ -309,7 +309,7 @@ class Manager(DriverBase):
         s = f' * Investigation: {self.investigation}\n'
         s += f' * Experiment: {self.experiment}\n'
         ns = self.next_scan()
-        s += f' * Last scan number: {"[none]" if ns==0 else ns-1}'
+        s += f' * Last scan number: {"[none]" if (ns is None or ns==0) else ns-1}'
         return s
 
     @proxycall()

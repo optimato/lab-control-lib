@@ -6,7 +6,7 @@ This file is part of lab-control-lib
 """
 import os
 import lclib
-from lclib.ui import ui
+from lclib import ui
 from lclib import util
 
 # IPs of computer hosting some devices

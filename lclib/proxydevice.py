@@ -288,8 +288,8 @@ class WrapServiceBase(rpyc.Service):
             return _m({"result": None})
 
         # Attach the two methods to the service.
-        setattr(cls, f"exposed_get_{name}", get_method)
-        setattr(cls, f"exposed_set_{name}", set_method)
+        setattr(cls, f"exposed__get_{name}", get_method)
+        setattr(cls, f"exposed__set_{name}", set_method)
 
 
 class ClientServiceBase(rpyc.Service):
@@ -548,7 +548,7 @@ class ProxyClientBase:
         # Create getter
         def fget(client_self):
             t0 = time.time()
-            method = getattr(client_self.conn.root, f"get_{name}")
+            method = getattr(client_self.conn.root, f"_get_{name}")
             reply = _um(method())
             client_self._update_stats(t0, time.time())
             return reply["result"]
@@ -556,7 +556,7 @@ class ProxyClientBase:
         # Create setter
         def fset(client_self, value):
             t0 = time.time()
-            method = getattr(client_self.conn.root, f"set_{name}")
+            method = getattr(client_self.conn.root, f"_set_{name}")
             method(_m(value))
             client_self._update_stats(t0, time.time())
 

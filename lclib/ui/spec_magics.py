@@ -33,7 +33,7 @@ ipython = IPython.get_ipython()
 magic_list = {}
 
 def collect_magic_info(f):
-    magic_list[f.__name__] = f.__doc__
+    magic_list[f.__name__] = f
     return f
 
 def activate():

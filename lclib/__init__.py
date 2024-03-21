@@ -91,16 +91,44 @@ try:
 except ValueError:
     pass
 
-from . import ui
-from .proxydevice import ProxyDeviceError, proxydevice, proxycall
-from .util import FileDict
-from . import logs
-from .logs import logger
-from ._version import version
-
-
 def get_config():
     return config
+
+def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
+    """
+    Helper function to create a client to a named driver
+
+    Args:
+        name (str): driver name
+        admin (bool): try to connect as admin [default True]
+        client_name: an identifier for the client
+        inexistent_ok: if True, ignore unknown names.
+
+    Returns:
+        An instance of the proxy client connected to named driver, or None if connection failed.
+    """
+
+    d = None
+    if name not in _driver_classes:
+        if inexistent_ok:
+            logs.logger.info(f'{name}: not imported so ignored')
+            return d
+        else:
+            raise RuntimeError(f'Could not find class {name}. Has the corresponding module been imported?')
+    try:
+        d = _driver_classes[name].Client(admin=admin, name=client_name)
+    except ProxyDeviceError as e:
+        logs.logger.info(str(e))
+    return d
+
+def register_driver(cls):
+    """
+    A simple decorator to store all drivers in a dictionary.
+    """
+    # Store class into dict
+    driver_name = cls.__name__.lower()
+    _driver_classes[driver_name] = cls
+    return cls
 
 def init(lab_name,
          host_ips=None,
@@ -199,42 +227,11 @@ def init(lab_name,
           )
 
 
-def register_driver(cls):
-    """
-    A simple decorator to store all drivers in a dictionary.
-    """
-    # Store class into dict
-    driver_name = cls.__name__.lower()
-    _driver_classes[driver_name] = cls
-    return cls
-
-
-def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
-    """
-    Helper function to create a client to a named driver
-
-    Args:
-        name (str): driver name
-        admin (bool): try to connect as admin [default True]
-        client_name: an identifier for the client
-        inexistent_ok: if True, ignore unknown names.
-
-    Returns:
-        An instance of the proxy client connected to named driver, or None if connection failed.
-    """
-
-    d = None
-    if name not in _driver_classes:
-        if inexistent_ok:
-            logs.logger.info(f'{name}: not imported so ignored')
-            return d
-        else:
-            raise RuntimeError(f'Could not find class {name}. Has the corresponding module been imported?')
-    try:
-        d = _driver_classes[name].Client(admin=admin, name=client_name)
-    except ProxyDeviceError as e:
-        logs.logger.info(str(e))
-    return d
-
+from .proxydevice import ProxyDeviceError, proxydevice, proxycall
+from .util import FileDict
+from . import logs
+from .logs import logger
+from ._version import version
 from . import base
 from . import camera
+from . import ui

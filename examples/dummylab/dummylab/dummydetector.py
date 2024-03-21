@@ -158,10 +158,10 @@ class Dummydetector(CameraBase):
         return self.config['binning']
 
     def _set_binning(self, value):
-        self.config['binning'] = value
+        self.config['binning'] = tuple(value)
 
     def _get_psize(self):
-        bins = self.binning
+        bins = tuple(self.binning)
         if bins == (1,1):
             return self.PIXEL_SIZE
         elif bins == (2,2):
@@ -170,7 +170,7 @@ class Dummydetector(CameraBase):
             raise RuntimeError("Unknown (or not implemented) binning for pixel size calculation.")
 
     def _get_shape(self) -> tuple:
-        bins = self.binning
+        bins = tuple(self.binning)
         if bins == (1,1):
             return self.SHAPE
         elif bins == (2,2):

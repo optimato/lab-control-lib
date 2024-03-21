@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 
 def now():
     return str(datetime.today())
