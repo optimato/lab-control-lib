@@ -18,7 +18,6 @@ from select import select
 from . import config, proxycall
 from .util import FileDict, Future
 from .logs import logger as rootlogger
-from .logs import json_formatter
 
 class MotorLimitsException(Exception):
     pass
@@ -82,6 +81,7 @@ class DriverBase:
     """
 
     logger = None                       # Place-holder. Gets defined at construction.
+    motors = {}
     DEFAULT_CONFIG = {}
 
     def __init__(self):
@@ -188,6 +188,25 @@ class DriverBase:
         Shutdown procedure registered with atexit.
         """
         pass
+
+    @classmethod
+    def register_motor(cls, motor_name, **kwargs):
+        """
+        A decorator to register a motor class associated with this driver.
+
+        kwargs are eventual additional arguments to pass to motor constructor.
+        """
+        def f(motor_cls):
+            cls.motors[motor_name] = (motor_cls, kwargs)
+        return f
+
+    @classmethod
+    def create_motors(cls, driver):
+        """
+        Instantiate all motors given driver
+        """
+        return {mname:mcls(name=mname, driver=driver, **kwargs) for mname, (mcls, kwargs) in cls.motors.items()}
+
 
 class SocketDriverBase(DriverBase):
     """

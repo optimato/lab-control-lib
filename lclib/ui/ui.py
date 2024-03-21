@@ -22,7 +22,7 @@ logger = rootlogger.getChild(__name__)
 _current_detector = []
 INVESTIGATIONS = None
 
-__all__ = ['init', 'Scan', 'choose_experiment', 'choose_investigation', 'set_current_detector']
+__all__ = ['init', 'Scan', 'choose_experiment', 'choose_investigation']
 
 def init(yes=None):
     """
@@ -41,114 +41,26 @@ def init(yes=None):
 
     client_name = f'main-client-{config["this_host"]}'
 
-    # Loop through declared layout elements
-    for name, c in layout['classes'].items():
-        if c.get('disabled'):
-            logger.info(f'{name} set to "disabled".')
+    # Loop through registered driver classes
+    for name, cls in _driver_classes.items():
+        if not ask_yes_no('Connect to {name}?'):
             continue
 
-        admin = c.get('admin', True)
-        if ask_yes_no(f"Connect to {name}?"):
-            driver = client_or_None(name, admin=admin, client_name=client_name)
-            if driver:
-                drivers[name] = driver
-            else:
-                logger.warning(f"Could not connect to {name}")
-                continue
-            for motorname, create_call in c['motors'].items():
-                new_motor = create_call(driver)
-                motors[motorname] = new_motor
-                logger.info(f'Created motor "{motorname}" ({name})')
+        # Instantiate client
+        driver_client = client_or_None(name, admin=True, client_name=client_name)
+        if driver_client:
+            drivers[name] = driver_client
+        else:
+            logger.warning(f"Could not connect to {name}")
+            continue
 
-    # Smaract
-    if ask_yes_no('Connect to smaracts?',
-                  help="SmarAct are the 3-axis piezo translation stages for high-resolution sample movement"):
-        driver = client_or_None('smaract', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['smaract'] = driver
-            from . import smaract
-            motors['sx'] = smaract.Motor('sx', driver, axis=0)
-            motors['sy'] = smaract.Motor('sy', driver, axis=2)
-            motors['sz'] = smaract.Motor('sz', driver, axis=1)
+        # Instantiate motors if they exist
+        new_motors = cls.create_motors(driver=driver_client)
 
-    # Coarse stages
-    if ask_yes_no('Connect to short branch coarse stages?'):
-        # McLennan 1 (sample coarse x translation)
-        driver = client_or_None('mclennan1', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['mclennan1'] = driver
-            from . import mclennan
-            motors['ssx'] = mclennan.Motor('ssx', driver)
+        for motorname in new_motors.keys():
+            logger.info(f'Created motor "{motorname}" ({name})')
 
-        # McLennan 2 (short branch detector coarse x translation)
-        driver = client_or_None('mclennan2', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['mclennan2'] = driver
-            from . import mclennan
-            motors['dsx'] = mclennan.Motor('dsx', driver)
-
-    if ask_yes_no('Connect to long branch coarse stages?'):
-        # McLennan 3 (long branch detector coarse x translation)
-        driver = client_or_None('mclennan3', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['mclennan3'] = driver
-            from . import mclennan
-            motors['dsx'] = mclennan.Motor('dsx', driver)
-
-    if ask_yes_no('Connect to Varex detector?'):
-        driver =  client_or_None('varex', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['varex'] = driver
-
-    if ask_yes_no('Connect to Lambda detector?'):
-        driver = client_or_None('xlam', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['xlam'] = driver
-
-    if ask_yes_no('Connect to PCO detector?'):
-        driver = client_or_None('pco', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['pco'] = driver
-
-    if ask_yes_no('Connect to Aerotech rotation stage?'):
-        driver =  client_or_None('aerotech', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['aerotech'] = driver
-            from . import aerotech
-            motors['rot'] = aerotech.Motor('rot', driver)
-
-    if ask_yes_no('Connect to Newport XPS motors?'):
-        driver =  client_or_None('xps1', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['xps1'] = driver
-            from . import xps
-            motors['xps1'] = xps.Motor('xps1', driver)
-
-        driver =  client_or_None('xps2', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['xps2'] = driver
-            from . import xps
-            motors['xps2'] = xps.Motor('xps2', driver)
-
-        driver =  client_or_None('xps3', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['xps3'] = driver
-            from . import xps
-            motors['xps3'] = xps.Motor('xps3', driver)
-
-    if ask_yes_no('Connect to mecademic robot?'):
-        driver =  client_or_None('mecademic', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['mecademic'] = driver
-            from . import mecademic
-            motors.update(mecademic.create_motors(driver))
-
-    #if ask_yes_no('Initialise stage pseudomotors?'):
-    #    print('TODO')
-        # motors['sxl'] = labframe.Motor(
-        #    'sxl', motors['sx'], motors['sz'], motors['rot'], axis=0)
-        # motors['szl'] = labframe.Motor(
-        #    'szl', motors['sx'], motors['sz'], motors['rot'], axis=1)
+        motors.update(new_motors)
 
     if ask_yes_no('Dump motors and drivers in global namespace?'):
         # This is a bit of black magic
@@ -162,13 +74,6 @@ def init(yes=None):
 
     return
 
-def set_current_detector(name):
-    """
-    Useful to automate arm/disarm
-    """
-    if name.lower() not in ['varex', 'xlam', 'pco']:
-        print(f'"{name}" is not a known detector name.')
-    _current_detector[0] = name
 
 class Scan:
     """
@@ -205,20 +110,6 @@ class Scan:
         """
         manager.getManager().end_scan()
         self.logger.info(f'Scan {self.name} complete.')
-
-
-def init_dummy(yes=None):
-    """
-    Initialize the dummy component for testing
-    """
-    if yes:
-        # Fake non-interactive to answer all questions automatically
-        uitools.user_interactive = False
-
-    if ask_yes_no("Start dummy driver?"):
-        driver =  client_or_None('dummy', client_name=f'main-client-{THIS_HOST}')
-        if driver:
-            drivers['dummy'] = driver
 
 
 # Get data directly from file directory structure

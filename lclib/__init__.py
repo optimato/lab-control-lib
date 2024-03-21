@@ -65,7 +65,6 @@ _driver_classes = {}   # Dictionary for driver classes (populated through @regis
 _motor_classes = {}   # Dictionary for motor classes (populated when drivers module load)
 drivers = {}   # Dictionary for driver instances
 motors = {}    # Dictionary of motor instances
-layouts = {}   # Dictionary for declared experiment layouts
 
 DEFAULT_MANAGER_PORT = 5001
 
@@ -201,16 +200,9 @@ def register_driver(cls):
     """
     A simple decorator to store all drivers in a dictionary.
     """
-    _driver_classes[cls.__name__.lower()] = cls
-    return cls
-
-
-def register_motor(cls):
-    """
-    A simple decorator to store all motors in a dictionary.
-    """
-    # For now we include the module names because all class names might be the same.
-    _motor_classes['.'.join([cls.__module__, cls.__name__.lower()])] = cls
+    # Store class into dict
+    driver_name = cls.__name__.lower()
+    _driver_classes[driver_name] = cls
     return cls
 
 
