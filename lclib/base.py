@@ -196,8 +196,13 @@ class DriverBase:
 
         kwargs are eventual additional arguments to pass to motor constructor.
         """
+        # We don't want to update the base class dict
+        if not cls.motors:
+            cls.motors = {}
+
         def f(motor_cls):
             cls.motors[motor_name] = (motor_cls, kwargs)
+            return motor_cls
         return f
 
     @classmethod
