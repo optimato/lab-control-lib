@@ -70,7 +70,7 @@ DEFAULT_MANAGER_PORT = 5001
 
 # Global variables set by init()
 MANAGER_ADDRESS = ('control', DEFAULT_MANAGER_PORT)
-config = None
+config = {}
 LOG_DIR = None
 
 # Get computer name and IP addresses
@@ -98,6 +98,9 @@ from . import logs
 from .logs import logger
 from ._version import version
 
+
+def get_config():
+    return config
 
 def init(lab_name,
          host_ips=None,

@@ -4,6 +4,7 @@ Dummy example lab
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
+import os
 import lclib
 from lclib.ui import ui
 from lclib import util
@@ -14,7 +15,9 @@ host_ips = {
             'other': '192.168.1.2'
             }
 
-data_path = '/data/'
+# This can be the location of a mounted file server
+data_path = os.path.expanduser('~/dummylab-data/')
+os.makedirs(data_path, exist_ok=True)
 
 lclib.init(lab_name='DummyLab',
            host_ips=host_ips,
@@ -24,4 +27,4 @@ lclib.init(lab_name='DummyLab',
 from . import dummymotor
 from . import dummydetector
 
-from lclib import _driver_classes, drivers, motors
+from lclib import manager, drivers, motors

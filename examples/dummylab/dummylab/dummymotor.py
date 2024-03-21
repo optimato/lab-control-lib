@@ -33,7 +33,7 @@ class Dummymotor(SocketDriverBase):
         device_address = device_address or self.DEFAULT_DEVICE_ADDRESS
 
         # Register periodic (heartbeat) calls to avoid disconnect
-        self.periodic_calls.update({'status': (self.status, 10.)})
+        self.periodic_calls = {'status': (self.status, 10.)}
 
         # Initialize driver
         super().__init__(device_address=device_address)
@@ -239,6 +239,7 @@ class DummyControllerInterface:
                             t_start = t
                             t_end = t + abs(end_pos - start_pos)/self.speed
                             direction = 1 if end_pos > start_pos else -1
+                            self.in_motion = True
                             reply = 'OK'
             else:
                 reply = 'ERROR: UNKNOWN COMMAND'
