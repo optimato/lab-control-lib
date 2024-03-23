@@ -1,0 +1,1 @@
+=======Credits=======Citations=========These are just space holder. Please replace with the appropriate references.:cite:`cite:01` if you use project... bibliography:: bibtex/cite.bib   :style: plain   :labelprefix: AReferences==========.. bibliography:: bibtex/ref.bib   :style: plain   :labelprefix: B   :all: 
