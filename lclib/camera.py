@@ -153,6 +153,7 @@ class CameraBase(DriverBase):
         self.do_acquire = threading.Event()
         self.acquire_done = threading.Event()
         self.frame_queue_empty_flag = threading.Event()
+        self.end_of_exposure_flag = threading.Event()
         self.stop_rolling_flag = False
 
         self.frame_queue = SimpleQueue()
@@ -304,6 +305,10 @@ class CameraBase(DriverBase):
             self.logger.debug('Calling the subclass trigger.')
             try:
                 self._trigger()
+
+                # Enqueue None to signal end of exposure
+                self.enqueue_frame(None, None)
+                self.end_of_exposure_flag.clear()
             except:
                 self.logger.exception('Error in _trigger')
                 self.acquire_done.set()
@@ -334,7 +339,7 @@ class CameraBase(DriverBase):
                 continue
             else:
                 # Finalize saving
-                #self.frame_queue_empty_flag.wait()
+                self.end_of_exposure_flag.wait()
                 self.logger.debug('Calling file_writer.close()')
                 self.frame_writer.close()
 
@@ -395,6 +400,11 @@ class CameraBase(DriverBase):
 
             # Deal with frame
             data, meta = item
+
+            if data is None:
+                self.logger.debug('Setting end-of-exposure flag')
+                self.end_of_exposure_flag.set()
+                continue
 
             if not self.rolling:
                 self.logger.debug('Calling file_writer.store() with frame')
