@@ -7,11 +7,14 @@ This file is part of lab-control-lib
 
 import numpy as np
 import time
+import os
 
 from lclib import register_driver, proxycall, proxydevice, manager
 from lclib.camera import CameraBase
 
-BASE_PATH = "C:\\data\\"
+# BASE_PATH = "C:\\data\\"
+BASE_PATH = os.path.expanduser('~/dummylab-data/')
+os.makedirs(BASE_PATH, exist_ok=True)
 
 __all__ = ['Dummydetector']
 
@@ -24,13 +27,13 @@ class Dummydetector(CameraBase):
     Dummy detector class
     """
 
-    DEFAULT_BROADCAST_PORT = 8000  # Port to broadcast images for viewers
+    DEFAULT_BROADCAST_PORT = 9500  # Port to broadcast images for viewers
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
     PIXEL_SIZE = 50        # Physical pixel pitch in micrometers
     SHAPE = (256, 512)     # Native array shape (vertical, horizontal)
     MAX_FPS = 15           # The real max FPS is higher (especially in binning mode) but this seems sufficient.
     LOCAL_DEFAULT_CONFIG = {'binning':(1,1),
-                            'save_path': 'C:\\snaps\\',
+                            'save_path': 'snaps/',
                             'gain_mode':'high'  # Example of camera-specific parameter
                             }
     
