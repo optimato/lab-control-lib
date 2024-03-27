@@ -27,7 +27,7 @@ class Dummydetector(CameraBase):
     Dummy detector class
     """
 
-    DEFAULT_BROADCAST_PORT = 9500  # Port to broadcast images for viewers
+    DEFAULT_BROADCAST_ADDRESS = (ADDRESS[0], 9500)  # address to broadcast images for viewers
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
     PIXEL_SIZE = 50        # Physical pixel pitch in micrometers
     SHAPE = (256, 512)     # Native array shape (vertical, horizontal)
@@ -41,11 +41,11 @@ class Dummydetector(CameraBase):
     DEFAULT_CONFIG = CameraBase.DEFAULT_CONFIG.copy()
     DEFAULT_CONFIG.update(LOCAL_DEFAULT_CONFIG)
 
-    def __init__(self, broadcast_port=None):
+    def __init__(self, broadcast_address=None):
         """
         Initialization.
         """
-        super().__init__(broadcast_port=broadcast_port)
+        super().__init__(broadcast_address=broadcast_address)
 
         self.detector = None
         self.init_device()

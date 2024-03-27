@@ -45,5 +45,4 @@ setup(
         'bin/lc'
         ],
     install_requires=REQUIRES,
-    entry_points={'console_scripts': ['lc = lclib.__main__:cli']}
     )
