@@ -304,11 +304,11 @@ class CameraBase(DriverBase):
             # trigger acquisition with subclassed method and wait until it is done
             self.logger.debug('Calling the subclass trigger.')
             try:
+                # Execute actual exposures
                 self._trigger()
 
-                # Enqueue None to signal end of exposure
+                # Enqueue None to signal end-of-exposure
                 self.enqueue_frame(None, None)
-                self.end_of_exposure_flag.clear()
             except:
                 self.logger.exception('Error in _trigger')
                 self.acquire_done.set()
@@ -458,6 +458,12 @@ class CameraBase(DriverBase):
         within _trigger at least once.
         """
         with self.enqueue_lock:
+            # Manage end-of-exposure differently
+            if frame is None:
+                self.end_of_exposure_flag.clear()
+                self.frame_queue.put((frame, meta))
+                return
+
             self.logger.debug('Frame arrived in enqueue_frame')
             self.frame_queue_empty_flag.clear()
 
