@@ -11,10 +11,12 @@ import os
 import click
 import logging
 
-from . import config, client_or_None, _driver_classes, LOG_DIR
+from . import get_config, client_or_None, _driver_classes, LOG_DIR
 from .camera import CameraBase
 from .logs import logging_muted, log_to_file, logger as rootlogger
 from . import ui
+
+config = get_config()
 
 # This computer
 this_host = config['this_host']
@@ -27,7 +29,11 @@ local_ip_list = config['local_ip_list']
 AVAILABLE = [name for name, address in DEVICE_ADDRESSES.items() if address[0] in local_ip_list]
 
 # List Camera devices
-CAMERAS = {name: cls for name, cls in _driver_classes.items() if CameraBase in cls.__bases__}
+CAMERAS = {name: cls for name, cls in _driver_classes.items() if issubclass(cls, CameraBase)}
+
+
+print(_driver_classes)
+print(CAMERAS)
 
 @click.group(help='Labcontrol proxy driver management')
 def cli():
@@ -153,7 +159,8 @@ def logall():
 @click.option('--maxfps', '-m', default=10, show_default=True, help='Maximum refresh rate (FPS).')
 def viewer(name, loglevel, vtype, maxfps):
     name = name.lower()
-    addr = CAMERAS.get(name, None)
+    cam_cls = CAMERAS.get(name, None)
+    addr = cam_cls.DEFAULT_BROADCAST_ADDRESS
     if not addr:
         click.echo(f'Unknown detector: {name}')
         sys.exit(0)

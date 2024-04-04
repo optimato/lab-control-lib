@@ -7,11 +7,14 @@ This file is part of lab-control-lib
 
 import numpy as np
 import time
+import os
 
 from lclib import register_driver, proxycall, proxydevice, manager
 from lclib.camera import CameraBase
 
-BASE_PATH = "C:\\data\\"
+# BASE_PATH = "C:\\data\\"
+BASE_PATH = os.path.expanduser('~/dummylab-data/')
+os.makedirs(BASE_PATH, exist_ok=True)
 
 __all__ = ['Dummydetector']
 
@@ -24,13 +27,13 @@ class Dummydetector(CameraBase):
     Dummy detector class
     """
 
-    DEFAULT_BROADCAST_PORT = 8000  # Port to broadcast images for viewers
+    DEFAULT_BROADCAST_ADDRESS = (ADDRESS[0], 9500)  # address to broadcast images for viewers
     BASE_PATH = BASE_PATH  # All data is saved in subfolders of this one
     PIXEL_SIZE = 50        # Physical pixel pitch in micrometers
     SHAPE = (256, 512)     # Native array shape (vertical, horizontal)
     MAX_FPS = 15           # The real max FPS is higher (especially in binning mode) but this seems sufficient.
     LOCAL_DEFAULT_CONFIG = {'binning':(1,1),
-                            'save_path': 'C:\\snaps\\',
+                            'save_path': 'snaps/',
                             'gain_mode':'high'  # Example of camera-specific parameter
                             }
     
@@ -38,11 +41,11 @@ class Dummydetector(CameraBase):
     DEFAULT_CONFIG = CameraBase.DEFAULT_CONFIG.copy()
     DEFAULT_CONFIG.update(LOCAL_DEFAULT_CONFIG)
 
-    def __init__(self, broadcast_port=None):
+    def __init__(self, broadcast_address=None):
         """
         Initialization.
         """
-        super().__init__(broadcast_port=broadcast_port)
+        super().__init__(broadcast_address=broadcast_address)
 
         self.detector = None
         self.init_device()

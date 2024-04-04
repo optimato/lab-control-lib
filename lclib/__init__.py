@@ -215,10 +215,14 @@ def init(lab_name,
     try:
         this_host = [name for name, ip in host_ips.items() if ip in local_ip_list][0]
     except IndexError:
-        print('Host IP not part of the control network.')
+        print('*{0:^64}*'.format('[Host IP not part of the control network.]'))
         this_host = 'unknown'
 
     config['this_host'] = this_host
+
+    #config['package'] =
+    #import inspect
+    #print(inspect.stack())
 
     print('\n'.join(['*{:^64s}*'.format(f"{lab_name} Lab Control"),
                      '*{:^64s}*'.format(f"Running on host '{local_hostname}'"),

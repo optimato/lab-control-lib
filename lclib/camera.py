@@ -74,7 +74,7 @@ from .base import DriverBase
 from .util import now, Future, frameconsumer
 
 DEFAULT_FILE_FORMAT = 'hdf5'
-DEFAULT_BROADCAST_PORT = 5555
+DEFAULT_BROADCAST_ADDRESS = ('localhost', 5555)
 
 
 # No @proxydriver because this class is not meant to be instantiated
@@ -83,43 +83,42 @@ class CameraBase(DriverBase):
     Base class for camera drivers, giving a uniform interface between detectors.
     """
 
-    DEFAULT_BROADCAST_PORT = DEFAULT_BROADCAST_PORT  # Default port for frame broadcasting
+    DEFAULT_BROADCAST_ADDRESS = DEFAULT_BROADCAST_ADDRESS  # Default port for frame broadcasting
     BASE_PATH = ""
-    PIXEL_SIZE = (0, 0)            # Pixel size in um
-    SHAPE = (0, 0)            # Native array dimensions (before binning)
-    DATATYPE = 'uint16'            # Expected datatype
+    PIXEL_SIZE = (0, 0)  # Pixel size in um
+    SHAPE = (0, 0)  # Native array dimensions (before binning)
+    DATATYPE = 'uint16'  # Expected datatype
     DEFAULT_FPS = 5.
     MAX_FPS = 5.
 
-    LOCAL_DEFAULT_CONFIG = {'do_save':True,
-                            'file_format':DEFAULT_FILE_FORMAT,
+    LOCAL_DEFAULT_CONFIG = {'do_save': True,
+                            'file_format': DEFAULT_FILE_FORMAT,
                             'file_prefix': "snap_{0:04d}",
-                            'do_broadcast':True,
-                            'magnification':1.,
-                            'counter':0,
-                            'save_mode':'append',
-                            'roll_fps':DEFAULT_FPS,
-                            'save_path':None,
-                            'operation_mode':None,
-                            'exposure_time':1.,
-                            'exposure_number':1}
- 
+                            'do_broadcast': True,
+                            'magnification': 1.,
+                            'counter': 0,
+                            'save_mode': 'append',
+                            'roll_fps': DEFAULT_FPS,
+                            'save_path': None,
+                            'operation_mode': None,
+                            'exposure_time': 1.,
+                            'exposure_number': 1}
+
     # python >3.9
     # DEFAULT_CONFIG = (DriverBase.DEFAULT_CONFIG | LOCAL_DEFAULT_CONFIG)
- 
+
     # python <3.9
     DEFAULT_CONFIG = DriverBase.DEFAULT_CONFIG.copy()
     DEFAULT_CONFIG.update(LOCAL_DEFAULT_CONFIG)
 
-
-    def __init__(self, broadcast_port=None):
+    def __init__(self, broadcast_address=None):
         super().__init__()
 
         # Broadcast from localhost on given port (see util.imstream)
-        if broadcast_port is None:
-            self.broadcast_port = self.DEFAULT_BROADCAST_PORT
+        if broadcast_address is None:
+            self.broadcast_address = self.DEFAULT_BROADCAST_ADDRESS
         else:
-            self.broadcast_port = broadcast_port
+            self.broadcast_address = broadcast_address
 
         self.store_future = None      # Will be replaced with a future when starting to store.
         self._stop_roll = False       # To interrupt rolling
@@ -153,13 +152,14 @@ class CameraBase(DriverBase):
         self.do_acquire = threading.Event()
         self.acquire_done = threading.Event()
         self.frame_queue_empty_flag = threading.Event()
+        self.end_of_exposure_flag = threading.Event()
         self.stop_rolling_flag = False
 
         self.frame_queue = SimpleQueue()
         self.frame_future = Future(self.frame_management_loop)
 
         # Broadcasting process
-        self.frame_streamer = frameconsumer.FrameStreamer(self.broadcast_port)
+        self.frame_streamer = frameconsumer.FrameStreamer(self.broadcast_address[1])
         if self.config['do_broadcast']:
             self.frame_streamer.on()
 
@@ -303,7 +303,11 @@ class CameraBase(DriverBase):
             # trigger acquisition with subclassed method and wait until it is done
             self.logger.debug('Calling the subclass trigger.')
             try:
+                # Execute actual exposures
                 self._trigger()
+
+                # Enqueue None to signal end-of-exposure
+                self.enqueue_frame(None, None)
             except:
                 self.logger.exception('Error in _trigger')
                 self.acquire_done.set()
@@ -334,7 +338,7 @@ class CameraBase(DriverBase):
                 continue
             else:
                 # Finalize saving
-                #self.frame_queue_empty_flag.wait()
+                self.end_of_exposure_flag.wait()
                 self.logger.debug('Calling file_writer.close()')
                 self.frame_writer.close()
 
@@ -396,6 +400,11 @@ class CameraBase(DriverBase):
             # Deal with frame
             data, meta = item
 
+            if data is None:
+                self.logger.debug('Setting end-of-exposure flag')
+                self.end_of_exposure_flag.set()
+                continue
+
             if not self.rolling:
                 self.logger.debug('Calling file_writer.store() with frame')
                 try:
@@ -448,6 +457,12 @@ class CameraBase(DriverBase):
         within _trigger at least once.
         """
         with self.enqueue_lock:
+            # Manage end-of-exposure differently
+            if frame is None:
+                self.end_of_exposure_flag.clear()
+                self.frame_queue.put((frame, meta))
+                return
+
             self.logger.debug('Frame arrived in enqueue_frame')
             self.frame_queue_empty_flag.clear()
 

@@ -11,6 +11,7 @@ import os.path
 import numpy as np
 import copy
 from queue import SimpleQueue, Empty
+import threading
 
 from .. import FramePublisher
 from .. import Future
@@ -165,6 +166,7 @@ class FrameConsumer:
         """
         self.logger = rootlogger.getChild(self.__class__.__name__)
         self.workers = []
+        self._store_lock = threading.Lock()
 
     def start_worker(self, *args, **kwargs):
         """
@@ -186,18 +188,20 @@ class FrameConsumer:
         Returns:
             Nothing
         """
-        if meta is None:
-            meta = {}
-        else:
-            meta = copy.deepcopy(meta)
+        with self._store_lock:
+            if meta is None:
+                meta = {}
+            else:
+                meta = copy.deepcopy(meta)
 
-        # The active worker is the last one
-        self.workers[-1].new_data((data, meta))
+            # The active worker is the last one
+            self.workers[-1].new_data((data, meta))
 
     def close_worker(self):
-        if self.workers:
-            # FIFO
-            self.workers.pop(0).close()
+        with self._store_lock:
+            if self.workers:
+                # FIFO
+                self.workers.pop(0).close()
 
     def stop(self):
         pass
