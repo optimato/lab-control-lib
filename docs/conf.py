@@ -314,34 +314,158 @@ texinfo_documents = [
 # If true, do not generate a @detailmenu in the "Top" node's menu.
 #ztexinfo_no_detailmenu = False
 
-# picked from http://read-the-docs.readthedocs.org/en/latest/faq.html
-class Mock(object):
+# -- Options for Texinfo output -------------------------------------------
+# http://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html#confval-autodoc_mock_imports
+# autodoc_mock_imports = ['numpy', 
+#                         'cython', 
+#                         'h5py', 
+#                         'napari', 
+#                         'rpyc', 
+#                         'zmq', 
+#                         'signal', 
+#                         'logging', 
+#                         'select',
+#                         'atexit', 
+#                         'errno',] 
 
-    __all__ = []
+autodoc_mock_imports = ['wcwidth',
+                        'snowballstemmer',
+                        'pytz',
+                        'PyOpenGL',
+                        'pure-eval',
+                        'ptyprocess',
+                        'heapdict',
+                        'appdirs',
+                        'wrapt',
+                        'urllib3',
+                        'tzdata',
+                        'typing-extensions',
+                        'traitlets',
+                        'tqdm',
+                        'tornado',
+                        'toolz',
+                        'tomli-w',
+                        'tabulate',
+                        'sphinxcontrib-serializinghtml',
+                        'sphinxcontrib-qthelp',
+                        'sphinxcontrib-jsmath',
+                        'sphinxcontrib-htmlhelp',
+                        'sphinxcontrib-devhelp',
+                        'sphinxcontrib-applehelp',
+                        'six',
+                        'shellingham',
+                        'rpds-py',
+                        'pyzmq',
+                        'PyYAML',
+                        'pyproject_hooks',
+                        'pygments',
+                        'psygnal',
+                        'psutil',
+                        'prompt-toolkit',
+                        'plumbum',
+                        'platformdirs',
+                        'Pillow',
+                        'pexpect',
+                        'parso',
+                        'packaging',
+                        'numpy',
+                        'networkx',
+                        'nest-asyncio',
+                        'napari-plugin-engine',
+                        'mdurl',
+                        'MarkupSafe',
+                        'locket',
+                        'lazy-loader',
+                        'kiwisolver',
+                        'in-n-out',
+                        'imagesize',
+                        'idna',
+                        'hsluv',
+                        'fsspec',
+                        'freetype-py',
+                        'executing',
+                        'docutils',
+                        'docstring-parser',
+                        'decorator',
+                        'debugpy',
+                        'cython',
+                        'cloudpickle',
+                        'click',
+                        'charset-normalizer',
+                        'certifi',
+                        'cachey',
+                        'babel',
+                        'attrs',
+                        'appnope',
+                        'annotated-types',
+                        'alabaster',
+                        'zmq',
+                        'vispy',
+                        'tifffile',
+                        'scipy',
+                        'rpyc',
+                        'rpyc.core',
+                        'rpyc.core.vinegar',
+                        'requests',
+                        'referencing',
+                        'qtpy',
+                        'python-dateutil',
+                        'pydantic-core',
+                        'pint',
+                        'partd',
+                        'matplotlib-inline',
+                        'markdown-it-py',
+                        'jupyter-core',
+                        'Jinja2',
+                        'jedi',
+                        'imageio',
+                        'h5py',
+                        'comm',
+                        'build',
+                        'asttokens',
+                        'superqt',
+                        'stack-data',
+                        'sphinx',
+                        'scikit-image',
+                        'rich',
+                        'pydantic',
+                        'pyconify',
+                        'pooch',
+                        'pandas',
+                        'napari-svg',
+                        'jupyter-client',
+                        'jsonschema-specifications',
+                        'dask',
+                        'typer',
+                        'pydantic-compat',
+                        'numpydoc',
+                        'jsonschema',
+                        'IPython',
+                        'npe2',
+                        'magicgui',
+                        'ipykernel',
+                        'app-model',
+                        'qtconsole',
+                        'napari-console',
+                        'napari',
+                        'labcontrol-lib',
+                        'numpy', 
+                        'cython', 
+                        'h5py', 
+                        'napari', 
+                        'napari_tools_menu',
+                        'zmq', 
+                        'signal', 
+                        'logging', 
+                        'select',
+                        'atexit', 
+                        'errno',
+                        ]
 
-    def __init__(self, *args, **kwargs):
-        pass
+# Mock a dictionary
+from unittest.mock import Mock
+from rpyc.core.vinegar import _generic_exceptions_cache
 
-    def __call__(self, *args, **kwargs):
-        return Mock()
-
-    @classmethod
-    def __getattr__(cls, name):
-        return Mock()
-    def __mul__(self, other):
-        return Mock()
-    def __rmul__(self, other):
-        return Mock()
-    def __pow__(self, other):
-        return Mock()
-    def __div__(self, other):
-        return Mock()
-    def __add__(self, other):
-        return Mock()
-    def __radd__(self, other):
-        return Mock()
-
-MOCK_MODULES = ['numpy', 'cython', 'h5py', 'napari', 'rpyc', 'zmq']
-
-for mod_name in MOCK_MODULES:
-    sys.modules[mod_name] = Mock()
+blah = Mock()
+blah.__getitem__ = Mock()
+blah.__getitem__.side_effect = _generic_exceptions_cache.__getitem__

@@ -6,6 +6,10 @@ API reference
 .. toctree::
 
    api/lclib.base
+   api/lclib.camera
+   api/lclib.logs
+   api/lclib.manager
+   api/lclib.proxydevice
 
 .. automodule:: lclib
    :members:
