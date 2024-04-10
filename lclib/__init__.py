@@ -58,6 +58,7 @@ import os
 import platform
 import json
 import subprocess
+import inspect
 
 # Base attribute definitions have to be done before relative imports
 
@@ -130,6 +131,22 @@ def register_driver(cls):
     _driver_classes[driver_name] = cls
     return cls
 
+def caller_module():
+    """
+    Utility to find the name of the package importing this.
+    """
+    caller_frame = inspect.stack()
+    parent_module = None
+    for f in caller_frame:
+        calling_module = inspect.getmodule(f[0])
+        if calling_module is not None:
+            parent_module = calling_module.__name__
+            if parent_module == __name__:
+                continue
+            break
+    return parent_module
+
+
 def init(lab_name,
          host_ips=None,
          data_path=None,
@@ -151,6 +168,8 @@ def init(lab_name,
 
     assert type(lab_name) is str, f'"lab_name" is not a string!'
 
+    parent_module = caller_module()
+
     #
     # Persistent configuration file
     #
@@ -160,6 +179,9 @@ def init(lab_name,
     config = FileDict(conf_file)
     config.setdefault('lab_name', lab_name)
     config['conf_path'] = conf_path
+    config['module'] = parent_module
+
+    print('*{0:^64}*'.format(f'This is {lab_name} (module "{parent_module}")'))
 
     # Store local info extracted already at import
     config['local_hostname'] = local_hostname

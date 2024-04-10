@@ -37,7 +37,7 @@ An additional driver called `Manager` is also defined in this library. The manag
 
 Writing a control package
 -------------------------
-The init() method has to be called early to inform the library of the most important parameters for its functioning, namely
+The `init()` method has to be called early to inform the library of the most important parameters for its functioning, namely
  * the name of the lab (for identification and access to configuration files)
  * the names and IP addresses of the relevant computers on the LAN, to identify the platform where the package is being run.
  * the physical path where data will be saved
