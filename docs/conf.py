@@ -74,9 +74,9 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-Affiliation = u'University of Trieste'
+Affiliation = u'Pierre Thibault (pthibault@units.it) University of Trieste'
 project = u'Lab Control'
-copyright = u'2024, ' + Affiliation
+copyright = u'2023-2024, ' + Affiliation
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
