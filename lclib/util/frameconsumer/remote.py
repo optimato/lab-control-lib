@@ -2,6 +2,9 @@
 FrameConsumer worker (and subclasses): Passing frames to a separate process using shared memory
 to reduce I/O and processing overheads.
 
+** Basic tests indicate for now that this multiprocess version is not necessary.**
+It might be that it becomes useful when the CPU load becomes too heavy for multithreading to handle everything.
+
 This implementation uses rpyc and shared_memory with the unchecked presumption
 that shared_memory is faster than passing the data through a socket.
 
@@ -124,6 +127,9 @@ class FrameConsumerProcess:
             pass
         self._stop_server()
 
+    def set_log_level(self, level):
+        self.conn.root.set_log_level(level)
+
     def __del__(self):
         self.stop()
 
@@ -190,6 +196,7 @@ class FrameConsumerRemoteService(rpyc.Service):
 
     def on_connect(self, conn):
         self.conn = conn
+        self.frame_consumer_instance = None
         super().on_connect(conn)
 
     def exposed_new_data(self, shape, dtype, meta):
@@ -200,32 +207,39 @@ class FrameConsumerRemoteService(rpyc.Service):
         meta = _um(meta)
         self.process_frame(data=data, meta=meta)
 
+    def exposed_set_log_level(self, level):
+        """
+        Set log level
+        """
+        self.frame_consumer_instance.set_log_level(level)
+
     def process_frame(self, data, meta):
         pass
+
 
 class FrameWriterRemoteService(FrameConsumerRemoteService):
     cname = 'FrameWriterProcess'
     def on_connect(self, conn):
         super().on_connect(conn)
-        self.frame_writer = FrameWriter()
+        self.frame_consumer_instance = FrameWriter()
 
     def exposed_open(self, filename):
         """
         Open frame writer
         """
-        self.frame_writer.open(filename=filename)
+        self.frame_consumer_instance.open(filename=filename)
 
     def process_frame(self, data, meta):
         """
         Do something with data and metadata
         """
-        self.frame_writer.store(data=data, meta=meta)
+        self.frame_consumer_instance.store(data=data, meta=meta)
 
     def exposed_close(self):
         """
         Save data
         """
-        self.frame_writer.close()
+        self.frame_consumer_instance.close()
 
 
 class FrameStreamerRemoteService(FrameConsumerRemoteService):
@@ -237,20 +251,20 @@ class FrameStreamerRemoteService(FrameConsumerRemoteService):
         """
         Open frame writer
         """
-        self.frame_streamer = FrameStreamer(broadcast_port=broadcast_port)
-        self.frame_streamer.on()
+        self.frame_consumer_instance = FrameStreamer(broadcast_port=broadcast_port)
+        self.frame_consumer_instance.on()
 
     def process_frame(self, data, meta):
         """
         Broadcast data
         """
-        self.frame_streamer.store(data=data, meta=meta)
+        self.frame_consumer_instance.store(data=data, meta=meta)
 
     def exposed_close(self):
         """
         Save data
         """
-        self.frame_streamer.off()
+        self.frame_consumer_instance.off()
 
 
 if __name__ == "__main__":
