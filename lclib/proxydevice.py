@@ -719,8 +719,11 @@ class ProxyServerBase:
         )
 
         # Replace print and input
-        sys.modules[self.instance.__class__.__module__].print = self._proxy_print
-        sys.modules[self.instance.__class__.__module__].input = self._proxy_input
+        self.logger.info("Rerouting 'print' and 'input'")
+        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__)]
+        for mod in mods:
+            mod.print = self._proxy_print
+            mod.input = self._proxy_input
 
         # Start server on separate thread
         self.serving_thread = threading.Thread(
@@ -746,8 +749,11 @@ class ProxyServerBase:
             pass
 
         # Clean up
-        sys.modules[self.instance.__class__.__module__].print = builtins.print
-        sys.modules[self.instance.__class__.__module__].input = builtins.input
+        self.logger.info("Reseting builtin 'print' and 'input'")
+        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__)]
+        for mod in mods:
+            mod.print = builtins.print
+            mod.input = builtins.input
 
     def _create_service(self):
         """
