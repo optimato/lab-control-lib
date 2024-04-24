@@ -18,6 +18,8 @@ class A:
     # An exposed call
     @proxycall()
     def get_multiple(self, y):
+        # Print is rerouted to the admin client.
+        print(f"The value is {y}")
         return self.x * y
 
     # An exposed call allowed only for the client with admin rights
@@ -41,6 +43,12 @@ class A:
     def abort(self):
         print("Aborting the long call!")
         self.stop = True
+
+    # "input" Routed to admin client
+    @proxycall(admin=True)
+    def get_value(self):
+        a = input('Please enter value for "a" :)
+        return a
 
     # An exposed property
     @proxycall()
@@ -720,7 +728,8 @@ class ProxyServerBase:
 
         # Replace print and input
         self.logger.info("Rerouting 'print' and 'input'")
-        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__)]
+        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__) if cn.__module__ != 'builtins']
+
         for mod in mods:
             mod.print = self._proxy_print
             mod.input = self._proxy_input
@@ -750,7 +759,7 @@ class ProxyServerBase:
 
         # Clean up
         self.logger.info("Reseting builtin 'print' and 'input'")
-        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__)]
+        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__) if cn.__module__ != 'builtins']
         for mod in mods:
             mod.print = builtins.print
             mod.input = builtins.input

@@ -2,7 +2,7 @@
 Testing the rpyc implementation of proxydevice.
 """
 
-from lclib.util import proxycall, ProxyDeviceError, proxydevice
+from lclib import proxycall, proxydevice
 
 import time
 
