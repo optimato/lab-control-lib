@@ -428,17 +428,11 @@ class Manager(DriverBase):
         """
         Return experiment path
         """
-<<<<<<< HEAD
-        if (self.experiment is None) or (self.investigation is None):
-            raise RuntimeError('Experiment or Investigation not set.')
-        return os.path.join(self.investigation, self.experiment)
-=======
         experiment = self.experiment
         investigation = self.investigation
         if (experiment is None) or (investigation is None):
             raise RuntimeError('Experiment or Investigation not set.')
         return os.path.join(investigation, experiment)
->>>>>>> 9108394 (bugfix - forgotten raise)
 
     @proxycall()
     @property
