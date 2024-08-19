@@ -1020,13 +1020,15 @@ class proxydevice:
             API[k] = api_info
 
         # Define server subclass and set default values
-        Server = type(f"{cls.__name__}ProxyServer", (ProxyServerBase,), {})
+        proxyserver_name = f"{cls.__name__}ProxyServer"
+        Server = type(proxyserver_name, (ProxyServerBase,), {})
         Server.ADDRESS = self.address
         Server.API = API
         Server.CLS = cls
 
         # Define client subclass
-        Client = type(f"{cls.__name__}ProxyClient", (ProxyClientBase,), {})
+        proxyclient_name = f"{cls.__name__}ProxyClient"
+        Client = type(proxyclient_name, (ProxyClientBase,), {})
         Client.ADDRESS = self.address
         Client.API = API
 
@@ -1037,12 +1039,12 @@ class proxydevice:
             try:
                 if api_info["property"]:
                     Client._new_property(name, doc)
-                    logger.debug(f"Added property {name} to client proxy.")
+                    logger.debug(f"{proxyclient_name}: Inserted property '{name}'.")
                 else:
                     Client._new_method(name, doc, signature, block=api_info["block"])
-                    logger.debug(f"Added method {name} to client proxy.")
+                    logger.debug(f"{proxyclient_name}: Inserted method '{name}'.")
                     if api_info["interrupt"]:
-                        logger.debug(f"Method {name} is the abort call.")
+                        logger.debug(f"{proxyclient_name}: Method '{name}' is the abort call.")
 
             except AttributeError:
                 continue

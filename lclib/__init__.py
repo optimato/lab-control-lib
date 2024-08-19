@@ -60,6 +60,12 @@ import json
 import subprocess
 import inspect
 
+from .proxydevice import ProxyDeviceError, proxydevice, proxycall
+from .util import FileDict
+from . import logs
+from .logs import logger
+from ._version import version
+
 # Base attribute definitions have to be done before relative imports
 
 _driver_classes = {}   # Dictionary for driver classes (populated through @register_driver when drivers module load)
@@ -68,6 +74,7 @@ drivers = {}   # Dictionary for driver instances
 motors = {}    # Dictionary of motor instances
 
 DEFAULT_MANAGER_PORT = 5001
+DEFAULT_LOG_LEVEL = 20 # logging.INFO
 
 # Global variables set by init()
 MANAGER_ADDRESS = ('control', DEFAULT_MANAGER_PORT)
@@ -129,6 +136,7 @@ def register_driver(cls):
     # Store class into dict
     driver_name = cls.__name__.lower()
     _driver_classes[driver_name] = cls
+    logger.debug(f"Driver '{driver_name}' is now registered.")
     return cls
 
 def caller_module():
@@ -177,7 +185,15 @@ def init(lab_name,
     os.makedirs(conf_path, exist_ok=True)
     conf_file = os.path.join(conf_path, 'config.json')
     config = FileDict(conf_file)
+
+    # Bootstrap lab name
     config.setdefault('lab_name', lab_name)
+
+    # Bootstrap default log level
+    config.setdefault('log_level', DEFAULT_LOG_LEVEL)
+    logger.setLevel(config['log_level'])
+
+    # Set other parameters
     config['conf_path'] = conf_path
     config['module'] = parent_module
 
@@ -186,6 +202,8 @@ def init(lab_name,
     # Store local info extracted already at import
     config['local_hostname'] = local_hostname
     config['local_ip_list'] = local_ip_list
+
+    logger.debug('Basic config completed')
 
     #
     # Setup logging on file for interactive sessions
@@ -202,6 +220,8 @@ def init(lab_name,
         print('*{0:^64}*'.format('[Not logging to file on this host]'))
 
     print()
+
+    logger.debug('Logging config completed')
 
     #
     # Host IP dictionary
@@ -230,6 +250,7 @@ def init(lab_name,
     else:
         MANAGER_ADDRESS = manager_address
     config['manager_address'] = MANAGER_ADDRESS
+    logger.debug(f'Manager address: {MANAGER_ADDRESS}')
 
     #
     # Identify this computer by matching IP with HOST_IPS
@@ -252,12 +273,7 @@ def init(lab_name,
                      ])
           )
 
-
-from .proxydevice import ProxyDeviceError, proxydevice, proxycall
-from .util import FileDict
-from . import logs
-from .logs import logger
-from ._version import version
 from . import base
 from . import camera
 from . import ui
+
