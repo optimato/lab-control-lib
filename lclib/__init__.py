@@ -252,6 +252,11 @@ def init(lab_name,
         MANAGER_ADDRESS = config.get('manager_address', (host_ips['control'], DEFAULT_MANAGER_PORT))
     else:
         MANAGER_ADDRESS = manager_address
+
+    # Tricky bootstrapping - the address has been set at import
+    manager.Manager.Client.ADDRESS = MANAGER_ADDRESS
+    manager.Manager.Server.ADDRESS = MANAGER_ADDRESS
+
     config['manager_address'] = MANAGER_ADDRESS
     logger.debug(f'Manager address: {MANAGER_ADDRESS}')
 
@@ -276,6 +281,7 @@ def init(lab_name,
                      ])
           )
 
+from . import manager
 from . import base
 from . import camera
 from . import ui
