@@ -19,6 +19,9 @@ host_ips = {
 data_path = os.path.expanduser('~/dummylab-data/')
 os.makedirs(data_path, exist_ok=True)
 
+# Hack: add 'localhost' as valid ip
+lclib.local_ip_list.append('localhost')
+
 lclib.init(lab_name='DummyLab',
            host_ips=host_ips,
            data_path=data_path)
