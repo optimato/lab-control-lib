@@ -21,6 +21,9 @@ config = get_config()
 # This computer
 this_host = config['this_host']
 
+# This lab name
+lab_name = config['lab_name']
+
 # List of addresses to access registered devices
 DEVICE_ADDRESSES = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
 
@@ -32,10 +35,7 @@ AVAILABLE = [name for name, address in DEVICE_ADDRESSES.items() if address[0] in
 CAMERAS = {name: cls for name, cls in _driver_classes.items() if issubclass(cls, CameraBase)}
 
 
-print(_driver_classes)
-print(CAMERAS)
-
-@click.group(help='Labcontrol proxy driver management')
+@click.group(help=f'Lab-control-lib ({lab_name}) driver management')
 def cli():
     pass
 
