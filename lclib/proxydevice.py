@@ -725,8 +725,12 @@ class ProxyServerBase:
         )
 
         # Replace print and input
-        sys.modules[self.instance.__class__.__module__].print = self._proxy_print
-        sys.modules[self.instance.__class__.__module__].input = self._proxy_input
+        self.logger.info("Rerouting 'print' and 'input'")
+        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__) if cn.__module__ != 'builtins']
+
+        for mod in mods:
+            mod.print = self._proxy_print
+            mod.input = self._proxy_input
 
         # Start server on separate thread
         self.serving_thread = threading.Thread(
@@ -752,8 +756,11 @@ class ProxyServerBase:
             pass
 
         # Clean up
-        sys.modules[self.instance.__class__.__module__].print = builtins.print
-        sys.modules[self.instance.__class__.__module__].input = builtins.input
+        self.logger.info("Reseting builtin 'print' and 'input'")
+        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__) if cn.__module__ != 'builtins']
+        for mod in mods:
+            mod.print = builtins.print
+            mod.input = builtins.input
 
     def _create_service(self):
         """
@@ -1011,13 +1018,15 @@ class proxydevice:
             API[k] = api_info
 
         # Define server subclass and set default values
-        Server = type(f"{cls.__name__}ProxyServer", (ProxyServerBase,), {})
+        proxyserver_name = f"{cls.__name__}ProxyServer"
+        Server = type(proxyserver_name, (ProxyServerBase,), {})
         Server.ADDRESS = self.address
         Server.API = API
         Server.CLS = cls
 
         # Define client subclass
-        Client = type(f"{cls.__name__}ProxyClient", (ProxyClientBase,), {})
+        proxyclient_name = f"{cls.__name__}ProxyClient"
+        Client = type(proxyclient_name, (ProxyClientBase,), {})
         Client.ADDRESS = self.address
         Client.API = API
 
@@ -1028,12 +1037,12 @@ class proxydevice:
             try:
                 if api_info["property"]:
                     Client._new_property(name, doc)
-                    logger.debug(f"Added property {name} to client proxy.")
+                    logger.debug(f"{proxyclient_name}: Inserted property '{name}'.")
                 else:
                     Client._new_method(name, doc, signature, block=api_info["block"])
-                    logger.debug(f"Added method {name} to client proxy.")
+                    logger.debug(f"{proxyclient_name}: Inserted method '{name}'.")
                     if api_info["interrupt"]:
-                        logger.debug(f"Method {name} is the abort call.")
+                        logger.debug(f"{proxyclient_name}: Method '{name}' is the abort call.")
 
             except AttributeError:
                 continue

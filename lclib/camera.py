@@ -257,6 +257,8 @@ class CameraBase(DriverBase):
             self.logger.debug('Camera was auto-armed. Disarming')
             self.disarm()
 
+        print(f'Save path: {self.filename}')
+
         # Forget tags
         self.tags = None
 
@@ -696,10 +698,6 @@ class CameraBase(DriverBase):
     def shutdown(self):
         # Stop rolling
         self.roll_off()
-        # Stop file_writer process
-        self.frame_writer.stop()
-        # Stop file_streamer process
-        self.frame_streamer.stop()
         # Stop metadata loop
         self.closing = True
 
