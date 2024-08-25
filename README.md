@@ -2,7 +2,7 @@
 
 LabControl lib is a suite of tools initially developed for the Optimal Imaging and Tomography group, University of Trieste/Elettra sincrotone, and based on earlier code developed in the X-ray Nano-Imaging Group, at the University of Southampton. See below for a list of contributors.
 
-This package is a library, in the sense that it provides the tools to for laboratory management, but does not include actual drivers for any lba device. For this, a custom laboratory control package has to be be written. This control package imports the library, defines and registers the various drivers to connect to the hardware piece. 
+This package is a library, in the sense that it provides the tools for laboratory management, but does not include actual drivers for any device. For this, a custom laboratory control package has to be be written. This control package imports the library, defines and registers the various drivers to connect to the hardware pieces. 
 
 Terminology
 -----------
