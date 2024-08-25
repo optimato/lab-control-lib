@@ -7,14 +7,12 @@ Terminology
 "Driver": a python object that can be instantiated to manage a device.
 "Socket Driver": a driver that communicates with a device through a socket connection.
 "Proxy Server": an object that manages one driver and accepts connections from proxy clients to control this driver.
-"Proxy Client": a client that connects to a Proxy Server. It is a "proxy" because it reproduces the driver interface
-                through method calls.
+"Proxy Client": a client that connects to a Proxy Server. It is a "proxy" because it reproduces the driver interface through method calls.
 
 General principles
 ------------------
 The design of this software is made to address these limitations:
-- Most devices allow only one connection at a time. It is often useful to access a device through multiple clients,
-  for instance to probe for metadata or specific signals.
+- Most devices allow only one connection at a time. It is often useful to access a device through multiple clients, for instance to probe for metadata or specific signals.
 - Keeping logs of a device status requires a process that runs constantly and that keep alive a connection with that device.
 - A crash in a control software should not interrupt connections to all devices or require a complete reinitialization.
 - Running all drivers in a single process might overload the computer resources
@@ -50,8 +48,10 @@ The init() method has to called early to inform the library of the most importan
  * the name and IP address of the relevant computers on the LAN, to identify the platform where the package is being runned
  * the network addresses and ports of all proxy servers and devices. In principle this information could be managed
    outside the library, but command line operations (see __main__.py) 
+
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
+
 """
 
 import os
@@ -90,6 +90,9 @@ if uname.system == "Linux":
 elif uname.system == "Windows":
     s = subprocess.run(['ipconfig', '/allcompartments'], capture_output=True).stdout.decode()
     local_ip_list = [x.split(' ')[-1] for x in s.split('\r\n') if x.strip().startswith('IPv4')]
+elif uname.system == "Darwin":
+    ip = str(subprocess.check_output(["ifconfig | grep inet"], shell=True)[:-2], 'UTF-8')
+    local_ip_list = [x.split(' ')[1] for x in ip.split('\t') if x.split(' ')[0] == 'inet']
 else:
     raise RuntimeError(f'Unknown system platform {uname.system}')
 

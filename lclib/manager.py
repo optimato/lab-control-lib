@@ -247,7 +247,7 @@ class Manager(DriverBase):
     @proxycall()
     def start_scan(self, label=None):
         """
-                Start a new scan.
+        Start a new scan.
         Args:
             label: an optional label to be used for directory and file naming.
 
@@ -379,7 +379,7 @@ class Manager(DriverBase):
         """
         The current investigation name.
 
-        *** Setting the investigation makes experiment None.
+        *** Setting the investigation makes experiment None. ***
         """
         return self.config.get('investigation')
 

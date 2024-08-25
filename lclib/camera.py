@@ -32,13 +32,16 @@ Highlights: The CameraBase class wraps detector operations in a uniform API.
 The following methods have to be implemented bu subclasses
 
  * _arm(self):
-  Detector-specific preparation step before acquisition
+
+Detector-specific preparation step before acquisition
 
  * _trigger(self):
-  The actual frame acquisition step (see existing examples)
+
+The actual frame acquisition step (see existing examples)
 
  * _disarm(self):
-  Detector-specific shutdown of acquisition mode
+
+Detector-specific shutdown of acquisition mode
 
  * getters and setters
     *  _get_exposure_time(self):

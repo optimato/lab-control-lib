@@ -4,75 +4,73 @@ through network, using RpyC backend for communication.
 
 Example code:
 
-@proxydevice(address=("127.0.0.1", 5055))
-class A:
-    def __init__(self, x=1):
-        self.x = x
-        self.a = "abc"
-        self.stop = False
+::
 
-    # A non-exposed call
-    def do_something(self, y):
-        self.x += y
+    @proxydevice(address=("127.0.0.1", 5055))
+    class A:
+        def __init__(self, x=1):
+            self.x = x
+            self.a = "abc"
+            self.stop = False
 
-    # An exposed call
-    @proxycall()
-    def get_multiple(self, y):
-        # Print is rerouted to the admin client.
-        print(f"The value is {y}")
-        return self.x * y
+        # A non-exposed call
+        def do_something(self, y):
+            self.x += y
 
-    # An exposed call allowed only for the client with admin rights
-    @proxycall(admin=True)
-    def set_a(self, a):
-        self.a = a
+        # An exposed call
+        @proxycall()
+        def get_multiple(self, y):
+            return self.x * y
 
-    # A long task. Must be made non-blocking otherwise the sever will wait for return value
-    @proxycall(admin=True, block=False)
-    def long_task(self):
-        for i in range(10):
-            print(chr(i + 65))
-            time.sleep(1)
-            if self.stop:
-                self.stop = False
-                break
-        return 1
+        # An exposed call allowed only for the client with admin rights
+        @proxycall(admin=True)
+        def set_a(self, a):
+            self.a = a
 
-    # Declaring the abort call, to be sent when ctrl-C is hit during a long call.
-    @proxycall(interrupt=True)
-    def abort(self):
-        print("Aborting the long call!")
-        self.stop = True
+        # A long task. Must be made non-blocking otherwise the sever will wait for return value
+        @proxycall(admin=True, block=False)
+        def long_task(self):
+            for i in range(10):
+                print(chr(i + 65))
+                time.sleep(1)
+                if self.stop:
+                    self.stop = False
+                    break
+            return 1
 
-    # "input" Routed to admin client
-    @proxycall(admin=True)
-    def get_value(self):
-        a = input('Please enter value for "a" :)
-        return a
+        # Declaring the abort call, to be sent when ctrl-C is hit during a long call.
+        @proxycall(interrupt=True)
+        def abort(self):
+            print("Aborting the long call!")
+            self.stop = True
 
-    # An exposed property
-    @proxycall()
-    @property
-    def x_value(self):
-        return self.x
+        # An exposed property
+        @proxycall()
+        @property
+        def x_value(self):
+            return self.x
 
-    @x_value.setter
-    def x_value(self, v):
-        self.x = v
+        @x_value.setter
+        def x_value(self, v):
+            self.x = v
 
-# Create a normal instance:
-a = A()
+Create a normal instance:
+::
 
-# OR
+    a = A()
 
-# On one computer:
-server = A.Server()
+Or on one computer:
+::
 
-# On another computer:
-a = A.Client()
-# now a has all methods that have been exposed by the proxycall decorator
-a.get_multiple(5)
- -> 5
+    server = A.Server()
+
+On another computer:
+::
+
+    a = A.Client()
+    # now a has all methods that have been exposed by the proxycall decorator
+    a.get_multiple(5)
+     -> 5
 
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
