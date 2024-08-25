@@ -10,6 +10,7 @@ import sys
 import os
 import click
 import logging
+import subprocess
 
 from . import get_config, client_or_None, _driver_classes, LOG_DIR
 from .camera import CameraBase
@@ -29,11 +30,11 @@ DEVICE_ADDRESSES = {name: cls.Server.ADDRESS for name, cls in _driver_classes.it
 
 # List of devices that can run on this host
 local_ip_list = config['local_ip_list']
-AVAILABLE = [name for name, address in DEVICE_ADDRESSES.items() if address[0] in local_ip_list]
+ALL_DRIVERS = [name for name, address in DEVICE_ADDRESSES.items()]
+LOCAL_DRIVERS = [name for name, address in DEVICE_ADDRESSES.items() if address[0] in local_ip_list]
 
 # List Camera devices
 CAMERAS = {name: cls for name, cls in _driver_classes.items() if issubclass(cls, CameraBase)}
-
 
 @click.group(help=f'Lab-control-lib ({lab_name}) driver management')
 def cli():
@@ -42,13 +43,15 @@ def cli():
 
 @cli.command(help='List proxy drivers that can be spawned on the current host')
 def list():
-    click.echo('Available drivers on this host:\n\n * ' + '\n * '.join(AVAILABLE))
+    s = 'Available drivers (*=on this host):\n\n - '
+    s += '\n - '.join([f'{name}*' if name in LOCAL_DRIVERS else f'{name}' for name in ALL_DRIVERS])
+    click.echo(s + '\n')
 
 @cli.command(help='List running proxy drivers')
 def running():
     click.echo('Running drivers:\n\n')
     with logging_muted():
-        for name in _driver_classes.keys():
+        for name in ALL_DRIVERS:
             click.echo(f' * {name+":":<20}', nl=False)
             d = client_or_None(name, client_name=f'check-{this_host}')
             if d is not None:
@@ -56,6 +59,62 @@ def running():
             else:
                 click.secho('NO', fg='red')
 
+
+@cli.command(help='Spawn server proxy of driver [name].')
+@click.argument('name', nargs=-1)
+@click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
+@click.option('--log-global', '-L', 'loglevel_global', default='INFO', show_default=True, help='Log level for all components')
+def spawn(name, loglevel, loglevel_global):
+
+    try:
+        llg = int(loglevel_global)
+    except ValueError:
+        try:
+            llg = logging._nameToLevel[loglevel_global]
+        except KeyError:
+            raise click.BadParameter(f'Unknown log level: {loglevel_global}')
+
+    try:
+        ll = int(loglevel)
+    except ValueError:
+        try:
+            ll = logging._nameToLevel[loglevel]
+        except KeyError:
+            raise click.BadParameter(f'Unknown log level: {loglevel}')
+
+    # Without driver name: list all drivers
+    if not name:
+        list()
+        return
+
+    if len(name) > 1:
+        click.echo('Warning, only supporting one driver at a time for the moment.')
+
+    name = name[0]
+
+    click.echo(f'{name+":":<15}', nl=False)
+
+    # Check if already running
+    with logging_muted():
+        d = client_or_None(name, client_name=f'check-{this_host}')
+    if d is not None:
+        click.secho('ALREADY RUNNING', fg='yellow')
+        return
+
+    command_name = os.path.split(sys.argv[0])[-1]
+    call_list = [command_name, "start", name, "-l", str(ll), "-L", str(llg)]
+    if name in LOCAL_DRIVERS:
+        # Local driver: easy, just run it.
+        process = subprocess.Popen(call_list, start_new_session=True)
+        click.secho(f'RUNNING (PID: {process.pid}', fg='green')
+        return
+
+    # Driver is not local
+    driver_ip = DEVICE_ADDRESSES[name][0]
+    # TODO: figure out how to do this is a multiplatform way
+    # subprocess.run(["ssh", driver_ip] + call_list) # Doesn't work
+    click.secho(f'SPAWNING REMOTE DRIVERS IS NOT YET IMPLEMENTED', fg='red')
+    return
 
 @cli.command(help='Start the server proxy of driver [name]. Does not return.')
 @click.argument('name', nargs=-1)
@@ -82,7 +141,7 @@ def start(name, loglevel, loglevel_global):
 
     name = name[0]
 
-    if name not in AVAILABLE:
+    if name not in LOCAL_DRIVERS:
         raise click.BadParameter(f'Driver {name} cannot be launched from host {this_host} ({config["local_hostname"]}).')
 
     click.echo(f'{name+":":<15}', nl=False)
@@ -118,6 +177,7 @@ def start(name, loglevel, loglevel_global):
     # Wait for completion, then exit.
     s.wait()
     sys.exit(0)
+
 
 
 @cli.command(help='Kill the server proxy of driver [name] if running.')
