@@ -12,8 +12,7 @@ import time
 
 from ..util import FrameSubscriber
 from ..logs import logger as rootlogger
-from .guitools import LiveView, FrameCorrection, StatusBar, Signal, Options
-
+from qtpy.QtCore import Signal
 
 class ViewerBase:
 
@@ -153,6 +152,7 @@ class NapariViewer(ViewerBase):
         """
         import napari
         from napari.qt.threading import create_worker
+        from .guitools import LiveView, FrameCorrection, StatusBar, Options
 
         title = self.camera_name or 'Viewer'
         self.v = napari.viewer.Viewer(title=title)
