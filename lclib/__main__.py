@@ -31,13 +31,13 @@ if lab_name is None:
         lab_name = sys.argv.pop(1)
     except IndexError:
         print(f'Usage: "{sys.argv[0]} labname_package [arguments]')
-        exit(1)
+        sys.exit(1)
     try:
         labpackage = importlib.import_module(lab_name)
     except ModuleNotFoundError:
         print(f'Usage: "{sys.argv[0]} labname_package [arguments]')
         print(f'Package {lab_name} not found')
-        exit(1)
+        sys.exit(1)
 
     # Get properly populated config
     config = get_config()
@@ -48,7 +48,7 @@ this_host = config.get('this_host')
 # Now this should not happen.
 if this_host is None:
     print(f'Package {lab_name} does not seem to have imported properly. This is a bug')
-    exit(1)
+    sys.exit(1)
 
 # List of addresses to access registered devices
 DEVICE_ADDRESSES = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
