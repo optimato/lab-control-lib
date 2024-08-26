@@ -33,6 +33,9 @@ DEFAULT_LOGGING = {
     'disable_existing_loggers': False
 }
 
+# This is overwritten by init()
+log_dir = None
+
 logging.config.dictConfig(DEFAULT_LOGGING)
 
 # Create root logger

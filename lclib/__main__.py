@@ -11,64 +11,62 @@ import os
 import click
 import logging
 
-from . import get_config, client_or_None, _driver_classes, LOG_DIR
+from . import logs, get_config, client_or_None, _driver_classes
 from .camera import CameraBase
 from .logs import logging_muted, log_to_file, logger as rootlogger
 from . import ui
 
-# Pull the lab config
-config = get_config()
+lab_info = {}
 
-# This lab name
-lab_name = config.get('lab_name')
+@click.group(help=f'Lab-control-lib driver management')
+@click.argument('labname')
+def cli(labname):
+    """
+    Get lab name, import if needed, and populate lab_info with information needed for other commands.
+    """
 
-# If no proper config exists, that's probably because lclib.init() has not been called
-# In this case, we expect sys.argv[1] to be the lab package name.
-if lab_name is None:
-    import importlib
-
-    try:
-        lab_name = sys.argv.pop(1)
-    except IndexError:
-        print(f'Usage: "{sys.argv[0]} labname_package [arguments]')
-        sys.exit(1)
-    try:
-        labpackage = importlib.import_module(lab_name)
-    except ModuleNotFoundError:
-        print(f'Usage: "{sys.argv[0]} labname_package [arguments]')
-        print(f'Package {lab_name} not found')
-        sys.exit(1)
-
-    # Get properly populated config
+    # Pull the lab config
     config = get_config()
 
-# This computer
-this_host = config.get('this_host')
+    # lab module name
+    lab_module = config.get('module')
 
-# Now this should not happen.
-if this_host is None:
-    print(f'Package {lab_name} does not seem to have imported properly. This is a bug')
-    sys.exit(1)
+    # If no proper config exists, that's probably because lclib.init() has not been called
+    if lab_module is None:
+        import importlib
+        try:
+            labpackage = importlib.import_module(labname)
+        except ModuleNotFoundError:
+            raise click.BadParameter(f'Package {labname} not found')
 
-# List of addresses to access registered devices
-DEVICE_ADDRESSES = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
+    # Get again properly populated config
+    config = get_config()
 
-# List of devices that can run on this host
-local_ip_list = config['local_ip_list']
-AVAILABLE = [name for name, address in DEVICE_ADDRESSES.items() if address[0] in local_ip_list]
+    lab_name = config['lab_name']
+    lab_module = config['module']
+    if lab_module != labname:
+        raise click.BadParameter(f'Lab name {labname} does not match already imported {lab_module}')
 
-# List Camera devices
-CAMERAS = {name: cls for name, cls in _driver_classes.items() if issubclass(cls, CameraBase)}
+    lab_info['lab_name'] = lab_name
+    lab_info['this_host'] = config['this_host']
+    lab_info['local_hostname'] = config['local_hostname']
+    lab_info['log_dir'] = logs.log_dir
 
+    # List of addresses to access registered devices
+    lab_info['device_addresses'] = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
 
-@click.group(help=f'Lab-control-lib ({lab_name}) driver management')
-def cli():
-    pass
+    # List of devices that can run on this host
+    local_ip_list = config['local_ip_list']
+    lab_info['local_ip_list'] = local_ip_list
+    lab_info['available'] = [name for name, address in lab_info['device_addresses'].items() if address[0] in local_ip_list]
+
+    # List Camera devices
+    lab_info['cameras'] = {name: cls for name, cls in _driver_classes.items() if issubclass(cls, CameraBase)}
 
 
 @cli.command(help='List proxy drivers that can be spawned on the current host')
 def list():
-    click.echo('Available drivers on this host:\n\n * ' + '\n * '.join(AVAILABLE))
+    click.echo('Available drivers on this host:\n\n * ' + '\n * '.join(lab_info['available']))
 
 @cli.command(help='List running proxy drivers')
 def running():
@@ -76,7 +74,7 @@ def running():
     with logging_muted():
         for name in _driver_classes.keys():
             click.echo(f' * {name+":":<20}', nl=False)
-            d = client_or_None(name, client_name=f'check-{this_host}')
+            d = client_or_None(name, client_name=f'check-{lab_info["this_host"]}')
             if d is not None:
                 click.secho('YES', fg='green')
             else:
@@ -108,14 +106,14 @@ def start(name, loglevel, loglevel_global):
 
     name = name[0]
 
-    if name not in AVAILABLE:
-        raise click.BadParameter(f'Driver {name} cannot be launched from host {this_host} ({config["local_hostname"]}).')
+    if name not in lab_info['available']:
+        raise click.BadParameter(f'Driver {name} cannot be launched from host {lab_info["this_host"]} ({lab_info["local_hostname"]}).')
 
     click.echo(f'{name+":":<15}', nl=False)
 
     # Check if already running
     with logging_muted():
-        d = client_or_None(name, client_name=f'check-{this_host}')
+        d = client_or_None(name, client_name=f'check-{lab_info["this_host"]}')
     if d is not None:
         click.secho('ALREADY RUNNING', fg='yellow')
         return
@@ -129,13 +127,13 @@ def start(name, loglevel, loglevel_global):
             raise click.BadParameter(f'Unknown log level: {loglevel}')
 
     # Log to file
-    log_to_file(os.path.join(LOG_DIR, f'optimato-labcontrol-{name}.log'))
+    log_file = os.path.join(lab_info['log_dir'], f'optimato-labcontrol-{name}.log')
+    log_to_file(log_file)
 
     # Start the server
     # with logging_muted():
     # s = Classes[name].Server(address=net_info['control'], instantiate=True)
     s = _driver_classes[name].Server(instantiate=True)
-
 
     click.secho('RUNNING', fg='green')
 
@@ -149,7 +147,7 @@ def start(name, loglevel, loglevel_global):
 @cli.command(help='Kill the server proxy of driver [name] if running.')
 @click.argument('name', nargs=-1)
 def kill(name):
-    d = client_or_None(name[0], client_name=f'killer-{this_host}')
+    d = client_or_None(name[0], client_name=f'killer-{lab_info["this_host"]}')
     if d:
         time.sleep(.2)
         d.ask_admin(True, True)
@@ -160,7 +158,7 @@ def kill(name):
 @cli.command(help='Kill all running server proxy.')
 def killall():
     # First ask manager to kill all other servers
-    d = client_or_None('manager', client_name=f'killer-{this_host}')
+    d = client_or_None('manager', client_name=f'killer-{lab_info["this_host"]}')
     if not d:
         click.Abort('Could not connect to manager!')
     time.sleep(.5)
@@ -185,7 +183,7 @@ def logall():
 @click.option('--maxfps', '-m', default=10, show_default=True, help='Maximum refresh rate (FPS).')
 def viewer(name, loglevel, vtype, maxfps):
     name = name.lower()
-    cam_cls = CAMERAS.get(name, None)
+    cam_cls = lab_info['cameras'].get(name, None)
     addr = cam_cls.DEFAULT_BROADCAST_ADDRESS
     if not addr:
         click.echo(f'Unknown detector: {name}')
