@@ -156,6 +156,8 @@ def choose_investigation(name=None):
 
     if name is not None:
         inv = name
+        if inv not in INVESTIGATIONS:
+            INVESTIGATIONS[inv] = {}
     else:
         if not INVESTIGATIONS:
             inv = user_prompt('Enter new investigation name:')

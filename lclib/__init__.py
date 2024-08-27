@@ -79,7 +79,6 @@ DEFAULT_LOG_LEVEL = 20 # logging.INFO
 # Global variables set by init()
 MANAGER_ADDRESS = ('control', DEFAULT_MANAGER_PORT)
 config = {}
-LOG_DIR = None
 
 # Get computer name and IP addresses
 uname = platform.uname()
@@ -172,7 +171,7 @@ def init(lab_name,
         data_path: Main path to save data (from control node)
         manager_address: the address for the manager.
     """
-    global config, LOG_DIR, MANAGER_ADDRESS
+    global config, MANAGER_ADDRESS
     BANNER = '*{0:^120}*'
 
     #
@@ -213,12 +212,15 @@ def init(lab_name,
     #
     # Setup logging on file for interactive sessions
     #
-    LOG_DIR = os.path.join(conf_path, 'logs/')
-    os.makedirs(LOG_DIR, exist_ok=True)
+    log_dir = os.path.join(conf_path, 'logs/')
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Store for access e.g. by __main__
+    logs.log_dir = log_dir
 
     # Log to file interactive sessions
     if ui.is_interactive():
-        log_file_name = os.path.join(LOG_DIR, f'{lab_name.lower()}-labcontrol.log')
+        log_file_name = os.path.join(log_dir, f'{lab_name.lower()}-labcontrol.log')
         logs.log_to_file(log_file_name)
         print(BANNER.format('[Logging to file on this host]'))
     else:

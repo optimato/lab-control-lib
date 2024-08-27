@@ -7,16 +7,12 @@ This file is part of lab-control-lib
 import threading
 import re
 
-import napari
-from napari.qt.threading import create_worker
-import napari.utils.notifications
 import numpy as np
 import time
 
 from ..util import FrameSubscriber
 from ..logs import logger as rootlogger
-from .guitools import LiveView, FrameCorrection, StatusBar, Signal, Options
-
+from qtpy.QtCore import Signal
 
 class ViewerBase:
 
@@ -140,6 +136,7 @@ class NapariViewer(ViewerBase):
     data_arrived = Signal()
 
     def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=2, camera_name=None):
+
         self.v = None
         self.worker = None
         self.epsize = None
@@ -153,6 +150,10 @@ class NapariViewer(ViewerBase):
         """
         Create the viewer and prepare the dock
         """
+        import napari
+        from napari.qt.threading import create_worker
+        from .guitools import LiveView, FrameCorrection, StatusBar, Options
+
         title = self.camera_name or 'Viewer'
         self.v = napari.viewer.Viewer(title=title)
 
@@ -187,6 +188,7 @@ class NapariViewer(ViewerBase):
         """
         Not sure things are split the right way.
         """
+        import napari
         self.worker.start()
         napari.run()
 
@@ -256,6 +258,7 @@ class NapariViewer(ViewerBase):
                 new_buffer = np.roll(current_buffer, N, axis=0)
                 new_buffer[:N] = frame
             """
+            import napari.utils.notifications
             napari.utils.notifications.show_error("3D frames are not currently supported.")
 
         self.update_layer()

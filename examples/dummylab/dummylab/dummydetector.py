@@ -87,6 +87,9 @@ class Dummydetector(CameraBase):
         self.logger.debug('Starting acquisition loop.')
         frame_counter = 0
         while True:
+            if not self.rolling:
+                self.print(f'\r{frame_counter}/{n_exp}', end='')
+
             # Trigger metadata collection
             self.grab_metadata.set()
 
@@ -123,6 +126,7 @@ class Dummydetector(CameraBase):
 
             if self.abort_flag.is_set():
                 break
+        self.print()
 
     def _disarm(self):
         # self.detector.disarm() # or whatever

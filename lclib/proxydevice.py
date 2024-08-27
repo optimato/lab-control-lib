@@ -599,11 +599,16 @@ class ProxyClientBase:
             # In non-blocking mode, we have to wait for result
             # and catch keyboard interrupts to try and abort the command
             def method(client_self, *args, **kwargs):
+                t0 = time.time()
+
                 # Find remote method to call
                 service_method = getattr(client_self.conn.root, name)
 
                 # This calls the remote method, but since it is non-blocking it returns immediately
                 reply = _um(service_method(_m(args), _m(kwargs)))
+
+                # Timing statistics are about call delays so we measure time now
+                client_self._update_stats(t0, time.time())
 
                 # Reset awaited result
                 client_self.awaited_result = None
@@ -726,7 +731,7 @@ class ProxyServerBase:
 
         # Replace print and input
         self.logger.info("Rerouting 'print' and 'input'")
-        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__) if cn.__module__ != 'builtins']
+        mods = [sys.modules[cn.__module__] for cn in self.instance.__class__.__mro__ if cn.__module__ != 'builtins']
 
         for mod in mods:
             mod.print = self._proxy_print

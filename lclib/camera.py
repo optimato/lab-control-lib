@@ -257,8 +257,6 @@ class CameraBase(DriverBase):
             self.logger.debug('Camera was auto-armed. Disarming')
             self.disarm()
 
-        print(f'Save path: {self.filename}')
-
         # Forget tags
         self.tags = None
 
@@ -304,6 +302,7 @@ class CameraBase(DriverBase):
             if not self.rolling:
                 self.logger.debug('Requesting opening to file writer.')
                 self.frame_writer.open(filename=filename)
+                self.print(f'{self.name} will save to {filename}')
 
             # trigger acquisition with subclassed method and wait until it is done
             self.logger.debug('Calling the subclass trigger.')
@@ -353,6 +352,8 @@ class CameraBase(DriverBase):
 
             # Get ready for next acquisition
             self._rearm()
+
+            self.print(f'{self.name}: acquisition complete')
 
         # The loop is closed, we are done
         self.logger.debug('Acquisition loop completed')
