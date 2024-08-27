@@ -161,7 +161,8 @@ def caller_module():
 def init(lab_name,
          host_ips=None,
          data_path=None,
-         manager_address=None):
+         manager_address=None,
+         spawn_info=None):
     """
     Set up lab parameters.
 
@@ -170,6 +171,11 @@ def init(lab_name,
         host_ips: (dict) Dict of host names and IPs in  the laboratory LAN {hostname1: ip1, hostname2: ip2, ...}
         data_path: Main path to save data (from control node)
         manager_address: the address for the manager.
+        spawn_info: information required to spawn non-local drivers:
+          {driver1_name: {'ssh_user': str or None,
+                          'run_command': command to run on the remote machine to start the driver
+           driver2_name: ...
+          }
     """
     global config, MANAGER_ADDRESS
     BANNER = '*{0:^120}*'
@@ -200,6 +206,9 @@ def init(lab_name,
     # Set other parameters
     config['conf_path'] = conf_path
     config['module'] = parent_module
+
+    # Store spawn information
+    config['spawn_info'] = spawn_info
 
     print(BANNER.format(f'This is {lab_name} (module "{parent_module}")'))
 

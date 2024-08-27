@@ -4,6 +4,8 @@ Lab control CLI entry point.
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
+# TODO: spawn and start should not override the log levels stored in the config files
+
 
 import time
 import sys
@@ -49,9 +51,13 @@ def cli(labname):
         raise click.BadParameter(f'Lab name {labname} does not match already imported {lab_module}')
 
     lab_info['lab_name'] = lab_name
+    lab_info['lab_module'] = lab_module
     lab_info['this_host'] = config['this_host']
     lab_info['local_hostname'] = config['local_hostname']
     lab_info['log_dir'] = logs.log_dir
+
+    # Spawn information
+    lab_info['spawn_info'] = config['spawn_info']
 
     # List of addresses to access registered devices
     lab_info['device_addresses'] = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
@@ -129,8 +135,7 @@ def spawn(name, loglevel, loglevel_global):
         click.secho('ALREADY RUNNING', fg='yellow')
         return
 
-    command_name = os.path.split(sys.argv[0])[-1]
-    call_list = [command_name, "start", name, "-l", str(ll), "-L", str(llg)]
+    call_list = ['python', '-m', __package__, lab_info['lab_module'], "start", name, "-l", str(ll), "-L", str(llg)]
     if name in lab_info['local_drivers']:
         # Local driver: easy, just run it.
         process = subprocess.Popen(call_list, start_new_session=True)
