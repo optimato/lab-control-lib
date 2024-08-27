@@ -726,7 +726,7 @@ class ProxyServerBase:
 
         # Replace print and input
         self.logger.info("Rerouting 'print' and 'input'")
-        mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__) if cn.__module__ != 'builtins']
+        mods = [sys.modules[cn.__module__] for cn in self.instance.__class__.__mro__ if cn.__module__ != 'builtins']
 
         for mod in mods:
             mod.print = self._proxy_print

@@ -82,7 +82,8 @@ class DriverBase:
 
     logger = None                       # Place-holder. Gets defined at construction.
     motors = {}
-    DEFAULT_CONFIG = {'log_level': logging.INFO}
+    DEFAULT_CONFIG = {'log_level': logging.INFO,
+                      'quiet': True}
 
     def __init__(self):
         """
@@ -191,6 +192,22 @@ class DriverBase:
         Shutdown procedure registered with atexit.
         """
         pass
+
+    @proxycall(admin=True)
+    @property
+    def quiet(self):
+        return self.config['quiet']
+
+    @quiet.setter
+    def quiet(self, value):
+        self.config['quiet'] = bool(value)
+
+    def print(self, s='', end='\n'):
+        """
+        Print if printing is on.
+        """
+        if not self.quiet:
+            print(s, end=end, flush=True)
 
     @classmethod
     def register_motor(cls, motor_name, **kwargs):
