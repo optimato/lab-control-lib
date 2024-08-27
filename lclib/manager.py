@@ -313,6 +313,37 @@ class Manager(DriverBase):
         return s
 
     @proxycall()
+    def get_stats(self):
+        """
+        Compute and return communication statistics for currently connected clients.
+        """
+        stats = {}
+        for name, c in self.clients.items():
+            try:
+                raw_stats = c.stats
+            except AttributeError:
+                # c could be self
+                continue
+            N = raw_stats['reply_number']
+            if N == 0:
+                # No stats
+                stats[name] = {'avg': None,
+                            'var': None,
+                            'min': None,
+                            'max': None,
+                            'N': 0}
+                continue
+            avg = raw_stats['total_reply_time']/N
+            var = raw_stats['total_reply_time2']/N - avg**2
+            client_stats = {'avg': avg,
+                            'var': var,
+                            'min': raw_stats['min_reply_time'],
+                            'max': raw_stats['max_reply_time'],
+                            'N': N}
+            stats[name] = client_stats
+        return stats
+
+    @proxycall()
     def next_prefix(self):
         """
         Return full prefix identifier and increment counter.
