@@ -469,3 +469,13 @@ from rpyc.core.vinegar import _generic_exceptions_cache
 blah = Mock()
 blah.__getitem__ = Mock()
 blah.__getitem__.side_effect = _generic_exceptions_cache.__getitem__
+
+def modify_lines(app, what, name, obj, options, lines):
+    if hasattr(obj, 'api_info'):
+        if obj.api_info['admin']:
+            lines.append('Exposed by proxydevice ("admin" only).')
+        else:
+            lines.append('Exposed by proxydevice.')
+
+def setup(app):
+    app.connect('autodoc-process-docstring', modify_lines)
