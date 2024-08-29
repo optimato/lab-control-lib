@@ -231,13 +231,8 @@ class Manager(DriverBase):
             if name == 'manager':
                 # We don't kill ourselves
                 continue
-            print(f'Killing {name}')
             c.ask_admin(True, True)
-            try:
-                c.kill_server()
-            except (EOFError, TimeoutError) as error:
-                print(f'Error killing {name}. Already down?')
-            time.sleep(.5)
+            c.kill_server()
             del c
             self.logger.info(f'{name} killed.')
 
