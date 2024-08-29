@@ -439,7 +439,13 @@ class ProxyClientBase:
         self._terminate = True
 
     def kill_server(self):
-        self.conn.root.kill()
+        try:
+            self.conn.root.kill()
+        except EOFError:
+            # This is normal - the connection was lost mid-way
+            pass
+        except:
+            raise
         self.disconnect()
 
     def _serve(self):
