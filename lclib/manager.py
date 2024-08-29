@@ -53,6 +53,7 @@ class Manager(DriverBase):
 
     # Allowed characters for experiment and investigation names
     _VALID_CHAR = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:'
+
     # Interval at which attempts are made at connecting clients
     CLIENT_LOOP_INTERVAL = 20.
 
@@ -223,9 +224,8 @@ class Manager(DriverBase):
     @proxycall(admin=True)
     def killall(self):
         """
-        Kill all servers.
+        Kill all servers - except self!
         """
-        self.stop_flag.set()
         while self.clients:
             name, c = self.clients.popitem()
             if name == 'manager':
