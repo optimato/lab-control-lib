@@ -86,6 +86,7 @@ import sys
 import traceback
 import builtins
 import pickle
+import enum
 
 from .util import Future
 from .logs import logger as rootlogger
@@ -355,7 +356,7 @@ class ProxyClientBase:
     SLEEP_INTERVAL = 0.1
     RECONNECT_INTERVAL = 3.0
 
-    def __init__(self, admin=True, name=None, args=None, kwargs=None, clean=True, reconnect=True):
+    def __init__(self, admin=True, name=None, args=None, kwargs=None, clean=True, reconnect='if_successful'):
         """
         Base class for client proxy. Subclasses are created dynamically by the
         `proxydevice` decorator.
@@ -368,7 +369,7 @@ class ProxyClientBase:
         kwargs (dicts): same as args above
         clean (bool): If false, non-blocking calls will not "fake block"
                       awaiting result.
-        reconnect(bool): If true, keep trying to reconnect when the server is lost.
+        reconnect: one of 'if_successful' (default), 'always', or 'never'
         """
         self.name = self.__class__.__name__
         self.client_name = name or self.name
@@ -438,7 +439,14 @@ class ProxyClientBase:
         self._terminate = True
 
     def kill_server(self):
-        self.conn.root.kill()
+        try:
+            self.conn.root.kill()
+        except EOFError:
+            # This is normal - the connection was lost mid-way
+            pass
+        except:
+            raise
+        self.disconnect()
 
     def _serve(self):
         """
@@ -457,7 +465,7 @@ class ProxyClientBase:
                 )
             except ConnectionRefusedError:
                 # No server present
-                if self.first_connect or not self.reconnect:
+                if (self.reconnect != 'always') or ((self.reconnect == 'if_successful') and self.first_connect) or (self.reconnect == 'never'):
                     self.logger.error(f"Connection to {self.ADDRESS} refused. Is the server running?")
                     raise
 
@@ -483,7 +491,7 @@ class ProxyClientBase:
             except EOFError:
                 # Connection closed!
                 self.logger.warning("Connection lost.")
-                if self.reconnect:
+                if self.reconnect != 'never':
                     continue
                 raise
         try:

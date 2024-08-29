@@ -21,7 +21,7 @@ from . import (get_config,
                register_driver,
                proxycall,
                proxydevice)
-from .util import Future
+from .util import Future, now
 from .base import DriverBase
 from .logs import logging_muted
 
@@ -53,6 +53,7 @@ class Manager(DriverBase):
 
     # Allowed characters for experiment and investigation names
     _VALID_CHAR = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:'
+
     # Interval at which attempts are made at connecting clients
     CLIENT_LOOP_INTERVAL = 20.
 
@@ -60,7 +61,8 @@ class Manager(DriverBase):
     DEFAULT_CONFIG.update(
                       {'experiment':None,
                        'investigation':None,
-                       'meta_to_save':{}})
+                       'meta_to_save':{},
+                       'last_scan_info': {}})
 
     def __init__(self):
         """
@@ -96,6 +98,8 @@ class Manager(DriverBase):
         self.requests = {}      # Dictionary to accumulate requests in case many are made before returning
         self.stop_flag = threading.Event()
         self.clients = {}
+        self.scan_info = {}
+        self.last_scan_info = self.config['last_scan_info']
 
         # HACK (kind of): On the process where this class is instantiated, getManager must return this instance, not a client.
         global _client
@@ -220,9 +224,8 @@ class Manager(DriverBase):
     @proxycall(admin=True)
     def killall(self):
         """
-        Kill all servers.
+        Kill all servers - except self!
         """
-        self.stop_flag.set()
         while self.clients:
             name, c = self.clients.popitem()
             if name == 'manager':
@@ -230,7 +233,6 @@ class Manager(DriverBase):
                 continue
             c.ask_admin(True, True)
             c.kill_server()
-            time.sleep(.5)
             del c
             self.logger.info(f'{name} killed.')
 
@@ -257,6 +259,9 @@ class Manager(DriverBase):
         if self._running:
             raise RuntimeError(f'Scan {self.scan_name} already running')
 
+        # New scan start time
+        start_time = now()
+
         # Get new scan number
         self._scan_number = self.next_scan()
 
@@ -281,7 +286,11 @@ class Manager(DriverBase):
                 'scan_name': scan_name,
                 'investigation': self.investigation,
                 'experiment': self.experiment,
-                'path': self.path}
+                'path': self.path,
+                'start_time': start_time}
+
+        # Store for status access
+        self.scan_info = scan_info
 
         return scan_info
 
@@ -292,14 +301,18 @@ class Manager(DriverBase):
         """
         if not self._running:
             raise RuntimeError(f'No scan currently running')
+
         self._running = False
-        return {'scan_number': self._scan_number,
-                'scan_name': self._scan_name,
-                'investigation': self.investigation,
-                'experiment': self.experiment,
-                'path': self.path,
-                'count': self.counter
-                 }
+
+        self.last_scan_info = self.scan_info
+        self.last_scan_info['end_time'] = now()
+        self.last_scan_info['counter'] = self.counter
+
+        self.config['last_scan_info'] = self.last_scan_info
+
+        self.scan_info = {}
+
+        return self.last_scan_info
 
     @proxycall()
     def status(self):
@@ -311,6 +324,21 @@ class Manager(DriverBase):
         ns = self.next_scan()
         s += f' * Last scan number: {"[none]" if (ns is None or ns==0) else ns-1}'
         return s
+
+    @proxycall()
+    def scan_status(self):
+        """
+        Return information about current scan if running, otherwise about the last scan
+        """
+        out = {}
+        if self._running:
+            out.update(self.scan_info)
+            out['counter'] = self.counter
+            out['now'] = now()
+        else:
+            out.update(self.last_scan_info)
+
+        return out
 
     @proxycall()
     def get_stats(self):

@@ -105,7 +105,7 @@ except ValueError:
 def get_config():
     return config
 
-def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
+def client_or_None(name, admin=True, client_name=None, inexistent_ok=True, keep_trying=False):
     """
     Helper function to create a client to a named driver
 
@@ -114,6 +114,7 @@ def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
         admin (bool): try to connect as admin [default True]
         client_name: an identifier for the client
         inexistent_ok: if True, ignore unknown names.
+        keep_trying: if True, the client object is returned even if the connection was not successful
 
     Returns:
         An instance of the proxy client connected to named driver, or None if connection failed.
@@ -127,7 +128,10 @@ def client_or_None(name, admin=True, client_name=None, inexistent_ok=True):
         else:
             raise RuntimeError(f'Could not find class {name}. Has the corresponding module been imported?')
     try:
-        d = _driver_classes[name].Client(admin=admin, name=client_name)
+        if keep_trying:
+            d = _driver_classes[name].Client(admin=admin, name=client_name, reconnect='always')
+        else:
+            d = _driver_classes[name].Client(admin=admin, name=client_name)
     except ProxyDeviceError as e:
         logs.logger.info(str(e))
     return d

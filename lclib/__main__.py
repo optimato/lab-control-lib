@@ -235,11 +235,12 @@ def killall():
         d.ask_admin(True, True)
         d.killall()
         # Then kill manager
-        d.ask_admin(True, True)
         d.kill_server()
     except AttributeError:
         # For some reason d can still be None at this point.
         click.Abort('Could not connect to manager!')
+    except:
+        raise
 
 
 @cli.command(help='Start Display real-time logs of all running drivers')

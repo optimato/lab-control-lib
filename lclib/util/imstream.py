@@ -34,23 +34,33 @@ class FramePublisher:
 
         if arrays is True, publish numpy arrays. If false, publish raw byte buffers.
         """
-        self.heartbeat_period = 1.
         self.logger = logging.getLogger(self.__class__.__name__)
         self.port = port
         self.address = f'tcp://*:{port}'
         self.logger.info(f'Publishing on {self.address}')
 
-        socketType = zmq.PUB
+        # XPUB model allows to receive subscription / unsubscription events
+        socketType = zmq.XPUB
         self.zmq_context = SerializingContext()
         self.zmq_socket = self.zmq_context.socket(socketType)
         self.zmq_socket.bind(self.address)
+        self.zmq_socket.setsockopt(zmq.XPUB_VERBOSE, True)
 
         self.logger.info(f'Broadcasting on {self.address}')
         self.arrays = arrays
 
-        self._stop_heartbeat = False
-        self.heartbeat_future = Future(self._heartbeat)
+        # Polling / heartbeat period
+        self.poll_period = 3000 # milliseconds
+
+        # Starting polling / heartbeat
+        self._stop_poll = False
+        self.poll_future = Future(self._poll)
+
+        # This will hold the Future object created by self.pub
         self.pub_future = None
+
+        # Cache of the latest published frame
+        self.cache = None
 
     def pub(self, data, metadata=None):
         """
@@ -59,10 +69,11 @@ class FramePublisher:
           data: numpy array or buffer (or None)
           metadata: any json-serializable object (probably dictionary).
         """
+        self.cache = (data, metadata)
         if not self.pub_future or self.pub_future.done():
             self.pub_future = Future(self._pub, args=(data, metadata))
         else:
-            print('Still publishing previous frame. Dropping this one.')
+            self.logger.warning('Previous publish is not complete. Dropping one frame!')
         return
     
     def _pub(self, data, metadata=None):
@@ -73,30 +84,31 @@ class FramePublisher:
             data = np.ascontiguousarray(data)
         self.zmq_socket.send_frame(data, metadata, copy=False)
 
-    def _heartbeat(self):
+    def _poll(self):
         """
-        Publish None at a regular interval to show that the connection is still alive.
+        Poll for new subscriber. Publish None at a regular interval as a heartbeat.
         """
-        self.last_pub = time.time()
-        while not self._stop_heartbeat:
-            # Sleep until next time
-            next_beat = self.last_pub + self.heartbeat_period
-            time.sleep(max(0., next_beat - time.time()))
-
-            # If something happened in the meantime, start over
-            now = time.time()
-            if (now - self.last_pub ) < 1.05*self.heartbeat_period:
+        while not self._stop_poll:
+            # Poll for new subscription - this will almost always time out
+            val = self.zmq_socket.poll(self.poll_period)
+            if (val & zmq.POLLIN) == 0:
+                # Time out. Send a heartbeat
+                self.zmq_socket.send_frame(None, None)
                 continue
 
-            # Send a peep
-            self.zmq_socket.send_frame(None, None)
-            self.last_pub = now
+            # Subscription / unsubscription event
+            ev = self.zmq_socket.recv()
+            if (ev[0] == 1) and (self.cache is not None):
+                # New subscription - send cache
+                # NOTE: this publishes the cache to all subscribers
+                self.pub(*self.cache)
 
     def close(self):
-        """Closes the ZMQ socket and the ZMQ context.
+        """
+        Close the ZMQ socket and the ZMQ context.
         """
         self.logger.info('Shutting down broadcast')
-        self._stop_heartbeat = True
+        self._stop_poll = True
         self.zmq_socket.close()
         self.zmq_context.term()
 
@@ -140,6 +152,7 @@ class FrameSubscriber:
         self.num_frames_dropped = 0
         self.num_frames_dropped_sequence = 0
 
+        # ZMQ Subscriber model
         self.zmq_context = SerializingContext()
         self.zmq_socket = self.zmq_context.socket(zmq.SUB)
         self.zmq_socket.setsockopt(zmq.SUBSCRIBE, b'')
@@ -159,36 +172,42 @@ class FrameSubscriber:
         Start receiving on a separate thread to avoid data backlogs
         """
         while not self._stop:
+            # Poll every .5 second
             if (self.zmq_socket.poll(500.) & zmq.POLLIN) == 0:
                 continue
             try:
+                # New data has arrived
                 self._data = self.zmq_socket.recv_frame()
             except ValueError:
-                print('bad frame')
+                self.logger.warning('Something went wrong receiving frame data. Ignoring.')
                 continue
             self.num_frames += 1
             if self._data_ready.is_set():
+                # A frame was already cached and not consumed.
                 self.num_frames_dropped += 1
                 self.num_frames_dropped_sequence += 1
             else:
                 if self.num_frames_dropped_sequence > 0:
-                    self.logger.debug(f'{self.num_frames_dropped_sequence} frames dropped.')
+                    self.logger.info(f'{self.num_frames_dropped_sequence} frames dropped.')
                 self.num_frames_dropped_sequence = 0
             self._data_ready.set()
 
     def receive(self, timeout=15.):
         """
-        Receive frame
+        Receive frame. Raise TimeoutError if no frame has been received after given timeout.
         """
         flag = self._data_ready.wait(timeout=timeout)
         if not flag:
             raise TimeoutError(
                 f"Timeout while reading from subscriber {self.address}")
+
+        # Clear the data flag and return the cached frame
         self._data_ready.clear()
         return self._data
 
     def close(self):
-        """Closes the ZMQ socket and the ZMQ context.
+        """
+        Close the ZMQ socket and the ZMQ context.
         """
         self.logger.info(f'Shutting down subscriber to {self.address}')
         self._stop = True
@@ -203,14 +222,12 @@ class FrameSubscriber:
         Returns:
           self.
         """
-
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """
         To use in a with statement.
         """
-
         self.close()
 
 
@@ -246,7 +263,6 @@ class SerializingSocket(zmq.Socket):
             return self.send(A, flags, copy=copy, track=track)
         else:
             return self.send_json(md, flags)
-
 
     def recv_frame(self, flags=0, copy=True, track=False):
         """
