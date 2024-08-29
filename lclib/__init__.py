@@ -73,6 +73,11 @@ _motor_classes = {}   # Dictionary for motor classes (populated when drivers mod
 drivers = {}   # Dictionary for driver instances
 motors = {}    # Dictionary of motor instances
 
+# Path for lclib configuration
+lclib_config_path = os.path.expanduser(f"~/.lclib/")
+os.makedirs(lclib_config_path, exist_ok=True)
+lclib_config = FileDict(os.path.join(lclib_config_path, 'config.json'))
+
 DEFAULT_MANAGER_PORT = 5001
 DEFAULT_LOG_LEVEL = 20 # logging.INFO
 
@@ -101,6 +106,10 @@ try:
     local_ip_list.remove('127.0.0.1')
 except ValueError:
     pass
+
+lclib_config.update({'local_ip_list':local_ip_list,
+                     'local_platform':local_platform,
+                     'local_hostname':local_hostname})
 
 def get_config():
     return config
@@ -195,7 +204,7 @@ def init(lab_name,
     #
     # Persistent configuration file
     #
-    conf_path = os.path.expanduser(f"~/.{lab_name.lower()}-labcontrol/")
+    conf_path = os.path.expanduser(f"~/.{lab_name.lower()}-lclib/")
     os.makedirs(conf_path, exist_ok=True)
     conf_file = os.path.join(conf_path, 'config.json')
     config = FileDict(conf_file)
@@ -216,10 +225,6 @@ def init(lab_name,
 
     print(BANNER.format(f'This is {lab_name} (module "{parent_module}")'))
 
-    # Store local info extracted already at import
-    config['local_hostname'] = local_hostname
-    config['local_ip_list'] = local_ip_list
-
     logger.debug('Basic config completed')
 
     #
@@ -233,7 +238,7 @@ def init(lab_name,
 
     # Log to file interactive sessions
     if ui.is_interactive():
-        log_file_name = os.path.join(log_dir, f'{lab_name.lower()}-labcontrol.log')
+        log_file_name = os.path.join(log_dir, f'{lab_name.lower()}-lclib.log')
         logs.log_to_file(log_file_name)
         print(BANNER.format('[Logging to file on this host]'))
     else:
@@ -296,6 +301,10 @@ def init(lab_name,
                      BANNER.format(f"a.k.a. '{this_host}' with IP {local_ip_list}")
                      ])
           )
+
+    # Store persistently this lab config
+    lclib_config.update({lab_name: dict(config)})
+
 
 from . import manager
 from . import base
