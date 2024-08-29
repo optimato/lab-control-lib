@@ -171,6 +171,8 @@ def killall():
     except AttributeError:
         # For some reason d can still be None at this point.
         click.Abort('Could not connect to manager!')
+    except:
+        raise
 
 
 @cli.command(help='Start Display real-time logs of all running drivers')
