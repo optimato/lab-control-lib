@@ -166,7 +166,6 @@ def killall():
         d.ask_admin(True, True)
         d.killall()
         # Then kill manager
-        d.ask_admin(True, True)
         d.kill_server()
     except AttributeError:
         # For some reason d can still be None at this point.
