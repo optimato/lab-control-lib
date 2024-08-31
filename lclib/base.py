@@ -15,7 +15,7 @@ import socket
 import signal
 from select import select
 
-from . import proxycall, get_config
+from . import proxycall, this_lab
 from .util import FileDict, Future
 from .logs import logger as rootlogger
 
@@ -103,7 +103,7 @@ class DriverBase:
             self.name = self.__class__.__name__
 
         # Load (or create) config dictionary
-        self.config_filename = os.path.join(get_config()['conf_path'], 'drivers', self.name + '.json')
+        self.config_filename = os.path.join(this_lab['conf_path'], 'drivers', self.name + '.json')
         self.config = FileDict(self.config_filename)
 
         # Make sure all default keys are present
@@ -465,7 +465,7 @@ class MotorBase:
         self.logger = logging.getLogger(name)
 
         # File name for motor configuration
-        self.config_file = os.path.join(get_config()['conf_path'], 'motors', name + '.json')
+        self.config_file = os.path.join(this_lab['conf_path'], 'motors', name + '.json')
 
         # Load offset configs
         self._load_config()

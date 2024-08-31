@@ -8,17 +8,11 @@ This file is part of lab-control-lib
 import logging
 import logging.config
 import logging.handlers
-import zmq
 import json
-import threading
-import time
-import datetime
 
-from .util import Future
-
+"""
 # This adds another debug level but it is not well managed by
 # zmq.logs.PubHandler so for now not used.
-"""
 VERBOSE_NUM = 5
 logging.addLevelName(VERBOSE_NUM, "VERBOSE")
 def verbose(self, message, *args, **kws):

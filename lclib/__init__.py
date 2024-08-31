@@ -73,17 +73,22 @@ _motor_classes = {}   # Dictionary for motor classes (populated when drivers mod
 drivers = {}   # Dictionary for driver instances
 motors = {}    # Dictionary of motor instances
 
-# Path for lclib configuration
+# Path for global lclib configuration
 lclib_config_path = os.path.expanduser(f"~/.lclib/")
 os.makedirs(lclib_config_path, exist_ok=True)
-lclib_config = FileDict(os.path.join(lclib_config_path, 'config.json'))
+config = FileDict(os.path.join(lclib_config_path, 'config.json'))
 
 DEFAULT_MANAGER_PORT = 5001
 DEFAULT_LOG_LEVEL = 20 # logging.INFO
 
-# Global variables set by init()
+# The manager address is set later by init()
 MANAGER_ADDRESS = ('control', DEFAULT_MANAGER_PORT)
-config = {}
+
+# This is the name of lab package
+LAB_PACKAGE = None
+
+# Parameters of the instrument initialized with init()
+this_lab = {}
 
 # Get computer name and IP addresses
 uname = platform.uname()
@@ -107,12 +112,10 @@ try:
 except ValueError:
     pass
 
-lclib_config.update({'local_ip_list':local_ip_list,
+config.update({'local_ip_list':local_ip_list,
                      'local_platform':local_platform,
                      'local_hostname':local_hostname})
 
-def get_config():
-    return config
 
 def client_or_None(name, admin=True, client_name=None, inexistent_ok=True, keep_trying=False):
     """
@@ -171,7 +174,7 @@ def caller_module():
     return parent_module
 
 
-def init(lab_name,
+def init(instrument_ID,
          host_ips=None,
          data_path=None,
          manager_address=None,
@@ -180,50 +183,56 @@ def init(lab_name,
     Set up lab parameters.
 
     Args:
-        lab_name: (str) The name of the laboratory
+        instrument_ID: (str) The name of the laboratory
         host_ips: (dict) Dict of host names and IPs in  the laboratory LAN {hostname1: ip1, hostname2: ip2, ...}
         data_path: Main path to save data (from control node)
-        manager_address: the address for the manager.
+        manager_address: the address for the manager - this is needed if more than one instrument
+                        is managed by the same package - each will need to have its own manager.
         spawn_info: information required to spawn non-local drivers:
           {driver1_name: {'ssh_user': str or None,
                           'run_command': command to run on the remote machine to start the driver
            driver2_name: ...
           }
+
+    Returns:
+        config FileDict object.
     """
-    global config, MANAGER_ADDRESS
+    global MANAGER_ADDRESS, LAB_PACKAGE, this_lab
     BANNER = '*{0:^120}*'
 
     #
     # Lab name
     #
 
-    assert type(lab_name) is str, f'"lab_name" is not a string!'
+    assert type(instrument_ID) is str, f'"instrument_ID" is not a string!'
+    instrument_ID = instrument_ID.lower()
 
-    parent_module = caller_module()
+    # Get lab package
+    LAB_PACKAGE = caller_module()
 
     #
     # Persistent configuration file
     #
-    conf_path = os.path.expanduser(f"~/.{lab_name.lower()}-lclib/")
+    conf_path = os.path.expanduser(f"~/.{LAB_PACKAGE}-lclib/")
     os.makedirs(conf_path, exist_ok=True)
-    conf_file = os.path.join(conf_path, 'config.json')
-    config = FileDict(conf_file)
+    conf_file = os.path.join(conf_path, f'{instrument_ID}-config.json')
+    lab_config = FileDict(conf_file)
 
     # Bootstrap lab name
-    config.setdefault('lab_name', lab_name)
+    lab_config.setdefault('instrument_ID', instrument_ID)
 
     # Bootstrap default log level
-    config.setdefault('log_level', DEFAULT_LOG_LEVEL)
-    logger.setLevel(config['log_level'])
+    lab_config.setdefault('log_level', DEFAULT_LOG_LEVEL)
+    logger.setLevel(lab_config['log_level'])
 
     # Set other parameters
-    config['conf_path'] = conf_path
-    config['module'] = parent_module
+    lab_config['conf_path'] = conf_path
+    lab_config['module'] = LAB_PACKAGE
 
     # Store spawn information
-    config['spawn_info'] = spawn_info
+    lab_config['spawn_info'] = spawn_info
 
-    print(BANNER.format(f'This is {lab_name} (module "{parent_module}")'))
+    print(BANNER.format(f'This is {instrument_ID} (module "{LAB_PACKAGE}")'))
 
     logger.debug('Basic config completed')
 
@@ -238,7 +247,7 @@ def init(lab_name,
 
     # Log to file interactive sessions
     if ui.is_interactive():
-        log_file_name = os.path.join(log_dir, f'{lab_name.lower()}-lclib.log')
+        log_file_name = os.path.join(log_dir, f'{instrument_ID.lower()}-lclib.log')
         logs.log_to_file(log_file_name)
         print(BANNER.format('[Logging to file on this host]'))
     else:
@@ -251,9 +260,9 @@ def init(lab_name,
     # Host IP dictionary
     #
     if host_ips is None:
-        host_ips = config['host_ips']
+        host_ips = lab_config['host_ips']
     else:
-        config['host_ips'] = host_ips
+        lab_config['host_ips'] = host_ips
 
     assert 'control' in host_ips, 'Mandatory "control" entry missing in "host_ips"!'
 
@@ -261,16 +270,16 @@ def init(lab_name,
     # Data path
     #
     if data_path is None:
-        data_path = config['data_path']
+        data_path = lab_config['data_path']
     else:
-        config['data_path'] = data_path
+        lab_config['data_path'] = data_path
 
     #
     # Manager address
     #
     if manager_address is None:
         # Get manager address from config file, or revert to default
-        MANAGER_ADDRESS = config.get('manager_address', (host_ips['control'], DEFAULT_MANAGER_PORT))
+        MANAGER_ADDRESS = lab_config.get('manager_address', (host_ips['control'], DEFAULT_MANAGER_PORT))
     else:
         MANAGER_ADDRESS = manager_address
 
@@ -278,7 +287,7 @@ def init(lab_name,
     manager.Manager.Client.ADDRESS = MANAGER_ADDRESS
     manager.Manager.Server.ADDRESS = MANAGER_ADDRESS
 
-    config['manager_address'] = MANAGER_ADDRESS
+    lab_config['manager_address'] = MANAGER_ADDRESS
     logger.debug(f'Manager address: {MANAGER_ADDRESS}')
 
     #
@@ -290,20 +299,22 @@ def init(lab_name,
         print(BANNER.format('[Host IP not part of the control network.]'))
         this_host = 'unknown'
 
-    config['this_host'] = this_host
+    lab_config['this_host'] = this_host
 
     #config['package'] =
     #import inspect
     #print(inspect.stack())
 
-    print('\n'.join([BANNER.format(f"{lab_name} Lab Control"),
+    print('\n'.join([BANNER.format(f"{instrument_ID} Lab Control"),
                      BANNER.format(f"Running on host '{local_hostname}'"),
                      BANNER.format(f"a.k.a. '{this_host}' with IP {local_ip_list}")
                      ])
           )
 
     # Store persistently this lab config
-    lclib_config.update({lab_name: dict(config)})
+    config.update({instrument_ID: dict(lab_config)})
+    this_lab = lab_config
+    return lab_config
 
 
 from . import manager

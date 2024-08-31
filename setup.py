@@ -42,8 +42,8 @@ setup(
              'lclib.util',
              'lclib.util.frameconsumer'],
     scripts=[
-        'bin/lc'
-        'bin/lc_start_linux.sh'
+        'bin/lc',
+        'bin/lc_start_linux.sh',
         'bin/lc_start_windows.bat'
         ],
     install_requires=REQUIRES,
