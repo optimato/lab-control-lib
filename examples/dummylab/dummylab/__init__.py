@@ -6,8 +6,6 @@ This file is part of lab-control-lib
 """
 import os
 import lclib
-from lclib import ui
-from lclib import util
 
 # IPs of computer hosting some devices
 host_ips = {
@@ -18,16 +16,22 @@ host_ips = {
 # This can be the location of a mounted file server
 data_path = os.path.expanduser('~/dummylab-data/')
 os.makedirs(data_path, exist_ok=True)
+short_branch_data_path = data_path
 
-# Hack: add 'localhost' as valid ip
+# Dummy-specific hack: add 'localhost' as valid ip
 lclib.local_ip_list.append('localhost')
 
-lclib.init(lab_name='DummyLab',
-           host_ips=host_ips,
-           data_path=data_path)
 
-# Import all driver submodules - this registers the drivers and motors
-from . import dummymotor
-from . import dummydetector
+from .drivers import Dummymotor, Dummydetector
 
-from lclib import manager, drivers, motors
+# For demonstration purposes: define two lab layouts
+lclib.register_layout(name='longbranch',
+                data_path=data_path,
+                manager_address=('localhost', 5001),
+                components=[Dummymotor, Dummydetector])
+
+lclib.register_layout(name='shortbranch',
+                data_path=short_branch_data_path,
+                manager_address=('localhost', 5003),
+                components=[Dummymotor, Dummydetector])
+
