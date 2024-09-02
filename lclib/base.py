@@ -451,24 +451,26 @@ class MotorBase:
     User and dial positions are different and controlled by self.offset and self.scalar
     Dial = (User*scalar)-offset
     """
+
+    DEFAULT_CONFIG = data = {'limits': [-1., 1], 
+                             'offset': 0.,
+                             'scalar': 1.}
+
     def __init__(self, name, driver):
         # Store motor name and driver instance
         self.name = name
         self.driver = driver
-
-        # Attributes
-        self.offset = None
-        self.scalar = None
-        self.limits = None
 
         # Store logger
         self.logger = logging.getLogger(name)
 
         # File name for motor configuration
         self.config_file = os.path.join(get_config()['conf_path'], 'motors', name + '.json')
+        self.config = FileDict(self.config_file)
 
-        # Load offset configs
-        self._load_config()
+        # Make sure all default keys are present
+        for k, v in self.DEFAULT_CONFIG.items():
+            self.config.setdefault(k, v)
 
     def _get_pos(self):
         """
@@ -509,9 +511,7 @@ class MotorBase:
         """
         self._within_limits(x, raise_error=True)
         if not block:
-            t = threading.Thread(target=self._set_abs_pos, args=[self._user_to_dial(x)])
-            t.start()
-            return t
+            return Future(self._set_abs_pos, args=[self._user_to_dial(x)])
         else:
             return self._dial_to_user(self._set_abs_pos(self._user_to_dial(x)))
 
@@ -524,9 +524,7 @@ class MotorBase:
         """
         self._within_limits(self.pos + x, raise_error=True)
         if not block:
-            t = threading.Thread(target=self._set_rel_pos, args=[self.scalar * x])
-            t.start()
-            return t
+            return Future(self._set_rel_pos, args=[self.scalar * x])
         else:
             return self._dial_to_user(self._set_rel_pos(self.scalar * x))
 
@@ -547,8 +545,7 @@ class MotorBase:
         if low >= high:
             raise RuntimeError(f'Low limit ({low}) should be lower than high limit ({high})')
         # Limits are stored in dial values
-        self.limits = sorted([self._user_to_dial(low), self._user_to_dial(high)])
-        self._save_config()
+        self.config['limits'] = sorted([self._user_to_dial(low), self._user_to_dial(high)])
 
     @property
     def pos(self):
@@ -561,6 +558,32 @@ class MotorBase:
     def pos(self, value):
         self.mv(value)
 
+    @property
+    def limits(self):
+        return self.config['limits']
+
+    @limits.setter
+    def limits(self, values):
+        self.set_lm(*values)
+
+    @property
+    def offset(self):
+        return self.config['offset']
+    
+    @offset.setter
+    def offset(self, value):
+        self.config['offset'] = value
+        self.logger.warning('You have just changed the offset. The motor limits may need to be manually updated.')
+
+    @property
+    def scalar(self):
+        return self.config['scalar']
+
+    @scalar.setter
+    def scalar(self, value):
+        self.config['scalar'] = value
+        self.logger.warning('You have just changed the scalar. The motor limits may need to be manually updated.')
+
     def where(self):
         """
         Return (dial, user) position
@@ -570,10 +593,9 @@ class MotorBase:
 
     def set(self, pos):
         """
-        Set user position
+        Set user position (this adjusts offset)
         """
         self.offset = (self.scalar * pos) - self._get_pos()
-        self._save_config()
 
     def set_scalar(self, scalar):
         """
@@ -581,70 +603,27 @@ class MotorBase:
         Dial = scalar*User_pos - offset
         """
         self.scalar = scalar
-        self._save_config()
-        print ('You have just changed the scalar. The motor limits may need to be manually updated.')
-
-    def get_meta(self, returndict):
+ 
+    def get_meta(self):
         """
-        Place metadata in `returndict`.
-
-        Note: returndict is used instead of a normal method return
-        so that this method can be run on a different thread.
+        Dial and user data
         """
 
         dx, ux = self.where()
-        returndict['scalar'] = self.scalar
-        returndict['offset'] = self.offset
-        returndict['pos_dial'] = dx
-        returndict['pos_user'] = ux
-        returndict['lim_user'] = self.lm()
-        returndict['lim_dial'] = self.limits
-        returndict['driver'] = self.driver.name
-
-        return
+        return {'scalar':self.scalar,
+                'offset':self.offset,
+                'pos_dial':dx,
+                'pos_user':ux,
+                'lim_user':self.lm(),
+                'lim_dial':self.limits,
+                'driver':self.driver.name}
 
     def _within_limits(self, x, raise_error=False):
         """
         Check if *user* position x is within soft limits.
         """
-        valid = self.limits[0] < self._user_to_dial(x) < self.limits[1]
+        limits = self.limits
+        valid = limits[0] < self._user_to_dial(x) < limits[1]
         if raise_error and not valid:
-            raise MotorLimitsException(f'{self.limits[0]} < {self._user_to_dial(x)} < {self.limits[1]}')
+            raise MotorLimitsException(f'{limits[0]} < {self._user_to_dial(x)} < {limits[1]}')
         return valid
-
-    def _save_config(self):
-        """
-        Save *dial* limits and offset
-        """
-        data = {'limits': self.limits, 'offset': self.offset, 'scalar': self.scalar}
-        with open(self.config_file, 'w') as f:
-            json.dump(data, f)
-
-    def _load_config(self):
-        """
-        Load limits and offset
-        """
-        try:
-            with open(self.config_file, 'r') as f:
-                data = json.load(f)
-        except IOError:
-            self.logger.warning('Could not find config file "%s". Continuing with default values.' % self.config_file)
-            # Create path
-            try:
-                os.makedirs(os.path.split(self.config_file)[0])
-            except OSError as e:
-                if e.errno == errno.EEXIST:
-                    pass
-                else:
-                    raise
-            self.limits = (-1., 1.)
-            self.offset = 0.
-            self.scalar = 1.
-            # Save file
-            self._save_config()
-            return False
-        self.limits = data["limits"]
-        self.offset = data["offset"]
-        self.scalar = data["scalar"]
-        self.logger.info('Loaded stored limits, scalar and offset.')
-        return True
