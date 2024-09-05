@@ -395,7 +395,9 @@ class ProxyClientBase:
         self.first_connect = True
         self._active = False
         self._terminate = False
-        self.connect()
+
+        # Try to connect
+        connected = self.connect()
 
         # Result-ready-flag
         self.result_flag = threading.Event()
@@ -403,18 +405,28 @@ class ProxyClientBase:
 
         # Instantiate remote object if needed
         if args is not None or kwargs is not None:
+            if not connected:
+                raise RuntimeError(f'Client {name} is not connected, so cannot instantiate remote instance' )
             self.conn.root.create_instance(args, kwargs)
 
         # Ask for admin
-        self.conn.root.ask_admin(admin=admin)
+        if connected:
+            self.conn.root.ask_admin(admin=admin)
 
         # For thread clean up
         atexit.register(self._stop)
 
     def connect(self):
         """
-        Initial connection. Will return only when the connection is established
+        Initial connection.
+
+        If self.reconnect == 'always', this function returns immediately even if
+        the connection failed (it will keep trying in the background). Otherwise,
+        this function will return only when the connection is established
         to continue initialization.
+
+        Returns:
+            True if connectect, False if not (yet) connected
         """
         def catch_result(r, e):
             if e is None:
@@ -426,9 +438,11 @@ class ProxyClientBase:
         # Wait for connection to be established.
         while True:
             if self.conn is not None:
-                return
+                return True
             if self._connection_failed:
                 raise ProxyDeviceError('Connection failed')
+            if self.reconnect == 'always':
+                return False
             time.sleep(0.05)
 
     def disconnect(self):
@@ -470,7 +484,10 @@ class ProxyClientBase:
                     raise
 
                 # Try reconnecting
-                self.logger.info(f"Connection to {self.ADDRESS} is lost. Reconnecting...")
+                if self.first_connect:
+                    self.logger.info(f"Connection for {self.name} to {self.ADDRESS} not yet established. Retrying...")
+                else:
+                    self.logger.info(f"Connection for {self.name} to {self.ADDRESS} is lost. Reconnecting...")
                 time.sleep(self.RECONNECT_INTERVAL)
                 continue
 
@@ -497,6 +514,8 @@ class ProxyClientBase:
         try:
             self.conn.close()
         except Exception:
+            # We don't really care if closing the connection didn't work, we are
+            # Heading out anyway.
             pass
         self.logger.info("Connection closed.")
 
