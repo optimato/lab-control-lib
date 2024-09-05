@@ -397,7 +397,7 @@ class ProxyClientBase:
         self._terminate = False
 
         # Try to connect
-        connected = self.connect()
+        self._connected = self.connect()
 
         # Result-ready-flag
         self.result_flag = threading.Event()
@@ -405,12 +405,12 @@ class ProxyClientBase:
 
         # Instantiate remote object if needed
         if args is not None or kwargs is not None:
-            if not connected:
+            if not self._connected:
                 raise RuntimeError(f'Client {name} is not connected, so cannot instantiate remote instance' )
             self.conn.root.create_instance(args, kwargs)
 
         # Ask for admin
-        if connected:
+        if self._connected:
             self.conn.root.ask_admin(admin=admin)
 
         # For thread clean up
@@ -444,6 +444,10 @@ class ProxyClientBase:
             if self.reconnect == 'always':
                 return False
             time.sleep(0.05)
+
+    @property
+    def connected(self):
+        return self._connected
 
     def disconnect(self):
         """
@@ -492,6 +496,8 @@ class ProxyClientBase:
                 continue
 
             # Connected!
+            self._connected = True
+
             if self.first_connect:
                 self.logger.info(f"Connected to {self.ADDRESS}.")
                 self.first_connect = False
@@ -509,6 +515,7 @@ class ProxyClientBase:
                 # Connection closed!
                 self.logger.warning("Connection lost.")
                 if self.reconnect != 'never':
+                    self._connected = False
                     continue
                 raise
         try:
@@ -517,6 +524,7 @@ class ProxyClientBase:
             # We don't really care if closing the connection didn't work, we are
             # Heading out anyway.
             pass
+        self._connected = False
         self.logger.info("Connection closed.")
 
     def ask_admin(self, admin=None, force=None):
