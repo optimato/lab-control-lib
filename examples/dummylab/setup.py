@@ -24,5 +24,8 @@ setup(
     description='A Dummy Lab Control demonstration',
     package_dir={'dummylab': 'dummylab'},
     packages=['dummylab'],
+    scripts=[
+        'bin/dummylc'
+        ],
     install_requires=REQUIRES
     )

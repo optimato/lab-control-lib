@@ -1,4 +1,6 @@
 #!/usr/bin/env python
-# Alias for python -m lclib
+
+# Alias for python -m
+import dummylab
 from lclib.__main__ import cli
 cli()
