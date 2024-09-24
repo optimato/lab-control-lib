@@ -100,7 +100,7 @@ class DriverBase:
         # Set default name here. Can be overridden by subclass, for instance to allow multiple instances to run
         # concurrently
         if not hasattr(self, 'name'):
-            self.name = self.__class__.__name__
+            self.name = self.__class__.__name__.lower()
 
         # Load (or create) config dictionary
         self.config_filename = os.path.join(get_config()['conf_path'], 'drivers', self.name + '.json')

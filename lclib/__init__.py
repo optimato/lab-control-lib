@@ -140,6 +140,11 @@ def register_driver(cls):
     """
     A simple decorator to store all drivers in a dictionary.
     """
+    # Check that the registered address is unique
+    registered_addresses = [d.Server.ADDRESS for d in _driver_classes.values()]
+    if cls.Server.ADDRESS in registered_addresses:
+        raise RuntimeError(f'{cls.Server.ADDRESS} is already registered')
+
     # Store class into dict
     driver_name = cls.__name__.lower()
     _driver_classes[driver_name] = cls
@@ -189,7 +194,7 @@ def init(lab_name,
     #
     # Persistent configuration file
     #
-    conf_path = os.path.expanduser(f"~/.{lab_name.lower()}-labcontrol/")
+    conf_path = os.path.expanduser(f"~/.{lab_name.lower()}-lclib/")
     os.makedirs(conf_path, exist_ok=True)
     conf_file = os.path.join(conf_path, 'config.json')
     config = FileDict(conf_file)
@@ -224,7 +229,7 @@ def init(lab_name,
 
     # Log to file interactive sessions
     if ui.is_interactive():
-        log_file_name = os.path.join(log_dir, f'{lab_name.lower()}-labcontrol.log')
+        log_file_name = os.path.join(log_dir, f'{lab_name.lower()}-lclib.log')
         logs.log_to_file(log_file_name)
         print(BANNER.format('[Logging to file on this host]'))
     else:
