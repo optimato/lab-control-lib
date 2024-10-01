@@ -186,6 +186,11 @@ class MonitorBase(DriverBase):
             if name == self.name:
                 # We don't kill ourselves
                 continue
+            if not c.connected:
+                # Not connected
+                self.logger.info(f'{name} not connected: skipping')
+                continue
+            self.logger.debug(f'Killing {name}')
             c.ask_admin(True, True)
             c.kill_server()
             del c
