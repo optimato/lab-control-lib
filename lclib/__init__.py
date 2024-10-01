@@ -165,7 +165,6 @@ def caller_module():
             break
     return parent_module
 
-
 def init(lab_name,
          host_ips=None,
          data_path=None,
@@ -261,14 +260,6 @@ def init(lab_name,
     if monitor_address is None:
         # Get manager address from config file, or revert to default
         monitor_address = config.get('monitor_address', (host_ips['control'], DEFAULT_MONITOR_PORT))
-
-    # Register Hub
-    @register_driver
-    @proxydevice(address=monitor_address)
-    class Monitor(monitor.MonitorBase):
-        pass
-
-    config['hub_address'] = monitor_address
 
     #
     # Identify this computer by matching IP with HOST_IPS

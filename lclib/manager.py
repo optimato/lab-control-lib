@@ -39,13 +39,17 @@ class ManagerBase(DriverBase):
     # Allowed characters for experiment and investigation names
     _VALID_CHAR = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:'
 
+    # Will be replaced by subclass
+    DEFAULT_DATA_PATH = None
+
     DEFAULT_CONFIG = DriverBase.DEFAULT_CONFIG.copy()
     DEFAULT_CONFIG.update(
-                      {'experiment':None,
+                      {'data_path':None,
+                       'experiment':None,
                        'investigation':None,
-                       'last_scan_info': {}})
+                       'last_scan_info': {}},)
 
-    def __init__(self, data_path):
+    def __init__(self, data_path=None):
         """
         Manager for investigations, experiments and scans.
 
@@ -54,7 +58,10 @@ class ManagerBase(DriverBase):
         """
         super().__init__()
 
-        self.data_path = data_path
+        if data_path is None:
+            self.config['data_path'] = self.DEFAULT_DATA_PATH
+        else:
+            self.config['data_path'] = data_path
 
         # Set initial parameters
         self._running = False
@@ -115,7 +122,7 @@ class ManagerBase(DriverBase):
         self.counter = 0
 
         # Create path (ok even if on control host)
-        os.makedirs(os.path.join(self.data_path, self.path, scan_name), exist_ok=True)
+        os.makedirs(os.path.join(self.config['data_path'], self.path, scan_name), exist_ok=True)
 
         scan_info = {'scan_number': self._scan_number,
                 'scan_name': scan_name,
@@ -199,7 +206,7 @@ class ManagerBase(DriverBase):
         experiment path.
         """
         try:
-            exp_path = os.path.join(self.data_path, self.path)
+            exp_path = os.path.join(self.config['data_path'], self.path)
         except RuntimeError as e:
             return None
         scan_numbers = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
@@ -210,7 +217,7 @@ class ManagerBase(DriverBase):
         If the current investigation / experiment values are set, check if path exists.
         """
         try:
-            full_path = os.path.join(self.data_path, self.path)
+            full_path = os.path.join(self.config['data_path'], self.path)
             if os.path.exists(full_path):
                 self.logger.info(f'Path {full_path} selected (exists).')
             else:
