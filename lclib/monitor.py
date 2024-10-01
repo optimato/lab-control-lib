@@ -175,7 +175,7 @@ class MonitorBase(DriverBase):
             components: if not None, kill only listed components. Default is None - kill all.
         """
         if components is None:
-            components = self.clients.keys()
+            components = list(self.clients.keys())
 
         for name in components:
             try:

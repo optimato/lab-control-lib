@@ -9,7 +9,7 @@ import numpy as np
 import time
 import os
 
-from lclib import register_driver, proxycall, proxydevice, manager
+from lclib import register_driver, proxydevice
 from lclib.camera import CameraBase
 
 # BASE_PATH = "C:\\data\\"
@@ -97,12 +97,11 @@ class Dummydetector(CameraBase):
             time.sleep(self.exposure_time)
 
             # Get metadata
-            man = manager.getManager()
-            if man is None:
+            if not self.manager.connected:
                 self.logger.error("Not connected to manager! No metadata will available!")
                 self.metadata = {}
             else:
-                self.metadata = man.return_meta(request_ID=self.name)
+                self.metadata = self.manager.return_meta(request_ID=self.name)
 
             # Read out buffer
             # frame, meta = det.read_buffer() # or whatever

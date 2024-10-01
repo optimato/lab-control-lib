@@ -83,11 +83,6 @@ class ManagerBase(DriverBase):
         self.scan_info = {}
         self.last_scan_info = self.config['last_scan_info']
 
-        # HACK (kind of): On the process where this class is instantiated, getManager must return this instance, not a client.
-        global _client
-        _client.clear()
-        _client.append(self)
-
     @proxycall()
     def start_scan(self, label=None):
         """
