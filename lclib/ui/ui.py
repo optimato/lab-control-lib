@@ -35,8 +35,8 @@ def init(yes=None):
         uitools.user_interactive = False
 
     # Experiment management
-    man = manager.getManager()
-    print(man.status())
+    man = client_or_None('manager')
+    print(" * Investigation: {investigation}\n * Experiment: {experiment}\n * Last Scan: {last_scan}".format(**man.status()))
     load_past_investigations()
 
     client_name = f'main-client-{get_config()["this_host"]}'
