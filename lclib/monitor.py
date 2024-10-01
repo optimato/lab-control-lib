@@ -9,10 +9,8 @@ import time
 import threading
 
 from . import (get_config,
-               MONITOR_ADDRESS,
                _driver_classes,
                client_or_None,
-               register_driver,
                proxycall,
                proxydevice)
 from .util import Future
@@ -34,11 +32,22 @@ def getMonitor():
     return d
 
 
-@register_driver
-@proxydevice(address=MONITOR_ADDRESS)
-class Monitor(DriverBase):
+@proxydevice(address=None)
+class MonitorBase(DriverBase):
     """
     Device monitoring and metadata collection.
+
+    Any package has to subclass this class with
+    * the `register_driver` decorator, and
+    * the `proxydevice` decorator, with the appropriate address.
+
+    ::
+        @register_driver
+        @proxydevice(address=(IP, PORT))
+        class Monitor(MonitorBase):
+            pass
+
+    The Monitor subclass can be augmented with custom methods decorated with `proxycall`.
     """
 
     DEFAULT_CONFIG = DriverBase.DEFAULT_CONFIG.copy()
