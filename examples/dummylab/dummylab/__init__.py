@@ -1,6 +1,32 @@
 """
 Dummy example lab
 
+To test fully (currently):
+* In one terminal, start monitor:
+::
+    python -m lclib dummylab start monitor
+* In another terminal, start experiment manager:
+::
+    python -m lclib dummylab start manager
+* In another terminal, open a python process and instantiate the fake motor controller:
+::
+    import dummylab
+    d = dummylab.dummymotor.DummyControllerInterface()
+    # Will start listening for a conection
+* In another terminal, start the dummymotor driver:
+::
+    python -m lclib dummylab start dummymotor
+* In another terminal, start the dummydetector driver:
+::
+    python -m lclib dummylab start dummydetector
+* Finally, start an interactive python session (or jupyter notebook), and initialize everything:
+::
+    import dummylab
+    dummylab.ui.init()
+
+From this point on, the clients are connected to the drivers, and motion and acquisitions commands can be sent.
+
+
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
