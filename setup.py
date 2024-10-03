@@ -40,7 +40,8 @@ setup(
     packages=['lclib',
              'lclib.ui',
              'lclib.util',
-             'lclib.util.frameconsumer'],
+             'lclib.util.frameconsumer',
+             'lclib.library'],
     scripts=[
         'bin/lc'
         ],
