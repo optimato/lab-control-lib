@@ -19,12 +19,14 @@ from .. import manager
 
 logger = rootlogger.getChild(__name__)
 
-_current_detector = []
+# Dictionary populated by init() at runtime, and possibly other future functions that set some defaults
+_runtime = {'manager': None}
+
 INVESTIGATIONS = None
 
 __all__ = ['init', 'Scan', 'choose_experiment', 'choose_investigation']
 
-def init(yes=None):
+def init(yes=None, manager_name='manager'):
     """
     Initialize components of the setup.
     Syntax:
@@ -34,15 +36,33 @@ def init(yes=None):
         # Fake non-interactive to answer all questions automatically
         uitools.user_interactive = False
 
+    client_name = f'main-client-{get_config()["this_host"]}'
+
+    # List of registered drivers - minus the Manager(s)
+    registered_drivers = [name for name, cls in _driver_classes.items() if not (issubclass(cls, manager.ManagerBase) or name == 'monitor')]
+
+    # First check that monitor is running
+    monitor_client = client_or_None('monitor', client_name=client_name)
+    if monitor_client is None:
+        raise RuntimeError('Could not connect to monitor! Is it running?')
+    drivers['monitor'] = monitor_client
+
     # Experiment management
-    man = client_or_None('manager')
+    man = client_or_None(manager_name, keep_trying=False, admin=True)
+    if man is None:
+        raise RuntimeError(f'Could not connect to manager {manager_name}.')
+    drivers[manager_name] = man
+
+    # Keep track of current manager
+    _runtime['manager_name'] = manager_name
+    _runtime['manager'] = man
+
+    # Print out some information
     print(" * Investigation: {investigation}\n * Experiment: {experiment}\n * Last Scan: {last_scan}".format(**man.status()))
     load_past_investigations()
 
-    client_name = f'main-client-{get_config()["this_host"]}'
-
     # Loop through registered driver classes
-    for name, cls in _driver_classes.items():
+    for name in registered_drivers:
         if not ask_yes_no(f'Connect to {name}?'):
             continue
 
@@ -55,7 +75,7 @@ def init(yes=None):
             continue
 
         # Instantiate motors if they exist
-        new_motors = cls.create_motors(driver=driver_client)
+        new_motors = _driver_classes[name].create_motors(driver=driver_client)
 
         for motorname in new_motors.keys():
             logger.info(f'Created motor "{motorname}" ({name})')
@@ -88,7 +108,9 @@ class Scan:
         """
         Prepare for scan
         """
-        man = manager.getManager()
+        man = _runtime['manager']
+        if man is None:
+            raise RuntimeError('The experiment manager is not present. Did you run "init"?')
 
         # New scan
         self.scan_data = man.start_scan(label=self.label)
@@ -108,7 +130,7 @@ class Scan:
 
         TODO: manage exceptions
         """
-        manager.getManager().end_scan()
+        _runtime['manager'].end_scan()
         self.logger.info(f'Scan {self.name} complete.')
 
 
@@ -172,7 +194,7 @@ def choose_investigation(name=None):
                 INVESTIGATIONS[inv] = {}
             else:
                 inv = invkeys[ichoice-1]
-    manager.getManager().investigation = inv
+    _runtime['manager'].investigation = inv
     return inv
 
 
@@ -182,13 +204,18 @@ def choose_experiment(name=None, inv=None):
     If non-interactive and `name` is not None: select/create
     experiment with name `name`.
     """
+    # Get experiment manager
+    man = _runtime['manager']
+    if man is None:
+        raise RuntimeError('The experiment manager is not present. Did you run "init"?')
+
     # Load past investigations if needed
     if not INVESTIGATIONS:
         load_past_investigations(get_config()['data_path'])
 
     # Use global investigation name if none was provided
     if inv is None:
-        inv = manager.getManager().investigation
+        inv = man.investigation
 
     # This will break if inv is not a key of investigations
     # So be it. Create one first.
@@ -212,5 +239,5 @@ def choose_experiment(name=None, inv=None):
     exp_path = os.path.join(os.path.join(get_config()['data_path'], inv), exp)
     print(f'Experiment: {exp} at {exp_path}')
     os.makedirs(exp_path, exist_ok=True)
-    manager.getManager().experiment = exp
+    man.experiment = exp
     return exp
