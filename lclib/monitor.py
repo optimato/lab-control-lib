@@ -82,6 +82,9 @@ class MonitorBase(DriverBase):
 
         # Make clients more quiet
         for name, c in self.clients.items():
+            if c is None:
+                self.logger.error(f'Client {name} is None')
+                continue
             c.logger.setLevel(logging.WARNING)
 
         # Add self also instead of "client to self"

@@ -167,7 +167,6 @@ def caller_module():
 
 def init(lab_name,
          host_ips=None,
-         data_path=None,
          monitor_address=None):
     """
     Set up lab parameters.
@@ -245,14 +244,6 @@ def init(lab_name,
         config['host_ips'] = host_ips
 
     assert 'control' in host_ips, 'Mandatory "control" entry missing in "host_ips"!'
-
-    #
-    # Data path
-    #
-    if data_path is None:
-        data_path = config['data_path']
-    else:
-        config['data_path'] = data_path
 
     #
     # Monitor address
