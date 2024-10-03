@@ -97,11 +97,11 @@ class Dummydetector(CameraBase):
             time.sleep(self.exposure_time)
 
             # Get metadata
-            if not self.manager.connected:
-                self.logger.error("Not connected to manager! No metadata will available!")
+            if not self.monitor.connected:
+                self.logger.error("Not connected to monitor! No metadata will available!")
                 self.metadata = {}
             else:
-                self.metadata = self.manager.return_meta(request_ID=self.name)
+                self.metadata = self.monitor.return_meta(request_ID=self.name)
 
             # Read out buffer
             # frame, meta = det.read_buffer() # or whatever
