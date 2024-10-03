@@ -2,13 +2,14 @@
 Management of experiment data, scans, labeling, etc.
 
 The scan structure is inspired from Elettra's storage structure
- - Investigation : highest category (e.g. speckle_long_branch)
- - Experiment : Typically an experiment run (over days, possibly in multiple parts)
- - Scan : (instead of Elettra's "dataset") a numbered (and possibly labeled) dataset
+ * Investigation: highest category (e.g. speckle_long_branch)
+ * Experiment: Typically an experiment run (over days, possibly in multiple parts)
+ * Scan: (instead of Elettra's "dataset") a numbered (and possibly labeled) dataset
 
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
+
 import os
 from datetime import datetime
 
@@ -28,6 +29,7 @@ class ManagerBase(DriverBase):
       * the `proxydevice` decorator, with the appropriate address.
 
     ::
+
         @register_driver
         @proxydevice(address=(IP, PORT))
         class Manager(ManagerBase):
