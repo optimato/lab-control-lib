@@ -73,11 +73,10 @@ _motor_classes = {}   # Dictionary for motor classes (populated when drivers mod
 drivers = {}   # Dictionary for driver instances
 motors = {}    # Dictionary of motor instances
 
-DEFAULT_MANAGER_PORT = 5001
+DEFAULT_MONITOR_PORT = 5001
 DEFAULT_LOG_LEVEL = 20 # logging.INFO
 
 # Global variables set by init()
-MANAGER_ADDRESS = ('control', DEFAULT_MANAGER_PORT)
 config = {}
 
 # Get computer name and IP addresses
@@ -166,11 +165,9 @@ def caller_module():
             break
     return parent_module
 
-
 def init(lab_name,
          host_ips=None,
-         data_path=None,
-         manager_address=None):
+         monitor_address=None):
     """
     Set up lab parameters.
 
@@ -180,7 +177,7 @@ def init(lab_name,
         data_path: Main path to save data (from control node)
         manager_address: the address for the manager.
     """
-    global config, MANAGER_ADDRESS
+    global config
     BANNER = '*{0:^120}*'
 
     #
@@ -249,28 +246,11 @@ def init(lab_name,
     assert 'control' in host_ips, 'Mandatory "control" entry missing in "host_ips"!'
 
     #
-    # Data path
+    # Monitor address
     #
-    if data_path is None:
-        data_path = config['data_path']
-    else:
-        config['data_path'] = data_path
-
-    #
-    # Manager address
-    #
-    if manager_address is None:
+    if monitor_address is None:
         # Get manager address from config file, or revert to default
-        MANAGER_ADDRESS = config.get('manager_address', (host_ips['control'], DEFAULT_MANAGER_PORT))
-    else:
-        MANAGER_ADDRESS = manager_address
-
-    # Tricky bootstrapping - the address has been set at import
-    manager.Manager.Client.ADDRESS = MANAGER_ADDRESS
-    manager.Manager.Server.ADDRESS = MANAGER_ADDRESS
-
-    config['manager_address'] = MANAGER_ADDRESS
-    logger.debug(f'Manager address: {MANAGER_ADDRESS}')
+        monitor_address = config.get('monitor_address', (host_ips['control'], DEFAULT_MONITOR_PORT))
 
     #
     # Identify this computer by matching IP with HOST_IPS
@@ -283,18 +263,14 @@ def init(lab_name,
 
     config['this_host'] = this_host
 
-    #config['package'] =
-    #import inspect
-    #print(inspect.stack())
-
     print('\n'.join([BANNER.format(f"{lab_name} Lab Control"),
                      BANNER.format(f"Running on host '{local_hostname}'"),
                      BANNER.format(f"a.k.a. '{this_host}' with IP {local_ip_list}")
                      ])
           )
 
+from . import monitor
 from . import manager
 from . import base
 from . import camera
 from . import ui
-

@@ -72,7 +72,7 @@ import threading
 from queue import SimpleQueue, Empty
 import time
 
-from . import manager, proxycall
+from . import monitor, manager, proxycall, client_or_None
 from .base import DriverBase
 from .util import now, Future, frameconsumer
 
@@ -122,6 +122,12 @@ class CameraBase(DriverBase):
             self.broadcast_address = self.DEFAULT_BROADCAST_ADDRESS
         else:
             self.broadcast_address = broadcast_address
+
+        # Clients to monitor and manager
+        self.monitor = client_or_None('monitor', keep_trying=True)
+
+        # TODO: in the future, we should be able to swap managers
+        self.manager = client_or_None('manager', keep_trying=True)
 
         self.store_future = None      # Will be replaced with a future when starting to store.
         self._stop_roll = False       # To interrupt rolling
@@ -217,9 +223,7 @@ class CameraBase(DriverBase):
             self.logger.warning("Cannot snap while in rolling mode.")
             return
 
-        # If the manager crashes, getManager() will return None and we can't continue
-        man = manager.getManager()
-        if man is None:
+        if not self.manager.connected:
             self.logger.error("Not connected to manager! Can't start acquisition!")
             return
 
@@ -237,7 +241,7 @@ class CameraBase(DriverBase):
 
         # Build filename
         if self.in_scan:
-            prefix = man.next_prefix()
+            prefix = self.manager.next_prefix()
             self.filename = self._build_filename(prefix=prefix, path=self._scan_path)
         else:
             self.counter += 1
@@ -374,11 +378,10 @@ class CameraBase(DriverBase):
             self.logger.debug('Metadata collection requested (grab_metadata flag)')
 
             # Request global metadata (exclude self, we do that locally instead)
-            man = manager.getManager()
-            if man is None:
-                self.logger.error("Not connected to manager! Cannot request metadata!")
+            if not self.monitor.connected:
+                self.logger.error("Not connected to monitor! Cannot request metadata!")
             else:
-                man.request_meta(request_ID=self.name, exclude_list=[self.name])
+                self.monitor.request_meta(request_ID=self.name, exclude_list=[self.name])
 
             # Local metadata
             self.localmeta = self.get_meta()
@@ -433,16 +436,14 @@ class CameraBase(DriverBase):
         """
         Return camera-specific metadata
         """
-        man = manager.getManager()
-
-        if man is None:
+        if not self.manager.connected:
             self.logger.error("Could not connect to manager! metadata will be incomplete.")
             scan_name = "[unknown]"
             scan_counter = None
         else:
-            scan_name = man.scan_name
-            scan_path = man.scan_path
-            scan_counter = man.get_counter() if scan_path else None
+            scan_name = self.manager.scan_name
+            scan_path = self.manager.scan_path
+            scan_counter = self.manager.get_counter() if scan_path else None
 
         meta = {'detector': self.name,
                 'scan_name': scan_name,
@@ -537,12 +538,11 @@ class CameraBase(DriverBase):
         self.do_acquire.clear()
 
         # Check if this is part of a scan
-        man = manager.getManager()
-        if man is None:
+        if not self.manager.connected:
             self.logger.error("Not connected to manager! Can't check scan path!")
             self._scan_path = None
         else:
-            self._scan_path = man.scan_path
+            self._scan_path = self.manager.scan_path
 
         # Finish arming with subclassed method
         self._arm()
@@ -557,11 +557,10 @@ class CameraBase(DriverBase):
         """
         True if within a scan context.
         """
-        man = manager.getManager()
-        if man is None:
+        if not self.manager.connected:
             self.logger.error("Could not connect to manager!")
             return False
-        return man.scan_path is not None
+        return self.manager.scan_path is not None
 
     @proxycall(admin=True)
     def disarm(self):

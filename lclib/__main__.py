@@ -157,19 +157,19 @@ def kill(name):
 
 @cli.command(help='Kill all running server proxy.')
 def killall():
-    # First ask manager to kill all other servers
-    d = client_or_None('manager', client_name=f'killer-{lab_info["this_host"]}')
+    # First ask monitor to kill all other servers
+    d = client_or_None('monitor', client_name=f'killer-{lab_info["this_host"]}')
     if not d:
-        click.Abort('Could not connect to manager!')
+        click.Abort('Could not connect to monitor!')
     time.sleep(.5)
     try:
         d.ask_admin(True, True)
         d.killall()
-        # Then kill manager
+        # Then kill monitor
         d.kill_server()
     except AttributeError:
         # For some reason d can still be None at this point.
-        click.Abort('Could not connect to manager!')
+        click.Abort('Could not connect to monitor!')
     except:
         raise
 
