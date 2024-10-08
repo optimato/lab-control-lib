@@ -105,7 +105,8 @@ class CameraBase(DriverBase):
                             'save_path': None,
                             'operation_mode': None,
                             'exposure_time': 1.,
-                            'exposure_number': 1}
+                            'exposure_number': 1,
+                            'accumulation_number': 1}
 
     # python >3.9
     # DEFAULT_CONFIG = (DriverBase.DEFAULT_CONFIG | LOCAL_DEFAULT_CONFIG)
@@ -858,6 +859,18 @@ class CameraBase(DriverBase):
     @exposure_number.setter
     def exposure_number(self, value):
         self._set_exposure_number(value)
+
+    @proxycall(admin=True)
+    @property
+    def accumulation_number(self):
+        """
+        Number of accumulations
+        """
+        return self.config['accumulation_number']
+
+    @accumulation_number.setter
+    def accumulation_number(self, value):
+        self.config['accumulation_number'] = value
 
     @proxycall(admin=True)
     @property
