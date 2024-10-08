@@ -830,11 +830,11 @@ class CameraBase(DriverBase):
         """
         Exposure time in seconds.
         """
-        return self._get_exposure_time()
+        return self.accumulation_number * self._get_exposure_time()
 
     @exposure_time.setter
     def exposure_time(self, value):
-        self._set_exposure_time(value)
+        self._set_exposure_time(value) / self.accumulation_number
 
     @proxycall(admin=True)
     @property
@@ -870,7 +870,9 @@ class CameraBase(DriverBase):
 
     @accumulation_number.setter
     def accumulation_number(self, value):
+        exp_time = self.exposure_time
         self.config['accumulation_number'] = value
+        self.exposure_time = exp_time
 
     @proxycall(admin=True)
     @property
