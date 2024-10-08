@@ -834,7 +834,7 @@ class CameraBase(DriverBase):
 
     @exposure_time.setter
     def exposure_time(self, value):
-        self._set_exposure_time(value) / self.accumulation_number
+        self._set_exposure_time(value / self.accumulation_number)
 
     @proxycall(admin=True)
     @property
