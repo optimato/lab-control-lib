@@ -13,8 +13,6 @@ This file is part of lab-control-lib
 import os
 from datetime import datetime
 
-from selenium.webdriver.common.devtools.v85.fetch import continue_request
-
 from . import proxycall, proxydevice
 
 from .util import now
