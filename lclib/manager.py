@@ -13,6 +13,8 @@ This file is part of lab-control-lib
 import os
 from datetime import datetime
 
+from selenium.webdriver.common.devtools.v85.fetch import continue_request
+
 from . import proxycall, proxydevice
 
 from .util import now
@@ -131,6 +133,8 @@ class ManagerBase(DriverBase):
         # Store for status access
         self.scan_info = scan_info
 
+        self.logger.info(f'Starting scan {scan_name}')
+
         return scan_info
 
     @proxycall()
@@ -148,6 +152,8 @@ class ManagerBase(DriverBase):
         self.last_scan_info['counter'] = self.counter
 
         self.config['last_scan_info'] = self.last_scan_info
+
+        self.logger.info(f'Scan {self.scan_info["scan_name"]} ended.')
 
         self.scan_info = {}
 
@@ -208,6 +214,44 @@ class ManagerBase(DriverBase):
             return None
         scan_numbers = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
         return max(scan_numbers, default=-1) + 1
+
+    @proxycall()
+    def list_inv(self):
+        """
+        List all existing investigations.
+        Returns:
+            a list of strings.
+        """
+        # investigations are the directories in the base path
+        return [f.name for f in os.scandir(self.base_path) if f.is_dir()]
+
+    @proxycall()
+    def list_exp(self, inv=None):
+        """
+        List all existing experiment in given (or current) investigation.
+        Returns:
+            a list of strings.
+        """
+        if inv is not None:
+            if inv not in self.list_inv():
+                raise KeyError(f'Investigation {inv} does not exist')
+        else:
+            inv = self.investigation
+
+        inv_path = os.path.join(self.base_path, inv)
+
+        all_exp = {f.name: f.path for f in os.scandir(inv_path) if f.is_dir()}
+
+        exp_list = []
+        for exp, exp_path in all_exp.items():
+            try:
+                scan_list = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
+            except ValueError:
+                self.logger.warning(f'{f.name} is an alien directory. Ignored.')
+                continue
+            exp_list.append(exp)
+
+        return exp_list
 
     def _check_path(self):
         """
@@ -331,3 +375,11 @@ class ManagerBase(DriverBase):
         if not self._running:
             return None
         return self._scan_number
+
+    @proxycall()
+    @property
+    def investigations(self):
+        """
+        Return full investigation tree.
+        """
+        return self._investigation_tree
