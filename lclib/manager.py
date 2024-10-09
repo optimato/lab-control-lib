@@ -61,9 +61,9 @@ class ManagerBase(DriverBase):
         super().__init__()
 
         if data_path is None:
-            self.config['data_path'] = self.DEFAULT_DATA_PATH
+            self.base_path = self.DEFAULT_DATA_PATH
         else:
-            self.config['data_path'] = data_path
+            self.base_path = data_path
 
         # Set initial parameters
         self._running = False
@@ -119,7 +119,7 @@ class ManagerBase(DriverBase):
         self.counter = 0
 
         # Create path (ok even if on control host)
-        os.makedirs(os.path.join(self.config['data_path'], self.path, scan_name), exist_ok=True)
+        os.makedirs(os.path.join(self.base_path, self.path, scan_name), exist_ok=True)
 
         scan_info = {'scan_number': self._scan_number,
                 'scan_name': scan_name,
@@ -203,7 +203,7 @@ class ManagerBase(DriverBase):
         experiment path.
         """
         try:
-            exp_path = os.path.join(self.config['data_path'], self.path)
+            exp_path = os.path.join(self.base_path, self.path)
         except RuntimeError as e:
             return None
         scan_numbers = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
@@ -214,7 +214,7 @@ class ManagerBase(DriverBase):
         If the current investigation / experiment values are set, check if path exists.
         """
         try:
-            full_path = os.path.join(self.config['data_path'], self.path)
+            full_path = os.path.join(self.base_path, self.path)
             if os.path.exists(full_path):
                 self.logger.info(f'Path {full_path} selected (exists).')
             else:
@@ -288,6 +288,18 @@ class ManagerBase(DriverBase):
         True if a scan is currently running
         """
         return self._running
+
+    @proxycall()
+    @property
+    def base_path(self):
+        """
+        Return base data path.
+        """
+        return self.config['data_path']
+
+    @base_path.setter
+    def base_path(self, v):
+        self.config['data_path'] = v
 
     @property
     def path(self):
