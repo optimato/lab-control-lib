@@ -828,13 +828,21 @@ class CameraBase(DriverBase):
     @property
     def exposure_time(self):
         """
-        Exposure time in seconds.
+        Total exposure time in seconds (shutter speed is this / self.accumulation_number)
         """
-        return self.accumulation_number * self._get_exposure_time()
+        return self.accumulation_number * self.sub_exposure_time
 
     @exposure_time.setter
     def exposure_time(self, value):
         self._set_exposure_time(value / self.accumulation_number)
+
+    @proxycall()
+    @property
+    def sub_exposure_time(self):
+        """
+        Actual exposure time (or shutter speed) of the detector. Read-only property.
+        """
+        return self._get_exposure_time()
 
     @proxycall(admin=True)
     @property
@@ -864,14 +872,18 @@ class CameraBase(DriverBase):
     @property
     def accumulation_number(self):
         """
-        Number of accumulations
+        Number of accumulations. Setting this value keeps the total exposure time unchanged, but will
+        change the sub_exposure_time (internal detector shutter speed).
         """
         return self.config['accumulation_number']
 
     @accumulation_number.setter
     def accumulation_number(self, value):
+        # Get current total exposure time
         exp_time = self.exposure_time
+        # Store new accumulation number
         self.config['accumulation_number'] = value
+        # Reset exposure time. This will change the sub_exposure_time (shutter speed) but keep the same total exposure time
         self.exposure_time = exp_time
 
     @proxycall(admin=True)
