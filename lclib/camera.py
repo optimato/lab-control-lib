@@ -776,6 +776,13 @@ class CameraBase(DriverBase):
         """
         raise NotImplementedError
 
+    def _set_accumulation_number(self, value):
+        """
+        Optional method to manage side effects of accumulation, such as modifying internally the number of
+        frames to acquire.
+        """
+        pass
+
     #
     # PROPERTIES
     #
@@ -885,6 +892,9 @@ class CameraBase(DriverBase):
         self.config['accumulation_number'] = value
         # Reset exposure time. This will change the sub_exposure_time (shutter speed) but keep the same total exposure time
         self.exposure_time = exp_time
+        # Call other method to allow subclasses to manage additional side-effects
+        self._set_accumulation_number(value)
+
 
     @proxycall(admin=True)
     @property
