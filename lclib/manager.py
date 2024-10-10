@@ -245,7 +245,7 @@ class ManagerBase(DriverBase):
             try:
                 scan_list = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
             except ValueError:
-                self.logger.warning(f'{f.name} is an alien directory. Ignored.')
+                self.logger.warning(f'{exp_path} is an alien directory. Ignored.')
                 continue
             exp_list.append(exp)
 
