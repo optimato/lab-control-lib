@@ -456,7 +456,8 @@ class CameraBase(DriverBase):
                 'filename': self.filename,
                 'snap_counter': self.counter,
                 'scan_counter': scan_counter,
-                'tags': self.tags}
+                'tags': self.tags,
+                'accumulation_number': self.accumulation_number}
         return meta
 
     def enqueue_frame(self, frame, meta):
