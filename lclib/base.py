@@ -104,7 +104,11 @@ class DriverBase:
 
         # Load (or create) config dictionary
         self.config_filename = os.path.join(get_config()['conf_path'], 'drivers', self.name + '.json')
-        self.config = FileDict(self.config_filename)
+        try:
+            self.config = FileDict(self.config_filename)
+        except RuntimeError:
+            self.logger.error(f'Could not load FileDict from json file {self.config_filename}. Is it corrupt?')
+            raise
 
         # Make sure all default keys are present
         for k, v in self.DEFAULT_CONFIG.items():

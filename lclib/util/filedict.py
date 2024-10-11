@@ -28,6 +28,8 @@ class FileDict(dict):
             self._load()
         except IOError:
             self._save()
+        except json.decoder.JSONDecodeError as e:
+            raise RuntimeError('Json decoding error - file corrupt?') from e
 
     def __getitem__(self, y):
         #self._load()
