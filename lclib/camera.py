@@ -168,6 +168,8 @@ class CameraBase(DriverBase):
         self.frame_queue = SimpleQueue()
         self.frame_future = Future(self.frame_management_loop)
 
+        self._last_frame = (None, None)
+
         # Broadcasting process
         self.frame_streamer = frameconsumer.FrameStreamer(self.broadcast_address[1])
         if self.config['do_broadcast']:
@@ -433,6 +435,11 @@ class CameraBase(DriverBase):
                 self.frame_queue_empty_flag.set()
 
     @proxycall()
+    @property
+    def last_frame(self):
+        return self._last_frame
+
+    @proxycall()
     def get_meta(self, metakeys=None):
         """
         Return camera-specific metadata
@@ -484,6 +491,8 @@ class CameraBase(DriverBase):
             # Update frame metadata and add to queue
             localmeta.update(meta)
             metadata[self.name.lower()] = localmeta
+
+            self._last_frame = (frame, metadata)
 
             self.frame_queue.put((frame, metadata))
             self.logger.debug('Frame added to queue.')
