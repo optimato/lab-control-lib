@@ -102,6 +102,11 @@ except ValueError:
     pass
 
 def get_config():
+    """
+    This helper function is needed to access up-to-date configuration information.
+
+    Returns: current config dictionary
+    """
     return config
 
 def client_or_None(name, admin=True, client_name=None, inexistent_ok=True, keep_trying=False):
