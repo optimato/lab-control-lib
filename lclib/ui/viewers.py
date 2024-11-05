@@ -222,6 +222,8 @@ class NapariViewer(ViewerBase):
             # First time.
             self.logger.debug('Creating internal buffer')
             self.buffer = np.zeros((self._buffer_size,) + frame.shape[-2:], dtype=frame.dtype)
+            if frame.ndim == 3:
+                frame = frame[0]
             self.buffer[0] = frame
             self.metadata = [metadata]
         elif np.any(frame.shape[-2:] != self.buffer.shape[-2:]):
@@ -236,30 +238,38 @@ class NapariViewer(ViewerBase):
                 self.frame_correction.dark = None
                 self.frame_correction.dark_apply_button_clicked()
                 self.frame_correction.flat_apply_button_clicked()
-        elif frame.ndim == 2 or frame.shape[0] == 1:
+#        elif frame.ndim == 2 or frame.shape[0] == 1:
+#            self.logger.debug('Appending frame to buffer')
+#            self.buffer = np.roll(self.buffer, 1, axis=0)
+#            self.buffer[0] = frame
+#            self.metadata = [metadata] + self.metadata[:-1]
+        else:
+            if frame.ndim == 3:
+                frame = frame[0]
             self.logger.debug('Appending frame to buffer')
             self.buffer = np.roll(self.buffer, 1, axis=0)
             self.buffer[0] = frame
             self.metadata = [metadata] + self.metadata[:-1]
-        else:
+        #else:
             # Not supported for now
             """
             # Dealing with 3d incoming frame.
             N = len(frame)
             if N == self._buffer_size:
                 # Same size: replace
-                new_buffer = frame
+                self.buffer = frame
             if N > self._buffer_size:
                 # Larger than current buffer: enlarge it first
                 self.set_buffer_size(N)
-                new_buffer = frame
+                self.buffer = frame
             else:
                 # Smaller than current buffer: prepend
-                new_buffer = np.roll(current_buffer, N, axis=0)
-                new_buffer[:N] = frame
+                self.buffer = np.roll(current_buffer, N, axis=0)
+                self.buffer[:N] = frame
+            self.metadata = [metadata] + self.metadata[:-1]
             """
-            import napari.utils.notifications
-            napari.utils.notifications.show_error("3D frames are not currently supported.")
+        #    import napari.utils.notifications
+        #    napari.utils.notifications.show_error("3D frames are not currently supported.")
 
         self.update_layer()
         return
