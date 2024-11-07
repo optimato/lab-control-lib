@@ -100,11 +100,17 @@ class SmaractBase(SocketDriverBase):
         # Remove ':' prefix and trailing '\n'
         s = s[1:-1].decode('ascii', errors='ignore')
 
-        # Check if there are commas in the strings, then strip the values
+        # Split commas
         sl = s.split(',')
 
-        code = str(list(filter(str.isalpha, sl[0])))
-        values = [float(sl[0].strip(code))] + [float(v) for v in sl[1:]]
+        # Numerical values after comma
+        values = [float(v) for v in sl[1:]]
+
+        # Extract code and first value
+        code = sl[0].rstrip('0123456789.-')
+        v0 = sl[0].split(code)[1]
+        if v0:
+            values = [float(v0)] + values
 
         return code, values
 
@@ -317,7 +323,6 @@ class SmaractBase(SocketDriverBase):
         # get the mode
         code, m = self.send_cmd(':GSE')
 
-        # Quick hack to make this part work again, but maybe self.parse_feedback should be modified.
         m = int(m[0])
         if m not in list(self.SENSOR_MODES.keys()):
             raise RuntimeError('Getting sensor mode failed.')
@@ -331,7 +336,7 @@ class SmaractBase(SocketDriverBase):
             raise RuntimeError('Valid power modes are 0-disabled, 1-enabled, 2-powersave')
 
         # set the mode
-        code, v = self.send_cmd(f':SSE{val}')
+        code, v = self.send_cmd(f':SSE{val:d}')
 
         if (code != 'E' or v[0] != -1) or v[1] != 0:
             raise RuntimeError('Setting sensor mode failed.')
