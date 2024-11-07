@@ -33,7 +33,8 @@ class FileDict(dict):
 
     def __getitem__(self, y):
         #self._load()
-        return dict.__getitem__(self, y)
+        with self.access_lock:
+            return dict.__getitem__(self, y)
 
     def __setitem__(self, i, y):
         self._load()
@@ -60,7 +61,8 @@ class FileDict(dict):
         return r
 
     def clear(self):
-        dict.clear(self)
+        with self.access_lock:
+            dict.clear(self)
         self._save()
 
     def get(self, k, *args):

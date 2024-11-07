@@ -515,7 +515,7 @@ class MotorBase:
         """
         self._within_limits(x, raise_error=True)
         if not block:
-            return Future(self._set_abs_pos, args=[self._user_to_dial(x)])
+            return Future(self._set_abs_pos, args=(self._user_to_dial(x),))
         else:
             return self._dial_to_user(self._set_abs_pos(self._user_to_dial(x)))
 
@@ -556,7 +556,7 @@ class MotorBase:
         """
         Current *user* position
         """
-        return (self._get_pos() + self.offset)/self.scalar
+        return self._dial_to_user(self._get_pos())
 
     @pos.setter
     def pos(self, value):
