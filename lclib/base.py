@@ -243,6 +243,7 @@ class SocketDriverBase(DriverBase):
     """
 
     EOL = b'\n'                         # End of API sequence (default is \n)
+    REOL = None                         # End of API sequence for replies. If None (default) EOL will be used
     DEFAULT_DEVICE_ADDRESS = None       # The default address of the device socket.
     DEVICE_TIMEOUT = None               # Device socket timeout
     NUM_CONNECTION_RETRY = 2            # Number of times to try to connect
@@ -329,7 +330,7 @@ class SocketDriverBase(DriverBase):
             if rlist:
                 # Incoming data
                 with self.recv_lock:
-                    d = _recv_all(rlist[0], EOL=self.EOL)
+                    d = _recv_all(rlist[0], EOL=(self.REOL or self.EOL))
                     self.recv_buffer += d
                     self.recv_flag.set()
             if self.shutdown_requested:
