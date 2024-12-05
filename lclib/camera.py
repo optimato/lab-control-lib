@@ -851,6 +851,12 @@ class CameraBase(DriverBase):
 
     @exposure_time.setter
     def exposure_time(self, value):
+        if value == 0:
+            raise RuntimeError('Exposure time cannot be zero')
+        try:
+            value = float(value)
+        except ValueError:
+            raise RuntimeError(f'Exposure time must be float. Invalid value: {value}')
         self._set_exposure_time(value / self.accumulation_number)
 
     @proxycall()
@@ -883,6 +889,10 @@ class CameraBase(DriverBase):
 
     @exposure_number.setter
     def exposure_number(self, value):
+        if value == 0:
+            raise RuntimeError('Exposure number cannot be zero')
+        elif not isinstance(value, int):
+            raise RuntimeError(f'Exposure number must be integer. Invalid value: {value}')
         self._set_exposure_number(value)
 
     @proxycall(admin=True)
@@ -896,6 +906,10 @@ class CameraBase(DriverBase):
 
     @accumulation_number.setter
     def accumulation_number(self, value):
+        if value is None:
+            value = 1
+        elif not isinstance(value, int):
+            raise TypeError('Accumulation number must be an integer')
         # Get current total exposure time
         exp_time = self.exposure_time
         # Store new accumulation number
