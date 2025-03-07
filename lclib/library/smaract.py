@@ -56,10 +56,13 @@ class SmaractBase(SocketDriverBase):
     def __init__(self, device_address=None):
         if device_address is None:
             device_address = self.DEFAULT_DEVICE_ADDRESS
+
+        # For initialization purposes - this is updated in self.init_device
+        self.no_channels = 0
+
         super().__init__(device_address=device_address)
 
-        self.metacalls.update({'position': lambda: [self.get_pos(0), self.get_pos(1), self.get_pos(2)],
-                               'speed': lambda: [self.get_speed(0), self.get_speed(1), self.get_speed(2)]})
+        self.metacalls.update({'position': lambda: [self.get_pos(i) for i in range(self.no_channels)]})
 
     def init_device(self):
         """
