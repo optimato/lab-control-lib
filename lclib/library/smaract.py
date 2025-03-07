@@ -48,6 +48,10 @@ class SmaractBase(SocketDriverBase):
     DEFAULT_ACCEL = 10000  # um/s^2 (!)
     SENSOR_MODES = {0: 'disabled', 1: 'enabled', 2: 'power save'}
     EOL = EOL
+    DEFAULT_CONFIG = SocketDriverBase.DEFAULT_CONFIG.copy()
+    DEFAULT_CONFIG.update({'speed': DEFAULT_SPEED,
+                           'accel': DEFAULT_ACCEL,
+                           'sensormode': 2})
 
     def __init__(self, device_address=None):
         if device_address is None:
@@ -70,8 +74,11 @@ class SmaractBase(SocketDriverBase):
         self.no_channels = int(nc[1][0])
         self.logger.info(f'Number of channels is {self.no_channels}')
 
-        # Set sensor mode to power save
-        self.sensormode = 2
+        # Set speed, acceleration and sensormode
+        self.sensormode = self.config['sensormode']
+        for i in range(self.no_channels):
+            self.set_speed(i, self.config['speed'])
+            self.set_accel(i, self.config['accel'])
         self.initialized = True
 
     def wait_call(self):
@@ -217,7 +224,12 @@ class SmaractBase(SocketDriverBase):
         self.logger.debug(f'Maximum speed for channel {channel} set to {v_um_s} um/s ')
 
         # Extra confirmation that everything is fine
-        return self.get_speed(channel)
+        returned_speed = self.get_speed(channel)
+
+        # Store as new default
+        self.config['speed'] = v_um_s
+
+        return returned_speed
 
     @proxycall(admin=True)
     def disable_speed_control(self, channel):
@@ -285,7 +297,12 @@ class SmaractBase(SocketDriverBase):
         self.logger.debug(f'Acceleration for channel {channel} set to {a_um_s2} um/s^2')
 
         # Extra confirmation that everything is fine
-        return self.get_accel(channel)
+        returned_accel = self.get_accel(channel)
+
+        # Store as new default
+        self.config['accel'] = a_um_s2
+
+        return returned_accel
 
     @proxycall(admin=True)
     def disable_accel_control(self, channel):
@@ -327,6 +344,10 @@ class SmaractBase(SocketDriverBase):
         if m not in list(self.SENSOR_MODES.keys()):
             raise RuntimeError('Getting sensor mode failed.')
         self.logger.info(f'Sensor mode is {self.SENSOR_MODES[m]} ({m}).')
+
+        # Update config
+        self.config['sensormode'] = m
+
         return m
 
     @sensormode.setter
@@ -340,6 +361,9 @@ class SmaractBase(SocketDriverBase):
 
         if (code != 'E' or v[0] != -1) or v[1] != 0:
             raise RuntimeError('Setting sensor mode failed.')
+
+        # Update config
+        self.config['sensormode'] = val
 
     @proxycall()
     def get_limit(self, channel):
