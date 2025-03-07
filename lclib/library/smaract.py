@@ -287,8 +287,8 @@ class SmaractBase(SocketDriverBase):
 
         # check that accel. value is valid
         ai = int(a_um_s2)
-        if ai < 1 or ai > 1000:
-            raise RuntimeError('Acceleration needs to be between 0 and 1000 um/s^2')
+        if ai < 1 or ai > 10000000:
+            raise RuntimeError('Acceleration needs to be between 0 and 10000000 um/s^2')
 
         code, a = self.send_cmd(f':SCLA{channel},{ai}')
         if (code != 'E' or a[0] != channel) or a[1] != 0:
