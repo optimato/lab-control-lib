@@ -380,4 +380,4 @@ class ManagerBase(DriverBase):
         """
         Return full investigation tree.
         """
-        return self._investigation_tree
+        return self.list_inv()
