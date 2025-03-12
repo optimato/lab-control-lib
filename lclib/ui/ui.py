@@ -113,23 +113,36 @@ class Scan:
         if man is None:
             raise RuntimeError('The experiment manager is not present. Did you run "init"?')
 
-        # Collect as much information as possible on the calling context
+        # Calling context
         import __main__
         try:
+            # Try and find calling script and content
             script_name = __main__.__file__
             calling_path = os.getcwd()
             script_name = os.path.join(calling_path, script_name)
             script_content = open(script_name).read()
         except AttributeError:
+            # No calling script - probably interactive mode
             if uitools.is_interactive():
                 script_name = '<interactive>'
             else:
                 import sys
                 script_name = sys.argv[0]
             script_content = ''
+
+        # Script content was found: we look for the line currently being executed for further documentation
+        line_number = None
+        if script_content:
+            import inspect
+            stack = inspect.stack()
+            for frame in stack:
+                if frame.filename == script_name:
+                    line_number = frame.lineno
+                    break
         localmeta = {'script_name': script_name,
                       'calling_host': local_hostname,
-                      'script_content': script_content}
+                      'script_content': script_content,
+                      'line_number': line_number}
         # New scan
         self.scan_data = man.start_scan(label=self.label, localmeta=localmeta)
 
