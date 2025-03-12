@@ -11,13 +11,19 @@ import inspect
 import os
 import logging
 
-from .. import _driver_classes, get_config, drivers, motors, client_or_None
+from .. import _driver_classes, get_config, drivers, motors, client_or_None, local_hostname, FileDict
 from . import uitools
+from ..util import FileDict
 from . import ask, ask_yes_no, user_prompt
 from ..logs import logger as rootlogger
 from .. import manager
 
+# Set up logger
 logger = rootlogger.getChild(__name__)
+
+# Set up config
+config_filename = os.path.join(get_config()['conf_path'], 'ui.json')
+config = FileDict(config_filename)
 
 # Dictionary populated by init() at runtime, and possibly other future functions that set some defaults
 _runtime = {'manager': None}
@@ -111,8 +117,25 @@ class Scan:
         if man is None:
             raise RuntimeError('The experiment manager is not present. Did you run "init"?')
 
+        # Collect as much information as possible on the calling context
+        import __main__
+        try:
+            script_name = __main__.__file__
+            calling_path = os.getcwd()
+            script_name = os.path.join(calling_path, script_name)
+            script_content = open(script_name).read()
+        except AttributeError:
+            if uitools.is_interactive():
+                script_name = '<interactive>'
+            else:
+                import sys
+                script_name = sys.argv[0]
+            script_content = ''
+        localmeta = {'script_name': script_name,
+                      'calling_host': local_hostname,
+                      'script_content': script_content}
         # New scan
-        self.scan_data = man.start_scan(label=self.label)
+        self.scan_data = man.start_scan(label=self.label, localmeta=localmeta)
 
         self.name = self.scan_data['scan_name']
         self.scan_path = self.scan_data['path']

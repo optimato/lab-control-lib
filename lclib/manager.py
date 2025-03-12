@@ -18,6 +18,57 @@ from . import proxycall, proxydevice
 from .util import now
 from .base import DriverBase
 
+__all__ = ['list_investigations', 'list_scans', 'ManagerBase']
+
+def list_investigations(path):
+    """
+    List all investigations (directories in  base path)
+    Args:
+        path: base path
+
+    Returns:
+        list of investigations
+    """
+    return [f.name for f in os.scandir(path) if f.is_dir()]
+
+def list_scans(path, investigation, experiment=None, logger=None):
+    """
+    List all scans in given experiment (all experiments if None)
+    Args:
+        path: base path
+        investigation: investigation name
+        experiment: experiment name (can be None)
+        logger: logging object (or None)
+
+    Returns:
+        dictionary whose keys are the experiments and values are scans
+    """
+    inv_path = os.path.join(path, investigation)
+    if not os.path.exists(inv_path):
+        raise RuntimeError(f'Investigation {investigation} does not exist')
+    if experiment is not None:
+        exp_path = os.path.join(inv_path, experiment)
+        if not os.path.exists(inv_path):
+            raise RuntimeError(f'Experiment {experiment} does not exist')
+        try:
+            scan_list = sorted([int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()])
+        except ValueError:
+            raise RuntimeError(f'Alien directory {exp_path}')
+        return {experiment: scan_list}
+
+    all_exp = {f.name: f.path for f in os.scandir(inv_path) if f.is_dir()}
+    scan_dict = {}
+    for exp, exp_path in all_exp.items():
+        try:
+            scan_list = sorted([int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()])
+        except ValueError:
+            if logger:
+                logger.warning(f'{exp_path} is an alien directory. Ignored.')
+            continue
+        scan_dict[exp] = scan_list
+
+    return scan_dict
+
 
 @proxydevice(address=None)
 class ManagerBase(DriverBase):
@@ -78,20 +129,28 @@ class ManagerBase(DriverBase):
             self.logger.warning('Could not find first available scan number (have experiment and investigation been set?)')
         self.counter = 0
 
-        self.metacalls = {'investigation': lambda: self.investigation,
-                          'experiment': lambda: self.experiment,
-                          'last_scan': lambda: self._scan_number or None}
-
         self.scan_info = {}
+        #self.metacalls = {'investigation': lambda: self.investigation,
+        #                  'experiment': lambda: self.experiment,
+        #                  'last_scan': lambda: self._scan_number or None,
+        #                  'scan_info': lambda: self.scan_info}
+
         self.last_scan_info = self.config['last_scan_info']
 
     @proxycall()
-    def start_scan(self, label=None):
+    def get_meta(self):
+        """
+        Overriding default get_meta to return scan_info (empty if not in a scan)
+        """
+        return self.scan_info
+
+    @proxycall()
+    def start_scan(self, label=None, localmeta=None):
         """
         Start a new scan.
         Args:
             label: an optional label to be used for directory and file naming.
-
+            localmeta: Additional metadata to attach to the saved file(s)
         Returns:
             `scan_info` dict with scan information.
         """
@@ -118,6 +177,10 @@ class ManagerBase(DriverBase):
         self._label = label
         self.counter = 0
 
+        # Store local metadata
+        if localmeta is None:
+            local_meta = {}
+
         # Create path (ok even if on control host)
         os.makedirs(os.path.join(self.base_path, self.path, scan_name), exist_ok=True)
 
@@ -127,6 +190,7 @@ class ManagerBase(DriverBase):
                 'experiment': self.experiment,
                 'path': self.path,
                 'start_time': start_time}
+        scan_info.update(localmeta)
 
         # Store for status access
         self.scan_info = scan_info
@@ -220,36 +284,20 @@ class ManagerBase(DriverBase):
         Returns:
             a list of strings.
         """
-        # investigations are the directories in the base path
-        return [f.name for f in os.scandir(self.base_path) if f.is_dir()]
+        return list_investigations(self.base_path)
 
     @proxycall()
     def list_exp(self, inv=None):
         """
-        List all existing experiment in given (or current) investigation.
+        List all existing experiments in given (or current) investigation.
         Returns:
             a list of strings.
         """
-        if inv is not None:
-            if inv not in self.list_inv():
-                raise KeyError(f'Investigation {inv} does not exist')
-        else:
+        if inv is None:
             inv = self.investigation
 
-        inv_path = os.path.join(self.base_path, inv)
-
-        all_exp = {f.name: f.path for f in os.scandir(inv_path) if f.is_dir()}
-
-        exp_list = []
-        for exp, exp_path in all_exp.items():
-            try:
-                scan_list = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
-            except ValueError:
-                self.logger.warning(f'{exp_path} is an alien directory. Ignored.')
-                continue
-            exp_list.append(exp)
-
-        return exp_list
+        all_scans = list_scans(self.base_path, investigation=inv, logger=self.logger)
+        return list(all_scans.keys())
 
     def _check_path(self):
         """
