@@ -11,7 +11,7 @@ import inspect
 import os
 import logging
 
-from .. import _driver_classes, get_config, drivers, motors, client_or_None, local_hostname, FileDict
+from .. import _driver_classes, get_config, drivers, motors, client_or_None, local_hostname
 from . import uitools
 from ..util import FileDict
 from . import ask, ask_yes_no, user_prompt
@@ -20,10 +20,6 @@ from .. import manager
 
 # Set up logger
 logger = rootlogger.getChild(__name__)
-
-# Set up config
-config_filename = os.path.join(get_config()['conf_path'], 'ui.json')
-config = FileDict(config_filename)
 
 # Dictionary populated by init() at runtime, and possibly other future functions that set some defaults
 _runtime = {'manager': None}
