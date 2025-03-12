@@ -130,11 +130,6 @@ class ManagerBase(DriverBase):
         self.counter = 0
 
         self.scan_info = {}
-        #self.metacalls = {'investigation': lambda: self.investigation,
-        #                  'experiment': lambda: self.experiment,
-        #                  'last_scan': lambda: self._scan_number or None,
-        #                  'scan_info': lambda: self.scan_info}
-
         self.last_scan_info = self.config['last_scan_info']
 
     @proxycall()
@@ -142,7 +137,13 @@ class ManagerBase(DriverBase):
         """
         Overriding default get_meta to return scan_info (empty if not in a scan)
         """
-        return self.scan_info
+        if not self.scan_info:
+            # Not currently in a scan
+            return {'investigation': self.investigation,
+                    'experiment': self.experiment,
+                    'last_scan': self._scan_number or None}
+        else:
+            return self.scan_info
 
     @proxycall()
     def start_scan(self, label=None, localmeta=None):
