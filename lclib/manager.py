@@ -51,7 +51,7 @@ def list_scans(path, investigation, experiment=None, logger=None):
         if not os.path.exists(inv_path):
             raise RuntimeError(f'Experiment {experiment} does not exist')
         try:
-            scan_list = sorted([int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()])
+            scan_list = sorted([(int(f.name[:6]), f.name[6:]) for f in os.scandir(exp_path) if f.is_dir()])
         except ValueError:
             raise RuntimeError(f'Alien directory {exp_path}')
         return {experiment: scan_list}
@@ -60,7 +60,7 @@ def list_scans(path, investigation, experiment=None, logger=None):
     scan_dict = {}
     for exp, exp_path in all_exp.items():
         try:
-            scan_list = sorted([int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()])
+            scan_list = sorted([(int(f.name[:6]), f.name[6:]) for f in os.scandir(exp_path) if f.is_dir()])
         except ValueError:
             if logger:
                 logger.warning(f'{exp_path} is an alien directory. Ignored.')
@@ -272,11 +272,16 @@ class ManagerBase(DriverBase):
         experiment path.
         """
         try:
-            exp_path = os.path.join(self.base_path, self.path)
+            all_scans = list_scans(self.base_path, investigation=self.investigation, experiment=self.experiment, logger=self.logger)
         except RuntimeError as e:
             return None
-        scan_numbers = [int(f.name[:6]) for f in os.scandir(exp_path) if f.is_dir()]
-        return max(scan_numbers, default=-1) + 1
+        scans = all_scans[self.experiment]
+        if not scans:
+            # No scan yet in the investigation/experiment path
+            return 0
+        else:
+            # Scans is a sorted list of tuples (scan number, scan label)
+            return scans[-1][0] + 1
 
     @proxycall()
     def list_inv(self):
@@ -299,6 +304,21 @@ class ManagerBase(DriverBase):
 
         all_scans = list_scans(self.base_path, investigation=inv, logger=self.logger)
         return list(all_scans.keys())
+
+    @proxycall()
+    def list_scans(self, inv=None, exp=None):
+        """
+        List all existing experiments in given (or current) investigation and given (or current) experiment.
+        Returns:
+            a list of tuples (scan number, scan label)
+        """
+        if inv is None:
+            inv = self.investigation
+        if exp is None:
+            exp = self.experiment
+
+        all_scans = list_scans(self.base_path, investigation=inv, experiment=exp, logger=self.logger)
+        return all_scans[exp]
 
     def _check_path(self):
         """
