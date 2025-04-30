@@ -265,6 +265,11 @@ def killall():
     except:
         raise
 
+@cli.command(help='Start the control panel display')
+def cp():
+    app = ui.driver_control_panel.DeviceManagerApp()
+    app.run(reload=False)
+    sys.exit(0)
 
 @cli.command(help='Start Display real-time logs of all running drivers')
 def logall():
