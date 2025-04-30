@@ -21,7 +21,7 @@ def daemon_server():
     """
     return ProcessPool.Server(address=('localhost', DAEMON_PORT))
 
-def daemon_client(address=None):
+def daemon_client(address=None, **kwargs):
     """
     Connect to the daemon and return a client.
     
@@ -35,7 +35,7 @@ def daemon_client(address=None):
         # Default to localhost
         address = ('localhost', DAEMON_PORT)
     try:
-        d = ProcessPool.Client(address=address)
+        d = ProcessPool.Client(address=address, **kwargs)
     except ProxyDeviceError as e:
         logger.error(f"Failed to connect to daemon at {address}: {e}")
         return None

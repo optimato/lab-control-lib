@@ -23,8 +23,9 @@ lab_info = {}
 @click.group(help=f'Lab-control-lib driver management', invoke_without_command=True)
 @click.argument('labname', required=False)
 @click.option('-d', '--daemon', is_flag=True, help='Start daemon.')
+@click.option('-r', '--restart', is_flag=True, help='Kill daemon. Since it is running as a service, it will restart.')
 @click.pass_context
-def cli(ctx, labname, daemon):
+def cli(ctx, labname, daemon, restart):
     """
     Get lab name, import if needed, and populate lab_info with information needed for other commands.
     """
@@ -35,6 +36,22 @@ def cli(ctx, labname, daemon):
         s.wait()
         sys.exit(0)
 
+    if restart:
+        # Restart daemon
+        c = dd.daemon_client(reconnect="always")
+        # Wait a little for connection to establish
+        t = time.time()
+        while time.time() - t < 1:
+            if c.connected:
+                break
+            time.sleep(.05)
+        if not c.connected:
+            raise click.UsageError('Local daemon is not running')
+        # Kill the daemon
+        c.kill_server()
+        click.echo('Local daemon has been killed. It will restart automatically.')
+        sys.exit(0)
+    
     # labname is not optional but had to be set to required=False to allow for the possibility of
     # usint the -d (--daemon) option
     if not ctx.invoked_subcommand:
@@ -63,6 +80,7 @@ def cli(ctx, labname, daemon):
     if lab_module != labname:
         raise click.BadParameter(f'Lab name {labname} does not match already imported {lab_module}')
 
+    lab_info['module'] = lab_module
     lab_info['lab_name'] = lab_name
     lab_info['this_host'] = config['this_host']
     lab_info['local_hostname'] = config['local_hostname']
@@ -132,7 +150,7 @@ def start(name, loglevel, loglevel_global):
         return
 
     # Spawn the driver
-    success, msg = daemon_client.start(lab=lab_info['lab_name'],
+    success, msg = daemon_client.start(lab=lab_info['module'],
                                        driver=name,
                                        loglevel=loglevel,
                                        loglevel_global=loglevel_global)  
@@ -227,7 +245,7 @@ def forcekill(name):
     daemon_client = dd.daemon_client(address=(host[0], dd.DAEMON_PORT))
     if daemon_client is None:
         raise click.UsageError(f'Daemon is not running on host {host[0]}')
-    daemon_client.killprocess(lab=lab_info['lab_name'], driver=name)
+    daemon_client.killprocess(lab=lab_info['module'], driver=name)
 
 @cli.command(help='Kill all running server proxy.')
 def killall():
