@@ -87,7 +87,7 @@ class LclibDaemonService(win32serviceutil.ServiceFramework):
 
     def SvcDoRun(self):
         servicemanager.LogInfoMsg("Starting {service}...")
-        self.process = subprocess.Popen(["{python_exe}", "-m", "lclib", "--daemon"])
+        self.process = subprocess.Popen([r"{python_exe}", "-m", "lclib", "--daemon"])
         win32event.WaitForSingleObject(self.hWaitStop, win32event.INFINITE)
 
 
