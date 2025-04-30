@@ -169,6 +169,12 @@ class WrapServiceBase(rpyc.Service):
         """
         return self.server.ask_admin(admin=admin, force=force)
 
+    def exposed_startup_time(self):
+        """
+        Return startup time of the server.
+        """
+        return self.server.startup_time
+
     def exposed_kill(self):
         """
         Kill the server.
@@ -547,6 +553,13 @@ class ProxyClientBase:
         """
         self.conn.root.abort()
 
+    @property
+    def server_startup_time(self):
+        """
+        Return the server startup time.
+        """
+        return self.conn.root.startup_time()
+
     def _stop(self):
         """
         Close connections
@@ -745,6 +758,9 @@ class ProxyServerBase:
 
         # A variable telling who is admin
         self.admin = None
+
+        # Instantiation time
+        self.startup_time = None
 
         atexit.register(self.stop)
 
@@ -963,6 +979,8 @@ class ProxyServerBase:
             self._stopping = True
             self.instance = None
             raise
+
+        self.startup_time = time.time()
 
         # Look for interrupt call
         self.interrupt_method = None
