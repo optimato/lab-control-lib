@@ -49,9 +49,10 @@ class ProcessPool:
 
     def __init__(self):
         self.processes = {}
+        logger.info('Daemon process pool initialized.')
 
     @proxycall()
-    def start(self, lab, driver, loglevel, loglevel_global):
+    def start(self, lab, driver, loglevel='INFO', loglevel_global='INFO'):
         """
         Start the a local driver.
         
