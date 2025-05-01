@@ -75,7 +75,7 @@ class GridRow:
         Start the device.
         """
         # Check if the daemon is running
-        if self.info['daemon'] is None:
+        if self.daemon is None:
             ui.notify(f'Daemon on {self.hostname} is not running.')
             return
 
