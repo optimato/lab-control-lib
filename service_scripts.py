@@ -99,39 +99,50 @@ win_install_template = r"""
 # This script was generated automatically.
 # It installs the lclib daemon as a Windows service.
 
+try {{
+    $Nssm = (Get-Command nssm -ErrorAction Stop).Source
+}} catch {{
+    Write-Error "nssm.exe not found in PATH. Please download it from and place it in your PATH."
+    exit 1
+}}
+
 Write-Host "Installing the service..."
-& {python_exe} {win_service_path} install
+& $Nssm install {service} "{python_exe}" "lclib -d"
+& $Nssm set {service} DisplayName "Lab-control-lib Daemon Service"
 
 # Set the service to start automatically at boot
 Write-Host "Setting service to start at boot..."
-Set-Service -Name {service} -StartupType Automatic
+& $Nssm set {service} Start SERVICE_AUTO_START
 
 # Configure the service to auto-restart on failure
 Write-Host "Configuring service failure recovery..."
-sc.exe failure {service} reset= 60 actions= restart/5000
+& $Nssm set {service} AppExit Default Restart
 
 # Start the service
 Write-Host "Starting the service..."
-Start-Service -Name {service}
+& $Nssm start {service}
 
 Write-Host "Service '{service}' installed and running with auto-start and auto-recovery."
 """
 
 win_remove_template = r"""
 # This script was generated automatically.
-# It removes the lclib daemon service from Windows.
+# It removes the Windows service for the lclib daemon.
 
-# Stop the service if running
-if ((Get-Service -Name {service} -ErrorAction SilentlyContinue).Status -eq 'Running') {{
-    Write-Host "Stopping the service..."
-    Stop-Service -Name {service} -Force
+try {{
+    $Nssm = (Get-Command nssm -ErrorAction Stop).Source
+}} catch {{
+    Write-Error "nssm.exe not found in PATH. Please download it from https://nssm.cc and place it in your PATH."
+    exit 1
 }}
 
-# Remove the service using pywin32
-Write-Host "Removing the service..."
-& {python_exe} {win_service_path} remove
+Write-Host "Stopping the service if it's running..."
+& $Nssm stop {service}
 
-Write-Host "Service '{service}' removed."
+Write-Host "Removing the service..."
+& $Nssm remove {service} confirm
+
+Write-Host "Service '{service}' removed successfully."
 """
 
 linux_install_template = r"""
