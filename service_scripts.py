@@ -61,7 +61,7 @@ try {{
 }}
 
 Write-Host "Installing the service..."
-& $Nssm install {service} "{python_exe}" "lclib -d"
+& $Nssm install {service} "{python_exe}" "-m lclib -d"
 & $Nssm set {service} DisplayName "Lab-control-lib Daemon Service"
 
 # Set the service to start automatically at boot
