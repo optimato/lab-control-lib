@@ -20,8 +20,6 @@ def generate_service_scripts():
         win_remove_path = os.path.join(base_path, 'windows_remove_daemon.ps1')          
 
         # Generate PowerShell scripts
-        open(win_service_path, 'w').write(win_service_template.format(service=service,
-                                                                      python_exe=python_exe))
         open(win_install_path, 'w').write(win_install_template.format(service=service,
                                                                       python_exe=python_exe,
                                                                       win_service_path=win_service_path))
