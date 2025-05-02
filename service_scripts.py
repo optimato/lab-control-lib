@@ -72,6 +72,14 @@ Write-Host "Setting service to start at boot..."
 Write-Host "Configuring service failure recovery..."
 & $Nssm set {service} AppExit Default Restart
 
+# Set up logging to capture stdout and stderr
+$LogDir = "$env:ProgramData\lclib"
+New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+
+& $Nssm set {service} AppStdout "$LogDir\{service}.out.log"
+& $Nssm set {service} AppStderr "$LogDir\{service}.err.log"
+& $Nssm set {service} AppAppend 1  # Append instead of overwriting
+
 # Start the service
 Write-Host "Starting the service..."
 & $Nssm start {service}
