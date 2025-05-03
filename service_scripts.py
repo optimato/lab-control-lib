@@ -59,15 +59,20 @@ def generate_service_scripts():
 
         # Generate install and remove scripts
         win_install_content = textwrap.dedent(f"""\
-            # This script installs the lclib-daemon as a Scheduled Task
+            # This script was generated automatically
+            # It installs the lclib-daemon as a Scheduled Task
             $taskName = "{service}"
             $scriptPath = "{user_task_ps1_path}"
 
             schtasks /Create /SC ONLOGON /TN $taskName /TR "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`"" /RL LIMITED /F
-            Write-Host "Scheduled Task '$taskName' installed."
+            Write-Host "Daemon '$taskName' installed as scheduled task."
+
+            schtask /Run /TN lclib-daemon
+            Write-Host "Scheduled Task Started. Logs are at {log_path_str}"
             """)
         win_remove_content = textwrap.dedent(f"""\
-            # This script removes the lclib-daemon Scheduled Task
+            # This script was generated automatically
+            # It removes the lclib-daemon Scheduled Task
             $taskName = "{service}"
 
             schtasks /Delete /TN $taskName /F
