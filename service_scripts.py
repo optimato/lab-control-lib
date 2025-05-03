@@ -26,14 +26,12 @@ def generate_service_scripts():
         use_conda = False
         conda_env = os.getenv("CONDA_DEFAULT_ENV")
         conda_prefix = os.getenv("CONDA_PREFIX")
-        if conda_env and conda_prefix:
-            activate_bat = os.path.join(conda_prefix, "Scripts", "activate.bat")
-            use_conda = os.path.exists(activate_bat)
+        use_conda = (conda_env and conda_prefix)
 
         if use_conda:
-            activate_cmd = f'cmd /c """{activate_bat} {conda_env} && exit"""'
+            activate_cmd = f'cmd /c """conda activate {conda_env} && exit"""'
         else:
-            activate_cmd = "REM No conda environment detected"
+            activate_cmd = 'Write-Host "No conda environment detected"'
 
         # Define log path
         log_path = Path.home() / "lclib_daemon.log"
