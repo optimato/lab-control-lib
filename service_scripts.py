@@ -1,111 +1,108 @@
 import sys
 import os
+import subprocess
+from pathlib import Path
+import textwrap
 
+# Function to generate installation and removal scripts for the daemon
 def generate_service_scripts():
     python_exe = sys.executable
     user = os.getenv("USER") or os.getenv("USERNAME")
-    home = os.getenv('HOME')
+    home = os.getenv("HOME") or str(Path.home())
     service = 'lclib-daemon'
     system = sys.platform
 
-    # Create the base path for the scripts
     base_path = os.path.join(os.path.dirname(__file__), 'scripts')
     os.makedirs(base_path, exist_ok=True)
 
-    # Create scripts based on OS
     if system.startswith("win"):
-        # Path for Windows scripts
-        win_service_path = os.path.join(base_path, 'lclib_service.py')
-        win_install_path = os.path.join(base_path, 'windows_install_daemon.ps1')
-        win_remove_path = os.path.join(base_path, 'windows_remove_daemon.ps1')          
 
-        # Generate PowerShell scripts
-        open(win_install_path, 'w').write(win_install_template.format(service=service,
-                                                                      python_exe=python_exe,
-                                                                      win_service_path=win_service_path))
-        open(win_remove_path, 'w').write(win_remove_template.format(service=service,
-                                                                      python_exe=python_exe,
-                                                                      win_service_path=win_service_path))
-        print(f"Windows daemon installation scripts have been generated")
-        print(f"in {base_path}")
-        print(f"using interpreter: {python_exe} for user: {user}")
+        # Windows-specific paths
+        user_task_ps1_path = os.path.join(base_path, 'lclib_daemon_user_task.ps1')
+        win_install_path = os.path.join(base_path, 'windows_install_daemon.ps1')
+        win_remove_path = os.path.join(base_path, 'windows_remove_daemon.ps1')
+
+        # Check if the user is running in a conda environment
+        use_conda = False
+        conda_env = os.getenv("CONDA_DEFAULT_ENV")
+        conda_prefix = os.getenv("CONDA_PREFIX")
+        if conda_env and conda_prefix:
+            activate_bat = os.path.join(conda_prefix, "Scripts", "activate.bat")
+            use_conda = os.path.exists(activate_bat)
+
+        if use_conda:
+            activate_cmd = f'cmd /c """{activate_bat} {conda_env} && exit"""'
+        else:
+            activate_cmd = "REM No conda environment detected"
+
+        # Define log path
+        log_path = Path.home() / "lclib_daemon.log"
+        log_path_str = str(log_path).replace("\\", "/")
+
+        # Generate the PowerShell script
+        ps_script = textwrap.dedent(f"""\
+            # Auto-generated script to run lclib daemon in a loop
+            $ErrorActionPreference = 'Continue'
+            {activate_cmd}
+
+            while ($true) {{
+                Write-Host "Starting lclib daemon..."
+                try {{
+                    & python -m lclib -d *>> "{log_path_str}"
+                }} catch {{
+                    Write-Host "Daemon crashed: $($_.Exception.Message)"
+                }}
+                Write-Host "Restarting in 5 seconds..."
+                Start-Sleep -Seconds 5
+            }}
+        """)
+
+        # Generate install and remove scripts
+        win_install_content = textwrap.dedent(f"""\
+            # This script installs the lclib-daemon as a Scheduled Task
+            $taskName = "{service}"
+            $scriptPath = "{user_task_ps1_path}"
+
+            schtasks /Create /SC ONLOGON /TN $taskName /TR "powershell.exe -ExecutionPolicy Bypass -File `"$scriptPath`"" /RL LIMITED /F
+            Write-Host "Scheduled Task '$taskName' installed."
+            """)
+        win_remove_content = textwrap.dedent(f"""\
+            # This script removes the lclib-daemon Scheduled Task
+            $taskName = "{service}"
+
+            schtasks /Delete /TN $taskName /F
+            Write-Host "Scheduled Task '$taskName' removed."
+            """)
+        Path(user_task_ps1_path).write_text(ps_script, encoding="utf-8")
+        Path(win_install_path).write_text(win_install_content, encoding="utf-8")
+        Path(win_remove_path).write_text(win_remove_content, encoding="utf-8")
+
+        print(f"Windows daemon task installation scripts written to {base_path}")
 
     elif system.startswith("linux"):
-        # Path for Linux scripts
+        # Linux-specific paths
         linux_install_path = os.path.join(base_path, 'linux_install_daemon.sh')
         linux_remove_path = os.path.join(base_path, 'linux_remove_daemon.sh')
 
-        # Generate Linux scripts
-        open(linux_install_path, 'w').write(linux_install_template.format(service=service,
-                                                                          user=user,
-                                                                          home=home,
-                                                                          python_exe=python_exe))
-        open(linux_remove_path, 'w').write(linux_remove_template.format(service=service))
+        # Generate install and remove scripts
+        Path(linux_install_path).write_text(linux_install_template.format(
+            service=service,
+            user=user,
+            home=home,
+            python_exe=python_exe
+        ), encoding="utf-8")
+        Path(linux_remove_path).write_text(linux_remove_template.format(
+            service=service
+        ), encoding="utf-8")
 
-        print(f"Linux daemon installation scripts have been generated")
-        print(f"in {base_path}")
-        print(f"using interpreter: {python_exe} for user: {user}")
+        print(f"Linux daemon installation scripts written to {base_path}")
+
     else:
         print(f"Unsupported OS: {system}. Only Windows and Linux are supported.")
-        return
 
-win_install_template = r"""
-# This script was generated automatically.
-# It installs the lclib daemon as a Windows service.
+if __name__ == "__main__":
+    generate_service_scripts()
 
-try {{
-    $Nssm = (Get-Command nssm -ErrorAction Stop).Source
-}} catch {{
-    Write-Error "nssm.exe not found in PATH. Please download it from and place it in your PATH."
-    exit 1
-}}
-
-Write-Host "Installing the service..."
-& $Nssm install {service} "{python_exe}" "-m lclib -d"
-& $Nssm set {service} DisplayName "Lab-control-lib Daemon Service"
-
-# Set the service to start automatically at boot
-Write-Host "Setting service to start at boot..."
-& $Nssm set {service} Start SERVICE_AUTO_START
-
-# Configure the service to auto-restart on failure
-Write-Host "Configuring service failure recovery..."
-& $Nssm set {service} AppExit Default Restart
-
-# Set up logging to capture stdout and stderr
-$LogDir = "$env:ProgramData\lclib"
-New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
-
-& $Nssm set {service} AppStdout "$LogDir\{service}.out.log"
-& $Nssm set {service} AppStderr "$LogDir\{service}.err.log"
-& $Nssm set {service} AppAppend 1  # Append instead of overwriting
-
-# Start the service
-Write-Host "Starting the service..."
-& $Nssm start {service}
-
-Write-Host "Service '{service}' installed and running with auto-start and auto-recovery."
-"""
-
-win_remove_template = r"""
-# This script was generated automatically.
-# It removes the Windows service for the lclib daemon.
-
-try {{
-    $Nssm = (Get-Command nssm -ErrorAction Stop).Source
-}} catch {{
-    Write-Error "nssm.exe not found in PATH. Please download it from https://nssm.cc and place it in your PATH."
-    exit 1
-}}
-
-Write-Host "Stopping the service if it's running..."
-& $Nssm stop {service}
-
-Write-Host "Removing the service..."
-& $Nssm remove {service} confirm
-
-Write-Host "Service '{service}' removed successfully."
-"""
 
 linux_install_template = r"""
 #!/bin/bash
