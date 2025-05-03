@@ -29,7 +29,7 @@ def generate_service_scripts():
         use_conda = (conda_env and conda_prefix)
 
         if use_conda:
-            activate_cmd = f'cmd /c """conda activate {conda_env} && exit"""'
+            activate_cmd = f'& conda activate {conda_env}'
         else:
             activate_cmd = 'Write-Host "No conda environment detected"'
 
@@ -41,18 +41,20 @@ def generate_service_scripts():
         ps_script = textwrap.dedent(f"""\
             # Auto-generated script to run lclib daemon in a loop
             $ErrorActionPreference = 'Continue'
+            Start-Transcript -Path "{log_path_str}" -Append
             {activate_cmd}
 
             while ($true) {{
                 Write-Host "Starting lclib daemon..."
                 try {{
-                    & python -m lclib -d *>> "{log_path_str}"
+                    & python -m lclib -d
                 }} catch {{
                     Write-Host "Daemon crashed: $($_.Exception.Message)"
                 }}
                 Write-Host "Restarting in 5 seconds..."
                 Start-Sleep -Seconds 5
             }}
+            Stop-Transcript
         """)
 
         # Generate install and remove scripts
@@ -61,7 +63,7 @@ def generate_service_scripts():
             $taskName = "{service}"
             $scriptPath = "{user_task_ps1_path}"
 
-            schtasks /Create /SC ONLOGON /TN $taskName /TR "powershell.exe -ExecutionPolicy Bypass -File `"$scriptPath`"" /RL LIMITED /F
+            schtasks /Create /SC ONLOGON /TN $taskName /TR "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`"" /RL LIMITED /F
             Write-Host "Scheduled Task '$taskName' installed."
             """)
         win_remove_content = textwrap.dedent(f"""\
