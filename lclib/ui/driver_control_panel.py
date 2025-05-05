@@ -28,7 +28,8 @@ class GridRow:
         self.name_label = ui.label(self.name).classes('text-lg')
         self.uptime_label = ui.label('Uptime: 0.0 h').classes('text-lg')
         self.status_label = ui.label('UNKOWN').classes('text-lg')
-        self.start_stop_button = ui.button(icon='play_arrow', on_click=self.toggle_state).props('round dense').classes('shadow-xs')
+        self.start_button = ui.button(icon='play_arrow', on_click=self.start).props('round dense color=green-600').classes('shadow-xs')
+        self.stop_button = ui.button(icon='stop', on_click=self.shutdown).props('round dense color=red-600').classes('shadow-xs')
 
     def update_state(self):
         """
@@ -55,20 +56,6 @@ class GridRow:
                 managed = False
         self.state = [['OFFLINE', 'NOT RESPONDING'], ['UNMANAGED', 'ONLINE']][alive][managed] 
         self.update_style()
-
-    def toggle_state(self, e):
-        """
-        Toggle the state of the device.
-        """
-        if  self.state == 'OFFLINE':
-            self.start()
-        else:
-            print('here')
-            with ui.dialog() as dialog, ui.card():
-                ui.label(f'Shutdown driver {self.name} on {self.hostname}?')
-                ui.button('Yes', on_click=lambda e: (dialog.close(), self.shutdown()))
-                ui.button('No', on_click=dialog.close)
-            dialog.open()
     
     def start(self):
         """
@@ -82,7 +69,6 @@ class GridRow:
         # Start the driver
         try:
             self.daemon.start(lab=self.labname, driver=self.name)
-            self.state = 'ONLINE'
             self.update_style()
             ui.notify(f'Started driver {self.name} on {self.hostname}.')
         except Exception as e:
@@ -100,24 +86,40 @@ class GridRow:
             self.uptime_label.set_text(f'Uptime: {int(hours)}:{int(minutes):02}:{int(seconds):02}')
         else:
             self.uptime_label.set_text("Uptime: N/A")
+        
+        # Update status label and button visibility based on state
         if self.state == 'ONLINE':
             self.status_label.classes(remove='text-black text-red-600 text-orange-600').classes('text-green-600').set_text('ONLINE')
-            self.start_stop_button.props('color=red-600 icon=stop')
+            self.start_button.set_visibility(False)
+            self.stop_button.set_visibility(True)
         elif self.state == 'OFFLINE':
             self.status_label.classes(remove='text-green-600 text-red-600 text-orange-600').classes('text-black').set_text('OFFLINE')
-            self.start_stop_button.props('color=green-600 icon=play_arrow')
+            self.start_button.set_visibility(True)
+            self.stop_button.set_visibility(False)
         elif self.state == 'NOT RESPONDING':
             self.status_label.classes(remove='text-green-600 text-black text-orange-600').classes('text-red-600').set_text('NOT RESPONDING')
-            self.start_stop_button.props('color=red-600 icon=stop')
-        else:
+            self.start_button.set_visibility(False)
+            self.stop_button.set_visibility(True)
+        else:  # UNMANAGED
             self.status_label.classes(remove='text-green-600 text-black text-red-600').classes('text-orange-600').set_text('UNMANAGED')
-            self.start_stop_button.props('color=red-600 icon=stop')
+            self.start_button.set_visibility(False)
+            self.stop_button.set_visibility(True)
 
     def shutdown(self):
         """
         Shutdown the device.
         """
-        # Shutdown the driver using a direct client
+        # Show confirmation dialog
+        with ui.dialog() as dialog, ui.card():
+            ui.label(f'Shutdown driver {self.name} on {self.hostname}?')
+            ui.button('Yes', on_click=lambda e: (dialog.close(), self._do_shutdown()))
+            ui.button('No', on_click=dialog.close)
+        dialog.open()
+
+    def _do_shutdown(self):
+        """
+        Perform the actual shutdown.
+        """
         try:
             if self.client.connected:
                 # Ask the driver to shut down

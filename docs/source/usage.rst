@@ -41,3 +41,14 @@ In the following we assume that the custom lab package is called `labname`:
 
   ``python -m lclib labname killall``
 
+* Start a viewer
+
+  ``python -m lclib labname viewr [driver]``
+
+  This will start a viewer for the specified driver. The driver must be a `Camera` subclass.
+
+  * Start the driver control panel
+
+  ``python -m lclib labname cp``
+
+  This will start the driver control panel on a browser.

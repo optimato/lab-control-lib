@@ -22,10 +22,11 @@ scripts will have been generated automatically in the ``scripts`` directory. On 
     $ cd scripts
     $ sudo ./linux_install_daemon.sh
 
-On Windows, you can use the PowerShell script ``win_install_daemon.ps1`` script instead. These
+On Windows, you can use the PowerShell script ``windows_install_daemon.ps1``. These
 scripts should be run with administrator privileges. The scripts will install the daemon service
-and start it. The service will be started automatically on system startup. There are also scripts
-to uninstall the service if needed. When updating the library, it is not necessary to reinstall
-the service, but only to restart it. This can be done with the following command::
+(a scheduled task under Windows) and start it. The service will be started automatically on 
+system startup. There are also scripts to uninstall the service if needed. When updating the
+library, it is not necessary to reinstall the service, but only to restart it. This can be 
+done with the following command::
 
     $ python -m lclib -r
