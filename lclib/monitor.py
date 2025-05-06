@@ -51,6 +51,8 @@ class MonitorBase(DriverBase):
     """
 
     DEFAULT_CONFIG = DriverBase.DEFAULT_CONFIG.copy()
+    DEFAULT_CONFIG.update({'meta_max_rate': 2.})
+    META_MAX_RATE_MAX = 20 # Hard-coded maximum rate for number of meta fetches per second.
 
     def __init__(self):
         """
@@ -93,6 +95,11 @@ class MonitorBase(DriverBase):
         # This is used for stats
         self.connected = True
 
+        # Cache and time stamp for metadata request throttling
+        self.meta_cache = None
+        self.meta_time = 0.
+        self.throttled_requests = []
+
     def fetch_meta(self, name):
         """
         Method run on a short-lived thread just the time to fetch metadata.
@@ -131,8 +138,14 @@ class MonitorBase(DriverBase):
         if include_list is None:
             include_list = [name for name in self.clients.keys() if name not in exclude_list]
 
-        # Fetch metadata on separate threads
-        self.requests[request_ID] = {name:Future(self.fetch_meta, (name,)) for name in include_list}
+        t = time.time()
+        if (t - self.meta_time) < self.meta_interval:
+            # Throttle: two calls were made too close to each other
+            self.throttled_requests.append(request_ID)
+        else:
+            # Fetch metadata on separate threads
+            self.meta_time = t
+            self.requests[request_ID] = {name:Future(self.fetch_meta, (name,)) for name in include_list}        
         return
 
     @proxycall()
@@ -146,6 +159,11 @@ class MonitorBase(DriverBase):
         Returns:
             A dictionary with all metadata.
         """
+        # If the request was throttled, return the latest acquired metadata
+        if request_ID in self.throttled_requests:
+            self.throttled_requests.remove(request_ID)
+            return self.meta_cache
+
         if request_ID not in self.requests:
             self.logger.error(f'Unknown request ID {request_ID}!')
 
@@ -167,6 +185,10 @@ class MonitorBase(DriverBase):
                     meta[name] = result['meta']
                     times[name] = result['time']
 
+        # Store metadata to return in case of future throttling
+        self.meta_cache = {}
+        self.meta_cache.update(meta)
+        self.meta_cache['monitor'] = {'throttled': True}
         return meta
 
     @proxycall(admin=True)
@@ -252,3 +274,26 @@ class MonitorBase(DriverBase):
                             'N': N}
             stats[name] = client_stats
         return stats
+    
+    @proxycall(admin=True)
+    @property
+    def meta_max_rate(self):
+        """
+        Maximum rate at which metadata should be fetched. (Throttling)
+        """
+        return self.config['meta_max_rate']
+
+    @meta_max_rate.setter
+    def meta_max_rate(self, value):
+        value = float(value)
+        assert value > 0.
+        assert value < self.META_MAX_RATE_MAX
+        self.config['meta_max_rate'] = value
+
+    @property
+    def meta_interval(self):
+        rate = self.meta_max_rate
+        if rate == 0.:
+            return 1e7
+        else:
+            return 1./rate
