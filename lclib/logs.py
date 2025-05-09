@@ -101,13 +101,16 @@ console_handler.setFormatter(dual_formatter)
 logger.addHandler(console_handler)
 
 
-def log_to_file(log_file_name):
+def log_to_file(log_file_name, logobj=None):
     # File logging
     file_handler = logging.handlers.RotatingFileHandler(log_file_name, maxBytes=1024 * 1024 * 10, backupCount=300,
                                                         encoding='utf-8')
     file_handler.setFormatter(dual_formatter)
     file_handler.setLevel(logging.DEBUG)
-    logger.addHandler(file_handler)
+    if logobj is None:
+        logger.addHandler(file_handler)
+    else:
+        logobj.addHandler(file_handler)
 
 # Tell matplotlib to shut up even on debug mode
 matplotlib_logger = logging.getLogger('matplotlib')
