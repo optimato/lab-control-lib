@@ -101,12 +101,12 @@ console_handler.setFormatter(dual_formatter)
 logger.addHandler(console_handler)
 
 
-def log_to_file(log_file_name, logobj=None):
+def log_to_file(log_file_name, logobj=None, level=logging.DEBUG):
     # File logging
     file_handler = logging.handlers.RotatingFileHandler(log_file_name, maxBytes=1024 * 1024 * 10, backupCount=300,
                                                         encoding='utf-8')
     file_handler.setFormatter(dual_formatter)
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(level)
     if logobj is None:
         logger.addHandler(file_handler)
     else:
