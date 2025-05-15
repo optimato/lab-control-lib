@@ -245,7 +245,7 @@ def forcekill(name):
     daemon_client = dd.daemon_client(address=(host[0], dd.DAEMON_PORT))
     if daemon_client is None:
         raise click.UsageError(f'Daemon is not running on host {host[0]}')
-    daemon_client.killprocess(lab=lab_info['module'], driver=name)
+    daemon_client.kill_process(lab=lab_info['module'], driver=name)
 
 @cli.command(help='Kill all running server proxy.')
 def killall():
