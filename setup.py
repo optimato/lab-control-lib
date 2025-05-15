@@ -40,7 +40,7 @@ class CustomInstallCommand(install):
             import service_scripts
             service_scripts.generate_service_scripts()
         except Exception as e:
-            logger.warning(f"Failed to generate service scripts: {e}")
+            logger.exception(f"Failed to generate service scripts: {e}")
 
 MAJOR = 0
 MINOR = 0
