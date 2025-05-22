@@ -173,7 +173,7 @@ class MonitorBase(DriverBase):
             self.logger.warning(f'Empty request: {request_ID}!')
 
         # Grab all available metadata
-        meta = {}
+        meta = {'monitor': {'throttled': False}}
         times = {}
         for name, future in request.items():
             if not future.done():
