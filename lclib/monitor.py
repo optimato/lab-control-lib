@@ -286,8 +286,10 @@ class MonitorBase(DriverBase):
     @meta_max_rate.setter
     def meta_max_rate(self, value):
         value = float(value)
-        assert value > 0.
-        assert value < self.META_MAX_RATE_MAX
+        if value < 0.:
+            raise ValueError("meta_max_rate must be greater than 0.")
+        if value >= self.META_MAX_RATE_MAX:
+            raise ValueError(f"meta_max_rate must be less than {self.META_MAX_RATE_MAX}.")
         self.config['meta_max_rate'] = value
 
     @property
