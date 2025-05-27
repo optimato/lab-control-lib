@@ -967,6 +967,20 @@ class CameraBase(DriverBase):
         # Call other method to allow subclasses to manage additional side-effects
         self._set_accumulation_number(value)
 
+    @proxycall(admin=True)
+    @property
+    def max_rate_metadata(self):
+        """
+        Maximum rate for metadata collection
+        """
+        return self.config['max_rate_metadata']
+
+    @max_rate_metadata.setter
+    def max_rate_metadata(self, value):
+        value = float(value)
+        if value > self.MAX_RATE_METADATA:
+            raise RuntimeError(f'Rate {value} too high (maximum value: {self.MAX_RATE_METADATA})')
+        self.config['max_rate_metadata'] = value
 
     @proxycall(admin=True)
     @property
