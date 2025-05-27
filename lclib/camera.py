@@ -303,6 +303,9 @@ class CameraBase(DriverBase):
         rate = 1./self.exposure_time
         if rate > self.config['max_rate_metadata']:
             self.bypass_metadata = True
+            self.logger.info('Metadata collection will be bypassed because of too high frame rate.')
+
+        once_request_ID = f'{self.name}_once'
 
         self.logger.debug('Acquisition loop started')
         self.abort_flag.clear()
@@ -314,6 +317,15 @@ class CameraBase(DriverBase):
                     self.logger.debug('end_acquisition is True. Breaking out.')
                     break
                 continue
+
+            # Request metadata one time
+            if self.bypass_metadata:
+                # Request global metadata (exclude self, we do that locally instead)
+                if not self.monitor.connected:
+                    self.logger.error("Not connected to monitor! Cannot request metadata!")
+                else:
+                    self.monitor.request_meta(request_ID=once_request_ID, exclude_list=[self.name])
+
             filename = self.filename
             self.do_acquire.clear()
             self.logger.debug('Received acquisition request (do_acquire flag).')
@@ -330,8 +342,6 @@ class CameraBase(DriverBase):
                 # Execute actual exposures
                 self._trigger()
 
-                # Enqueue None to signal end-of-exposure
-                self.enqueue_frame(None, None)
             except:
                 self.logger.exception('Error in _trigger')
                 self.acquire_done.set()
@@ -348,6 +358,16 @@ class CameraBase(DriverBase):
             #    break
 
             self.logger.debug('Done calling the subclass trigger.')
+
+            # If metadata requests were bypassed, grab it now before closing
+            metadata = None
+            if self.bypass_metadata:
+                self.logger.debug('Fetching metadata at the end of the acquisition (bypassed during exposures)')
+                if self.monitor.connected:
+                    metadata = self.monitor.return_meta(once_request_ID)
+            # Signal end of exposure by passing a None frame.
+            # Non-None metadata will be managed by file_writer appropriately
+            self.enqueue_frame(None, metadata)
 
             # Flip flag immediately to allow snap to return.
             self.logger.debug('Setting acquire_done flag.')
@@ -403,6 +423,9 @@ class CameraBase(DriverBase):
         self.localmeta[ticket] = localmeta
         self._last_request_ID = ticket
 
+        # Increment metadata counter
+        self.metadata_counter += 1
+
     def frame_management_loop(self):
         """
         Running on a thread. Watches self.frame_queue and deals with the data as
@@ -425,6 +448,11 @@ class CameraBase(DriverBase):
             data, meta = item
 
             if data is None:
+                # Special case: no frame, but metadata present. This happens if metadata was requested at the start of
+                # an acquisition and other calls were bypassed because of too high frame rate. frame_writer knows how to
+                # deal with this.
+                if not self.rolling and (meta is not None):
+                    self.frame_writer.store(meta=meta, data=data)
                 self.logger.debug('Setting end-of-exposure flag')
                 self.end_of_exposure_flag.set()
                 continue
@@ -501,11 +529,10 @@ class CameraBase(DriverBase):
             if request_ID is None:
                 self.logger.error('In camera.enqueue_frame: last_request_ID should not be None')
 
+            metadata = {}
             if (not self.bypass_metadata) and (request_ID is not None):
                 if self.monitor.connected:
                     metadata = self.monitor.return_meta(request_ID)
-                else:
-                    metadata = {}
 
             # Get metadata
             localmeta = self.localmeta.pop(request_ID, {})
