@@ -106,7 +106,7 @@ class MonitorBase(DriverBase):
         """
         client = self.clients.get(name)
         if client is None or not client.connected:
-            self.logger.warning(f'Client {name}: no metadata available.')
+            self.logger.debug(f'Client {name}: no metadata available.')
             return None
         t0 = time.time()
         meta = client.get_meta()
