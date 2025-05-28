@@ -34,14 +34,21 @@ def list_investigations(path):
 def list_scans(path, investigation, experiment=None, logger=None):
     """
     List all scans in given experiment (all experiments if None)
-    Args:
-        path: base path
-        investigation: investigation name
-        experiment: experiment name (can be None)
-        logger: logging object (or None)
 
-    Returns:
-        dictionary whose keys are the experiments and values are scans
+    Parameters
+    ----------        
+    path : string
+        base path
+    investigation : string
+        investigation name
+    experiment : string
+        experiment name (can be None)
+    logger : logger
+        logging object (or None)
+
+    Returns
+    -------
+    scan_dict : dictionary whose keys are the experiments and values are scans
     """
     inv_path = os.path.join(path, investigation)
     if not os.path.exists(inv_path):
@@ -149,11 +156,18 @@ class ManagerBase(DriverBase):
     def start_scan(self, label=None, localmeta=None):
         """
         Start a new scan.
-        Args:
-            label: an optional label to be used for directory and file naming.
-            localmeta: Additional metadata to attach to the saved file(s)
-        Returns:
-            `scan_info` dict with scan information.
+
+        Parameters
+        ----------        
+        label: string
+            an optional label to be used for directory and file naming. 
+        localmeta: list
+            Additional metadata to attach to the saved file(s)
+        
+        Returns
+        -------
+
+        scan_info : dict with scan information.
         """
         if self._running:
             raise RuntimeError(f'Scan {self.scan_name} already running')

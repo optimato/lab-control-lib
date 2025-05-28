@@ -123,8 +123,14 @@ class HDF5Worker(FrameWorker):
             item: (data, meta)
         """
         data, meta = item
-        self.frames.append(data)
-        self.meta.append(meta)
+        # Special case: empty frame but metadata present:
+        # In this case, we update the first metadata.
+        if data is None:
+            if (meta is not None) and self.meta:
+                self.meta[0].update(meta)
+        else:
+            self.frames.append(data)
+            self.meta.append(meta)
 
     def _finalize(self):
         """
@@ -156,6 +162,9 @@ class StreamWorker(FrameWorker):
             item: (data, meta)
         """
         data, meta = item
+        if data is None:
+            self.logger.info('Ignoring empty frame')
+            return
         self.logger.debug('Publishing new frame')
         self.broadcaster.pub(data, meta)
         self.logger.debug('Done publishing new frame')
