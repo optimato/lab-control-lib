@@ -10,6 +10,9 @@ import sys
 import os
 import click
 import logging
+import threading
+from IPython import embed_kernel
+
 
 from . import logs, get_config, client_or_None, _driver_classes
 from .camera import CameraBase
@@ -212,12 +215,16 @@ def lstart(name, loglevel, loglevel_global):
     log_to_file(log_file)
 
     # Start the server
-    # with logging_muted():
-    # s = Classes[name].Server(address=net_info['control'], instantiate=True)
     s = _driver_classes[name].Server(instantiate=True)
 
-    click.secho('RUNNING', fg='green')
+    # Start an ipython kernel for debugging
+    kernel_path = os.path.join(lab_info['conf_path'], 'kernels')
+    os.makedirs(kernel_path, exist_ok=True)
+    kernel_config = os.path.join(kernel_path, f'kernel-{name}.json')
+    ipython_thread = threading.Thread(target=embed_kernel, kwargs={'connection_file': kernel_config}, daemon=True)
+    ipython_thread.start()
 
+    click.secho('RUNNING', fg='green')
     s.instance.set_log_level(ll)
 
     # Wait for completion, then exit.
