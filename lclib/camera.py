@@ -327,7 +327,7 @@ class CameraBase(DriverBase):
                 if not self.monitor.connected:
                     self.logger.error("Not connected to monitor! Cannot request metadata!")
                 else:
-                    self.monitor.request_meta(request_ID=once_request_ID, exclude_list=[self.name])
+                    self.monitor.request_meta(request_ID=once_request_ID, exclude_list=[self.name, self.config['experiment_manager']])
 
             filename = self.filename
             self.do_acquire.clear()
@@ -536,7 +536,7 @@ class CameraBase(DriverBase):
             metadata = {'manager': self.manager_meta}
             if (not self.bypass_metadata) and (request_ID is not None):
                 if self.monitor.connected:
-                    metadata = self.monitor.return_meta(request_ID)
+                    metadata.update(self.monitor.return_meta(request_ID))
 
             # Get metadata
             localmeta = self.localmeta.pop(request_ID, {})
