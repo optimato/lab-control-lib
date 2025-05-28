@@ -257,9 +257,6 @@ class CameraBase(DriverBase):
 
         self.logger.info(f'Save path: {self.filename}')
 
-        # Get manager metadata - this does not change during exposure
-        self.manager_meta = self.manager.get_meta()
-
         # Trigger next acquisition now
         self.do_acquire.set()
 
@@ -320,6 +317,9 @@ class CameraBase(DriverBase):
                     self.logger.debug('end_acquisition is True. Breaking out.')
                     break
                 continue
+
+            # Get manager metadata - this does not change during exposure
+            self.manager_meta = self.manager.get_meta()
 
             # Request metadata one time
             if self.bypass_metadata:
