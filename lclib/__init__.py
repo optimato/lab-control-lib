@@ -179,8 +179,7 @@ def init(lab_name,
     Args:
         lab_name: (str) The name of the laboratory
         host_ips: (dict) Dict of host names and IPs in  the laboratory LAN {hostname1: ip1, hostname2: ip2, ...}
-        data_path: Main path to save data (from control node)
-        manager_address: the address for the manager.
+        monitor_address: the address for the monitor object.
     """
     global config
     BANNER = '*{0:^120}*'
@@ -254,7 +253,7 @@ def init(lab_name,
     # Monitor address
     #
     if monitor_address is None:
-        # Get manager address from config file, or revert to default
+        # Get monitor address from config file, or revert to default
         monitor_address = config.get('monitor_address', (host_ips['control'], DEFAULT_MONITOR_PORT))
 
     #

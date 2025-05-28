@@ -88,11 +88,12 @@ class CameraBase(DriverBase):
 
     DEFAULT_BROADCAST_ADDRESS = DEFAULT_BROADCAST_ADDRESS  # Default port for frame broadcasting
     BASE_PATH = ""
-    PIXEL_SIZE = (0, 0)  # Pixel size in um
-    SHAPE = (0, 0)  # Native array dimensions (before binning)
-    DATATYPE = 'uint16'  # Expected datatype
-    DEFAULT_FPS = 5.
-    MAX_FPS = 5.
+    PIXEL_SIZE = (0, 0)     # Pixel size in um
+    SHAPE = (0, 0)          # Native array dimensions (before binning)
+    DATATYPE = 'uint16'     # Expected datatype
+    DEFAULT_FPS = 5.        # Default FPS (frame per seconds) for live view (roll) 
+    MAX_FPS = 5.            # Default maximum FPS for roll
+    MAX_RATE_METADATA = 10  # Default maximum FPS above which metadata collection will be bypassed
 
     LOCAL_DEFAULT_CONFIG = {'do_save': True,
                             'file_format': DEFAULT_FILE_FORMAT,
@@ -106,7 +107,9 @@ class CameraBase(DriverBase):
                             'operation_mode': None,
                             'exposure_time': 1.,
                             'exposure_number': 1,
-                            'accumulation_number': 1}
+                            'accumulation_number': 1,
+                            'experiment_manager': 'manager',
+                            'max_rate_metadata': 10}
 
     # python >3.9
     # DEFAULT_CONFIG = (DriverBase.DEFAULT_CONFIG | LOCAL_DEFAULT_CONFIG)
@@ -124,11 +127,12 @@ class CameraBase(DriverBase):
         else:
             self.broadcast_address = broadcast_address
 
-        # Clients to monitor and manager
+        # Connect to monitor
         self.monitor = client_or_None('monitor', keep_trying=True)
 
-        # TODO: in the future, we should be able to swap managers
-        self.manager = client_or_None('manager', keep_trying=True)
+        # Connect to manager
+        experiment_manager = self.config['experiment_manager']
+        self.set_manager(experiment_manager)
 
         self.store_future = None      # Will be replaced with a future when starting to store.
         self._stop_roll = False       # To interrupt rolling
@@ -156,8 +160,9 @@ class CameraBase(DriverBase):
         # Prepare metadata collection
         self.metadata = {}
         self.localmeta = {}
-        self.grab_metadata = threading.Event()
-        self.meta_future = Future(self.metadata_loop)
+        self.metadata_counter = 0
+        self.bypass_metadata = False
+        self._last_request_ID = None
 
         self.do_acquire = threading.Event()
         self.acquire_done = threading.Event()
@@ -291,6 +296,17 @@ class CameraBase(DriverBase):
 
         NOTE: This it started on a thread every time the camera is armed.
         """
+        # Check if the frame rate will be too high for metadata collection
+        if self.exposure_time == 0.:
+           self.logger.error('Acquisition loop cannot start with exposure time = 0!')
+           return
+        rate = 1./self.exposure_time
+        if rate > self.config['max_rate_metadata']:
+            self.bypass_metadata = True
+            self.logger.info('Metadata collection will be bypassed because of too high frame rate.')
+
+        once_request_ID = f'{self.name}_once'
+
         self.logger.debug('Acquisition loop started')
         self.abort_flag.clear()
         while True:
@@ -301,6 +317,18 @@ class CameraBase(DriverBase):
                     self.logger.debug('end_acquisition is True. Breaking out.')
                     break
                 continue
+
+            # Get manager metadata - this does not change during exposure
+            self.manager_meta = self.manager.get_meta()
+
+            # Request metadata one time
+            if self.bypass_metadata:
+                # Request global metadata (exclude self, we do that locally instead)
+                if not self.monitor.connected:
+                    self.logger.error("Not connected to monitor! Cannot request metadata!")
+                else:
+                    self.monitor.request_meta(request_ID=once_request_ID, exclude_list=[self.name, self.config['experiment_manager']])
+
             filename = self.filename
             self.do_acquire.clear()
             self.logger.debug('Received acquisition request (do_acquire flag).')
@@ -317,8 +345,6 @@ class CameraBase(DriverBase):
                 # Execute actual exposures
                 self._trigger()
 
-                # Enqueue None to signal end-of-exposure
-                self.enqueue_frame(None, None)
             except:
                 self.logger.exception('Error in _trigger')
                 self.acquire_done.set()
@@ -335,6 +361,16 @@ class CameraBase(DriverBase):
             #    break
 
             self.logger.debug('Done calling the subclass trigger.')
+
+            # If metadata requests were bypassed, grab it now before closing
+            metadata = None
+            if self.bypass_metadata:
+                self.logger.debug('Fetching metadata at the end of the acquisition (bypassed during exposures)')
+                if self.monitor.connected:
+                    metadata = self.monitor.return_meta(once_request_ID)
+            # Signal end of exposure by passing a None frame.
+            # Non-None metadata will be managed by file_writer appropriately
+            self.enqueue_frame(None, metadata)
 
             # Flip flag immediately to allow snap to return.
             self.logger.debug('Setting acquire_done flag.')
@@ -365,31 +401,33 @@ class CameraBase(DriverBase):
         # The loop is closed, we are done
         self.logger.debug('Acquisition loop completed')
 
-    def metadata_loop(self):
-        """
-        Running on a thread. Waiting for the "grab_metadata flag to be flipped, then
-        attach most recent metadata to self.metadata
-        """
-        time.sleep(.5)
-        self.logger.debug('Metadata loop started')
-        while True:
-            if not self.grab_metadata.wait(1):
-                if self.closing:
-                    return
-                continue
-            self.grab_metadata.clear()
-            self.logger.debug('Metadata collection requested (grab_metadata flag)')
+        # Reset metadata rate limit
+        self.bypass_metadata = False
 
-            # Request global metadata (exclude self, we do that locally instead)
+    def request_meta(self):
+        """
+        Request metadata.
+        """
+        self.logger.debug('Metadata collection requested')
+
+        # Create ticket
+        ticket = f'{self.name}_{self.metadata_counter}'
+
+        if not self.bypass_metadata:
+            # Request global metadata (exclude self, we do that locally instead; and manager, which was already obtained in snap())
             if not self.monitor.connected:
                 self.logger.error("Not connected to monitor! Cannot request metadata!")
             else:
-                self.monitor.request_meta(request_ID=self.name, exclude_list=[self.name])
+                self.monitor.request_meta(request_ID=ticket, exclude_list=[self.name, self.config['experiment_manager']])
 
-            # Local metadata
-            self.localmeta = self.get_meta()
-            self.localmeta['acquisition_start'] = now()
-        self.logger.debug('Metadata loop completed')
+        # Local metadata
+        localmeta = self.get_meta()
+        localmeta['acquisition_start'] = now()
+        self.localmeta[ticket] = localmeta
+        self._last_request_ID = ticket
+
+        # Increment metadata counter
+        self.metadata_counter += 1
 
     def frame_management_loop(self):
         """
@@ -413,6 +451,11 @@ class CameraBase(DriverBase):
             data, meta = item
 
             if data is None:
+                # Special case: no frame, but metadata present. This happens if metadata was requested at the start of
+                # an acquisition and other calls were bypassed because of too high frame rate. frame_writer knows how to
+                # deal with this.
+                if not self.rolling and (meta is not None):
+                    self.frame_writer.store(meta=meta, data=data)
                 self.logger.debug('Setting end-of-exposure flag')
                 self.end_of_exposure_flag.set()
                 continue
@@ -471,6 +514,11 @@ class CameraBase(DriverBase):
         """
         Add frame and meta to the queue. This is meant to be called
         within _trigger at least once.
+
+        Parameters:
+        -----------
+        frame: numpy array generated by the detector
+        meta: local metadata created by the detector implementation
         """
         with self.enqueue_lock:
             # Manage end-of-exposure differently
@@ -479,16 +527,25 @@ class CameraBase(DriverBase):
                 self.frame_queue.put((frame, meta))
                 return
 
+            request_ID = self._last_request_ID
+            self._last_request_ID = None
+            if request_ID is None:
+                self.logger.error('In camera.enqueue_frame: last_request_ID should not be None')
+
+            # Start at least with manager metadata collected in self.snap
+            metadata = {'manager': self.manager_meta}
+            if (not self.bypass_metadata) and (request_ID is not None):
+                if self.monitor.connected:
+                    metadata.update(self.monitor.return_meta(request_ID))
+
+            # Get metadata
+            localmeta = self.localmeta.pop(request_ID, {})
+
             self.logger.debug('Frame arrived in enqueue_frame')
             self.frame_queue_empty_flag.clear()
 
-            metadata = self.metadata
-            localmeta = self.localmeta
-
-            self.metadata = {}
-            self.localmeta = {}
-
             # Update frame metadata and add to queue
+            localmeta['acquisition_end'] = now()
             localmeta.update(meta)
             metadata[self.name.lower()] = localmeta
 
@@ -706,6 +763,28 @@ class CameraBase(DriverBase):
         #self.frame_writer.set_log_level(level)
         #self.frame_streamer.set_log_level(level)
 
+    @proxycall(admin=True)
+    def set_manager(self, manager_name):
+        """
+        Update the experiment manager for this detector.
+        """
+        # Create new client
+        try:
+            manager = client_or_None(manager_name, inexistent_ok=False, keep_trying=True)
+        except RuntimeError:
+            raise RuntimeError(f'Experiment manager {manager_name} not found!')
+
+        # Close previous one and substitute
+        try:
+            self.manager.disconnect()
+        except AttributeError:
+            pass
+        self.manager = manager
+
+        # Save new config
+        self.config['experiment_manager'] = manager_name
+
+
     def shutdown(self):
         # Stop rolling
         self.roll_off()
@@ -919,6 +998,20 @@ class CameraBase(DriverBase):
         # Call other method to allow subclasses to manage additional side-effects
         self._set_accumulation_number(value)
 
+    @proxycall(admin=True)
+    @property
+    def max_rate_metadata(self):
+        """
+        Maximum rate for metadata collection
+        """
+        return self.config['max_rate_metadata']
+
+    @max_rate_metadata.setter
+    def max_rate_metadata(self, value):
+        value = float(value)
+        if value > self.MAX_RATE_METADATA:
+            raise RuntimeError(f'Rate {value} too high (maximum value: {self.MAX_RATE_METADATA})')
+        self.config['max_rate_metadata'] = value
 
     @proxycall(admin=True)
     @property
