@@ -257,6 +257,9 @@ class CameraBase(DriverBase):
 
         self.logger.info(f'Save path: {self.filename}')
 
+        # Get manager metadata - this does not change during exposure
+        self.manager_meta = self.manager.get_meta()
+
         # Trigger next acquisition now
         self.do_acquire.set()
 
@@ -411,11 +414,11 @@ class CameraBase(DriverBase):
         ticket = f'{self.name}_{self.metadata_counter}'
 
         if not self.bypass_metadata:
-            # Request global metadata (exclude self, we do that locally instead)
+            # Request global metadata (exclude self, we do that locally instead; and manager, which was already obtained in snap())
             if not self.monitor.connected:
                 self.logger.error("Not connected to monitor! Cannot request metadata!")
             else:
-                self.monitor.request_meta(request_ID=ticket, exclude_list=[self.name])
+                self.monitor.request_meta(request_ID=ticket, exclude_list=[self.name, self.config['experiment_manager']])
 
         # Local metadata
         localmeta = self.get_meta()
@@ -529,7 +532,8 @@ class CameraBase(DriverBase):
             if request_ID is None:
                 self.logger.error('In camera.enqueue_frame: last_request_ID should not be None')
 
-            metadata = {}
+            # Start at least with manager metadata collected in self.snap
+            metadata = {'manager': self.manager_meta}
             if (not self.bypass_metadata) and (request_ID is not None):
                 if self.monitor.connected:
                     metadata = self.monitor.return_meta(request_ID)
