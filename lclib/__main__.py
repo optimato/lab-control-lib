@@ -10,13 +10,10 @@ import sys
 import os
 import click
 import logging
-import threading
-from IPython import embed_kernel
-
 
 from . import logs, get_config, client_or_None, _driver_classes
 from .camera import CameraBase
-from .logs import logging_muted, log_to_file, logger as rootlogger
+from .logs import logging_muted, log_to_file, log_to_mem, logger as rootlogger
 from . import ui
 from . import daemon as dd
 
@@ -214,6 +211,7 @@ def lstart(name, loglevel, loglevel_global):
     # Log to file and to memory
     log_file = os.path.join(lab_info['log_dir'], f'{lab_info["lab_name"]}-{lab_info["module"]}-{name}.log')
     log_to_file(log_file)
+    log_to_mem()
 
     # Start the server
     s = _driver_classes[name].Server(instantiate=True)

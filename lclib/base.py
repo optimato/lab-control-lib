@@ -213,6 +213,27 @@ class DriverBase:
         if not self.quiet:
             print(s, end=end, flush=True)
 
+    @proxycall()
+    def get_logs(self, last_n=None, since=None):
+        """
+        Get the last `last_n` log messages as a list.
+        Parameters:
+        -----------
+        last_n (int): If specified, return only the last `last_n` messages.
+        since (float): If specified, return messages logged after this timestamp.
+        Return None if logging to memory is not enabled.
+        """
+        handler = None
+        if hasattr(self.logger, 'in_memory_handler'):
+            handler = self.logger.in_memory_handler
+        elif hasattr(rootlogger, 'in_memory_handler'):
+            handler = rootlogger.in_memory_handler
+        if handler is None:
+            self.logger.warning('In-memory logging is not enabled. Cannot retrieve logs.')
+            return None
+        # Get logs from the in-memory handler
+        return handler.get_logs(last_n=last_n, since=since)
+
     @classmethod
     def register_motor(cls, motor_name, **kwargs):
         """
