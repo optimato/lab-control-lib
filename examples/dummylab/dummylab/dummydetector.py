@@ -91,17 +91,10 @@ class Dummydetector(CameraBase):
                 self.print(f'\r{frame_counter}/{n_exp}', end='')
 
             # Trigger metadata collection
-            self.grab_metadata.set()
+            self.request_meta()
 
             # det.wait_for_new_frame() # or whatever
             time.sleep(self.exposure_time)
-
-            # Get metadata
-            if not self.monitor.connected:
-                self.logger.error("Not connected to monitor! No metadata will available!")
-                self.metadata = {}
-            else:
-                self.metadata = self.monitor.return_meta(request_ID=self.name)
 
             # Read out buffer
             # frame, meta = det.read_buffer() # or whatever

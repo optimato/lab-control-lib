@@ -88,6 +88,7 @@ def cli(ctx, labname, daemon, restart):
     lab_info['this_host'] = config['this_host']
     lab_info['local_hostname'] = config['local_hostname']
     lab_info['log_dir'] = logs.log_dir
+    lab_info['conf_path'] = config['conf_path']
 
     # List of addresses to access registered devices
     lab_info['device_addresses'] = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
@@ -210,22 +211,16 @@ def lstart(name, loglevel, loglevel_global):
         except KeyError:
             raise click.BadParameter(f'Unknown log level: {loglevel}')
 
-    # Log to file
-    log_file = os.path.join(lab_info['log_dir'], f'optimato-labcontrol-{name}.log')
+    # Log to file and to memory
+    log_file = os.path.join(lab_info['log_dir'], f'{lab_info["lab_name"]}-{lab_info["module"]}-{name}.log')
     log_to_file(log_file)
 
     # Start the server
     s = _driver_classes[name].Server(instantiate=True)
-
-    # Start an ipython kernel for debugging
-    kernel_path = os.path.join(lab_info['conf_path'], 'kernels')
-    os.makedirs(kernel_path, exist_ok=True)
-    kernel_config = os.path.join(kernel_path, f'kernel-{name}.json')
-    ipython_thread = threading.Thread(target=embed_kernel, kwargs={'connection_file': kernel_config}, daemon=True)
-    ipython_thread.start()
+    s.instance.set_log_level(ll)
+    s.logger.setLevel(ll)
 
     click.secho('RUNNING', fg='green')
-    s.instance.set_log_level(ll)
 
     # Wait for completion, then exit.
     s.wait()
