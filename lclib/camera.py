@@ -648,6 +648,7 @@ class CameraBase(DriverBase):
 
         try:
             self.loop_future.join()
+            self.loop_future = None
         except AttributeError:
             pass
 
@@ -1144,3 +1145,27 @@ class CameraBase(DriverBase):
     @counter.setter
     def counter(self, value: int):
         self.config['counter'] = value
+
+    @proxycall()
+    @property
+    def experiment_manager(self):
+        """
+        Name of the experiment manager for this camera
+        """
+        return self.config['experiment_manager']
+
+    @proxycall()
+    @property
+    def scan_mode(self):
+        """
+        Current scanning mode: one of 'roll', 'scan' or 'snap' (None if not acquiring)
+        """
+        if self.loop_future is None:
+            # Not acquiring
+            return None
+        if self.rolling:
+            return 'roll'
+        elif self.in_scan:
+            return 'scan'
+        else:
+            return 'snap'
