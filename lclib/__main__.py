@@ -247,6 +247,14 @@ def forcekill(name):
         raise click.UsageError(f'Daemon is not running on host {host[0]}')
     daemon_client.kill_process(lab=lab_info['module'], driver=name)
 
+@cli.command(help='Abort all drivers (does not kill them).')
+def abortall():
+    d = client_or_None('monitor', client_name=f'killer-{lab_info["this_host"]}')
+    if d:
+        d.abortall()
+    else:
+        click.Abort('Could not connect to monitor!')
+
 @cli.command(help='Kill all running server proxy.')
 def killall():
     # First ask monitor to kill all other servers

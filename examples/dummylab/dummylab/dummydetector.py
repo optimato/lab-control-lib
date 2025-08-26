@@ -87,6 +87,9 @@ class Dummydetector(CameraBase):
         self.logger.debug('Starting acquisition loop.')
         frame_counter = 0
         while True:
+            if self.abort_flag.is_set():
+                raise RuntimeError("Acquisition aborted.")
+
             if not self.rolling:
                 self.print(f'\r{frame_counter}/{n_exp}', end='')
 

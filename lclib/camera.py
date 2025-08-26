@@ -278,17 +278,21 @@ class CameraBase(DriverBase):
     def abort(self):
         """
         Abort whatever the camera was doing.
+
+        The state of self.abort_flag must be checked within the _trigger() 
+        subclass implementation for eventual abortion of the acquisition and
+        clean up.
         """
         self.logger.info('Abort requested.')
 
-        # Set abort flag
-        self.abort_flag.set()
-
-        # Rolling is managed differently
+        # Rolling is managed directly here
         if self.rolling:
             self.logger.info('Camera was rolling. Calling roll_off...')
             self.roll_off()
             self.logger.info('Done.')
+        else:
+            # Set abort flag to inform _trigger that acquisition should stop
+            self.abort_flag.set()
 
     def acquisition_loop(self):
         """
@@ -354,11 +358,6 @@ class CameraBase(DriverBase):
                 else:
                     self.roll_off()
                 break
-
-            #if self.abort_flag.is_set():
-            #    self.logger.info('Acquisition aborted.')
-            #    self.acquire_done.set()
-            #    break
 
             self.logger.debug('Done calling the subclass trigger.')
 
@@ -648,6 +647,7 @@ class CameraBase(DriverBase):
 
         try:
             self.loop_future.join()
+            self.loop_future = None
         except AttributeError:
             pass
 
@@ -1144,3 +1144,27 @@ class CameraBase(DriverBase):
     @counter.setter
     def counter(self, value: int):
         self.config['counter'] = value
+
+    @proxycall()
+    @property
+    def experiment_manager(self):
+        """
+        Name of the experiment manager for this camera
+        """
+        return self.config['experiment_manager']
+
+    @proxycall()
+    @property
+    def scan_mode(self):
+        """
+        Current scanning mode: one of 'roll', 'scan' or 'snap' (None if not acquiring)
+        """
+        if self.loop_future is None:
+            # Not acquiring
+            return None
+        if self.rolling:
+            return 'roll'
+        elif self.in_scan:
+            return 'scan'
+        else:
+            return 'snap'
