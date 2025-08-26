@@ -278,17 +278,21 @@ class CameraBase(DriverBase):
     def abort(self):
         """
         Abort whatever the camera was doing.
+
+        The state of self.abort_flag must be checked within the _trigger() 
+        subclass implementation for eventual abortion of the acquisition and
+        clean up.
         """
         self.logger.info('Abort requested.')
 
-        # Set abort flag
-        self.abort_flag.set()
-
-        # Rolling is managed differently
+        # Rolling is managed directly here
         if self.rolling:
             self.logger.info('Camera was rolling. Calling roll_off...')
             self.roll_off()
             self.logger.info('Done.')
+        else:
+            # Set abort flag to inform _trigger that acquisition should stop
+            self.abort_flag.set()
 
     def acquisition_loop(self):
         """
@@ -354,11 +358,6 @@ class CameraBase(DriverBase):
                 else:
                     self.roll_off()
                 break
-
-            #if self.abort_flag.is_set():
-            #    self.logger.info('Acquisition aborted.')
-            #    self.acquire_done.set()
-            #    break
 
             self.logger.debug('Done calling the subclass trigger.')
 

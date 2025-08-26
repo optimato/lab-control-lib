@@ -48,6 +48,13 @@ def _recv_all(sock, EOL=b'\n'):
 
 
 class emergency_stop:
+    """
+    Context manager to handle emergency stop (SIGINT)
+    It can be used to wrap long operations that should be interruptible.
+
+    Note that this emergency stop functionality is at the driver level, and so
+    is distinct from the proxydriver-mediated abort functionality.
+    """
 
     stop_method = None
 
