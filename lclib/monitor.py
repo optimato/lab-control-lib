@@ -170,6 +170,34 @@ class MonitorBase(DriverBase):
         return meta
 
     @proxycall(admin=True)
+    def abortall(self, components=None):
+        """
+        Abort all servers - except self!
+
+        Args:
+            components: if not None, abort only listed components. Default is None - abort all.
+        """
+        if components is None:
+            components = list(self.clients.keys())
+
+        for name in components:
+            try:
+                c = self.clients.pop(name)
+            except KeyError:
+                self.logger.error(f'Unknown component {name}!')
+                continue
+            if name == self.name:
+                # We don't abort ourselves
+                continue
+            if not c.connected:
+                # Not connected
+                self.logger.info(f'{name} not connected: skipping')
+                continue
+            self.logger.debug(f'Aborting {name}')
+            c.abort()
+            self.logger.info(f'{name} aborted.')
+
+    @proxycall(admin=True)
     def killall(self, components=None):
         """
         Kill all servers - except self!

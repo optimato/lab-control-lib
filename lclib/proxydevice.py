@@ -180,7 +180,7 @@ class WrapServiceBase(rpyc.Service):
         Abort call.
         """
         if self.server.interrupt_method is None:
-            self.server.logger.error("Abort requested but no interrupt method exists!")
+            self.server.logger.info("Abort requested but no interrupt method exists!")
             return
         return self.server.interrupt_method()
 
