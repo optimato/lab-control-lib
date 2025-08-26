@@ -169,7 +169,7 @@ class MonitorBase(DriverBase):
 
         return meta
 
-    @proxycall(admin=True)
+    @proxycall()
     def abortall(self, components=None):
         """
         Abort all servers - except self!
@@ -181,9 +181,8 @@ class MonitorBase(DriverBase):
             components = list(self.clients.keys())
 
         for name in components:
-            try:
-                c = self.clients.pop(name)
-            except KeyError:
+            c = self.clients.get(name)
+            if c is None:
                 self.logger.error(f'Unknown component {name}!')
                 continue
             if name == self.name:
