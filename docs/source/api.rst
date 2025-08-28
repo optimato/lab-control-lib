@@ -10,8 +10,3 @@ API reference
    api/lclib.logs
    api/lclib.manager
    api/lclib.proxydevice
-
-.. automodule:: lclib
-   :members:
-   :undoc-members:
-   :show-inheritance: 

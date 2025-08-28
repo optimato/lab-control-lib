@@ -12,5 +12,6 @@ Content
    source/install
    source/usage
    source/examples
+   source/supported_hardware
    source/api
    source/credits
