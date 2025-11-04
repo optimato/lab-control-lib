@@ -284,12 +284,20 @@ class ManagerBase(DriverBase):
         """
         Return the next available scan number based on the analysis of the
         experiment path.
+
+        TODO: This implementation is robust because it is based on the actual directory tree, but might become slow.
         """
+        # Manage (rare) cases where investigation or experiments have not been set
+        if (self.investigation is None) or (self.experiment is None):
+            return None
+        
         try:
             all_scans = list_scans(self.base_path, investigation=self.investigation, experiment=self.experiment, logger=self.logger)
         except RuntimeError as e:
             return None
+        
         scans = all_scans[self.experiment]
+        
         if not scans:
             # No scan yet in the investigation/experiment path
             return 0
