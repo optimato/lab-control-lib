@@ -147,6 +147,11 @@ class NapariViewer(ViewerBase):
         super().__init__(address=address, compress=compress, max_fps=max_fps, yield_timeout=yield_timeout, camera_name=camera_name)
 
     def prepare_viewer(self):
+        """
+        Create the viewer and prepare the dock
+        """
+        import napari
+        from napari.qt.threading import create_worker
         from .guitools import LiveView, FrameCorrection, StatusBar, Options
 
         title = self.camera_name or 'Viewer'
