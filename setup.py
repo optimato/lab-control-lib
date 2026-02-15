@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 from setuptools import setup
+from setuptools.command.install import install
 import os
 import subprocess
 import time
+import logging
 
 CLASSIFIERS = """\
 Development Status :: 3 - Alpha
@@ -14,7 +16,7 @@ Topic :: Scientific/Engineering
 Topic :: Software Development
 Operating System :: Unix
 """
-
+# version tag
 version_file = os.path.join(os.path.abspath(
     os.path.dirname(__file__)), "lclib/_version.py")
 gittag = subprocess.check_output(
@@ -23,13 +25,30 @@ open(version_file, 'w').write(r'''# Version file generated automatically on inst
 version = "{version}"
 '''.format(date=time.ctime(), version=gittag))
 
+class CustomInstallCommand(install):
+    """
+    Customized setuptools install command to generate service scripts
+    """
+    def run(self):
+        install.run(self)
+
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+
+        logger.info("Running post-install service script generation...")
+        try:
+            import service_scripts
+            service_scripts.generate_service_scripts()
+        except Exception as e:
+            logger.exception(f"Failed to generate service scripts: {e}")
+
 MAJOR = 0
 MINOR = 0
 MICRO = 1
 ISRELEASED = False
 VERSION = '%d.%d.%d' % (MAJOR, MINOR, MICRO)
 
-REQUIRES = ['numpy', 'cython', 'h5py', 'napari', 'rpyc', 'zmq']
+REQUIRES = ['numpy', 'ipython', 'h5py', 'napari', 'rpyc', 'zmq', 'click']
 
 setup(
     name='labcontrol-lib',
@@ -46,4 +65,7 @@ setup(
         'bin/lc'
         ],
     install_requires=REQUIRES,
+    cmdclass={
+        'install': CustomInstallCommand,
+    },
     )

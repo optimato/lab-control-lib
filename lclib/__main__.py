@@ -13,17 +13,50 @@ import logging
 
 from . import logs, get_config, client_or_None, _driver_classes
 from .camera import CameraBase
-from .logs import logging_muted, log_to_file, logger as rootlogger
+from .logs import logging_muted, log_to_file, log_to_mem, logger as rootlogger
 from . import ui
+from . import daemon as dd
 
 lab_info = {}
 
-@click.group(help=f'Lab-control-lib driver management')
-@click.argument('labname')
-def cli(labname):
+
+@click.group(help=f'Lab-control-lib driver management', invoke_without_command=True)
+@click.argument('labname', required=False)
+@click.option('-d', '--daemon', is_flag=True, help='Start daemon.')
+@click.option('-r', '--restart', is_flag=True, help='Kill daemon. Since it is running as a service, it will restart.')
+@click.pass_context
+def cli(ctx, labname, daemon, restart):
     """
     Get lab name, import if needed, and populate lab_info with information needed for other commands.
     """
+    if daemon:
+        # Start daemon - this will block forever
+        s = dd.daemon_server()
+        click.echo(f'Starting daemon on {s.ADDRESS[0]}:{s.ADDRESS[1]}')
+        s.wait()
+        sys.exit(0)
+
+    if restart:
+        # Restart daemon
+        c = dd.daemon_client(reconnect="always")
+        # Wait a little for connection to establish
+        t = time.time()
+        while time.time() - t < 1:
+            if c.connected:
+                break
+            time.sleep(.05)
+        if not c.connected:
+            raise click.UsageError('Local daemon is not running')
+        # Kill the daemon
+        c.kill_server()
+        click.echo('Local daemon has been killed. It will restart automatically.')
+        sys.exit(0)
+    
+    # labname is not optional but had to be set to required=False to allow for the possibility of
+    # usint the -d (--daemon) option
+    if not ctx.invoked_subcommand:
+        if not labname:
+            raise click.UsageError("Missing required argument 'labname'.")
 
     # Pull the lab config
     config = get_config()
@@ -47,10 +80,12 @@ def cli(labname):
     if lab_module != labname:
         raise click.BadParameter(f'Lab name {labname} does not match already imported {lab_module}')
 
+    lab_info['module'] = lab_module
     lab_info['lab_name'] = lab_name
     lab_info['this_host'] = config['this_host']
     lab_info['local_hostname'] = config['local_hostname']
     lab_info['log_dir'] = logs.log_dir
+    lab_info['conf_path'] = config['conf_path']
 
     # List of addresses to access registered devices
     lab_info['device_addresses'] = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
@@ -63,9 +98,12 @@ def cli(labname):
     # List Camera devices
     lab_info['cameras'] = {name: cls for name, cls in _driver_classes.items() if issubclass(cls, CameraBase)}
 
-
-@cli.command(help='List proxy drivers that can be spawned on the current host')
+@cli.command(help='List all drivers that can be spawned')
 def list():
+    click.echo('Available drivers:\n\n * ' + '\n * '.join([name + '(local)' if name in lab_info['available'] else name for name, cls in _driver_classes.items()]))
+
+@cli.command(help='List proxy drivers that can be started on the current host')
+def llist():
     click.echo('Available drivers on this host:\n\n * ' + '\n * '.join(lab_info['available']))
 
 @cli.command(help='List running proxy drivers')
@@ -81,11 +119,55 @@ def running():
                 click.secho('NO', fg='red')
 
 
-@cli.command(help='Start the server proxy of driver [name]. Does not return.')
+@cli.command(help='Spawn the server proxy of driver [name].')
 @click.argument('name', nargs=-1)
 @click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
 @click.option('--log-global', '-L', 'loglevel_global', default='INFO', show_default=True, help='Log level for all components')
 def start(name, loglevel, loglevel_global):
+
+    # Without driver name: list available drivers on current host
+    if not name:
+        list()
+        return
+
+    if len(name) > 1:
+        click.echo('Warning, only supporting one driver at a time for the moment.')
+
+    # Find the host where the driver can be launched
+    name = name[0]
+    host = lab_info['device_addresses'][name]
+
+    daemon_client = dd.daemon_client(address=(host[0], dd.DAEMON_PORT))
+    if daemon_client is None:
+        raise click.UsageError(f'Daemon is not running on host {host[0]}')
+
+    click.echo(f'{name+":":<15}', nl=False)
+
+    # Check if already running
+    with logging_muted():
+        d = client_or_None(name, client_name=f'check-{lab_info["this_host"]}')
+    if d is not None:
+        click.secho('ALREADY RUNNING', fg='yellow')
+        return
+
+    # Spawn the driver
+    success, msg = daemon_client.start(lab=lab_info['module'],
+                                       driver=name,
+                                       loglevel=loglevel,
+                                       loglevel_global=loglevel_global)  
+
+    if success:
+        click.secho('RUNNING', fg='green')
+    else:
+        click.secho('FAILED', fg='red')
+        click.echo(msg)
+    sys.exit(0)
+
+@cli.command(help='Start locally the server proxy of driver [name]. Does not return.')
+@click.argument('name', nargs=-1)
+@click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
+@click.option('--log-global', '-L', 'loglevel_global', default='INFO', show_default=True, help='Log level for all components')
+def lstart(name, loglevel, loglevel_global):
 
     try:
         llg = int(loglevel_global)
@@ -98,7 +180,7 @@ def start(name, loglevel, loglevel_global):
 
     # Without driver name: list available drivers on current host
     if not name:
-        list()
+        llist()
         return
 
     if len(name) > 1:
@@ -126,18 +208,17 @@ def start(name, loglevel, loglevel_global):
         except KeyError:
             raise click.BadParameter(f'Unknown log level: {loglevel}')
 
-    # Log to file
-    log_file = os.path.join(lab_info['log_dir'], f'optimato-labcontrol-{name}.log')
+    # Log to file and to memory
+    log_file = os.path.join(lab_info['log_dir'], f'{lab_info["lab_name"]}-{lab_info["module"]}-{name}.log')
     log_to_file(log_file)
+    log_to_mem()
 
     # Start the server
-    # with logging_muted():
-    # s = Classes[name].Server(address=net_info['control'], instantiate=True)
     s = _driver_classes[name].Server(instantiate=True)
+    s.instance.set_log_level(ll)
+    s.logger.setLevel(ll)
 
     click.secho('RUNNING', fg='green')
-
-    s.instance.set_log_level(ll)
 
     # Wait for completion, then exit.
     s.wait()
@@ -153,6 +234,18 @@ def kill(name):
         d.ask_admin(True, True)
         time.sleep(.2)
         d.kill_server()
+
+@cli.command(help='Kill directly the process for driver [name].')
+@click.argument('name', nargs=-1)
+def forcekill(name):
+    # Find the host where the driver can be launched
+    name = name[0]
+    host = lab_info['device_addresses'][name]
+
+    daemon_client = dd.daemon_client(address=(host[0], dd.DAEMON_PORT))
+    if daemon_client is None:
+        raise click.UsageError(f'Daemon is not running on host {host[0]}')
+    daemon_client.kill_process(lab=lab_info['module'], driver=name)
 
 @cli.command(help='Abort all drivers (does not kill them).')
 def abortall():
@@ -180,6 +273,11 @@ def killall():
     except:
         raise
 
+@cli.command(help='Start the control panel display')
+def cp():
+    app = ui.driver_control_panel.DeviceManagerApp()
+    app.run(reload=False)
+    sys.exit(0)
 
 @cli.command(help='Start Display real-time logs of all running drivers')
 def logall():
