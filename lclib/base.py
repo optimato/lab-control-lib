@@ -4,6 +4,7 @@ Base classes.
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
+import collections
 import threading
 import json
 import logging
@@ -259,6 +260,8 @@ class SocketDriverBase(DriverBase):
     logger = None
     REPLY_WAIT_TIME = 0.                # Time before reading reply (needed for asynchronous connections)
     REPLY_TIMEOUT = 60.                  # Maximum time allowed for the reception of a reply
+    AUTO_RECONNECT = False              # If True, attempt to reconnect automatically when the connection is lost
+    RECONNECT_INTERVAL = 5.             # Seconds to wait between reconnect attempts
 
     def __init__(self, device_address):
         """
@@ -276,8 +279,9 @@ class SocketDriverBase(DriverBase):
         # Attributes initialized (or re-initialized) in self.connect_device
         # device_cmd lock
         self.cmd_lock = threading.Lock()
-        # Buffer in which incoming data will be stored
-        self.recv_buffer = None
+        # Queue of complete EOL-terminated messages and partial trailing data
+        self.recv_queue = None
+        self.recv_partial = None
         # Flag to inform other threads that data has arrived
         self.recv_flag = None
         # Listening/receiving thread
@@ -315,7 +319,8 @@ class SocketDriverBase(DriverBase):
             raise DeviceException("Can't connect to device")
 
         # Start receiving data
-        self.recv_buffer = b''
+        self.recv_queue = collections.deque()   # complete EOL-terminated messages
+        self.recv_partial = b''                 # incomplete trailing data
         self.recv_flag = threading.Event()
         self.recv_flag.clear()
         self.recv_thread = Future(target=self._listen_recv)
@@ -325,23 +330,35 @@ class SocketDriverBase(DriverBase):
 
     def _listen_recv(self):
         """
-        This threads receives all data in real time and stores it
-        in a local buffer. For devices that send data only after
-        receiving a command, the buffer is read and emptied immediately.
+        This thread receives all data in real time, splits it into
+        EOL-terminated messages, and stores them in a queue.
         """
+        eol = self.REOL or self.EOL
         while True:
             rlist, _, elist = select([self.device_sock], [], [self.device_sock], .5)
             if elist:
                 self.logger.critical('Exceptional event with device socket.')
                 break
             if rlist:
-                # Incoming data
+                chunk = rlist[0].recv(4096)
+                if not chunk:
+                    # Remote end closed the connection
+                    self.logger.warning('Socket connection closed by remote end.')
+                    break
                 with self.recv_lock:
-                    d = _recv_all(rlist[0], EOL=(self.REOL or self.EOL))
-                    self.recv_buffer += d
-                    self.recv_flag.set()
+                    self.recv_partial += chunk
+                    while eol in self.recv_partial:
+                        msg, self.recv_partial = self.recv_partial.split(eol, 1)
+                        self.recv_queue.append(msg + eol)
+                    if self.recv_queue:
+                        self.recv_flag.set()
             if self.shutdown_requested:
                 break
+
+        self.connected = False
+        self.initialized = False
+        if not self.shutdown_requested and self.AUTO_RECONNECT:
+            self._auto_reconnect()
 
     def device_cmd(self, cmd: bytes, reply=True) -> bytes:
         """
@@ -361,8 +378,8 @@ class SocketDriverBase(DriverBase):
 
         with self.cmd_lock:
 
-            # Flush the replies
-            response = self.get_recv_buffer()
+            # Flush any stale pending data
+            self.get_recv_buffer()
 
             # Pass command to device
             if isinstance(cmd, str):
@@ -376,8 +393,7 @@ class SocketDriverBase(DriverBase):
                 if not self.recv_flag.wait(timeout=self.REPLY_TIMEOUT):
                     raise TimeoutError('Device reply timed out.')
 
-                # Concatenate replies
-                response += self.get_recv_buffer()
+                response = self.get_one_reply()
 
             else:
                 response = None
@@ -385,21 +401,47 @@ class SocketDriverBase(DriverBase):
 
     def get_recv_buffer(self):
         """
-        Read and reset the recv buffer. This can be used to flush the buffer.
+        Drain and return all complete buffered messages concatenated.
+        Used to flush stale data before sending a command.
         """
         with self.recv_lock:
-
-            # Reply is in the local buffer
-            data = self.recv_buffer
-
-            # Clear the local buffer
-            self.recv_buffer = b''
-
-            # Clear flag
+            data = b''.join(self.recv_queue)
+            self.recv_queue.clear()
             self.recv_flag.clear()
-
         return data
 
+    def get_one_reply(self):
+        """
+        Pop and return exactly one complete EOL-terminated message from the queue.
+        Returns empty bytes if the queue is empty.
+        """
+        with self.recv_lock:
+            data = self.recv_queue.popleft() if self.recv_queue else b''
+            if not self.recv_queue:
+                self.recv_flag.clear()
+        return data
+
+
+    def _auto_reconnect(self):
+        """
+        Called by _listen_recv when the connection is lost and AUTO_RECONNECT is True.
+        Repeatedly tries to reconnect (and re-initialize) until it succeeds or
+        shutdown is requested.
+        """
+        self.logger.warning('Connection lost. Attempting to reconnect...')
+        while not self.shutdown_requested:
+            try:
+                self.device_sock.close()
+            except Exception:
+                pass
+            try:
+                self.connect_device()
+                self.init_device()
+                self.logger.info('Reconnect successful.')
+                return
+            except Exception:
+                self.logger.warning(f'Reconnect failed. Retrying in {self.RECONNECT_INTERVAL}s...')
+                time.sleep(self.RECONNECT_INTERVAL)
 
     def terminal(self):
         """
