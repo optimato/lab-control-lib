@@ -52,6 +52,7 @@ class SmaractBase(SocketDriverBase):
     DEFAULT_CONFIG.update({'speed': DEFAULT_SPEED,
                            'accel': DEFAULT_ACCEL,
                            'sensormode': 2})
+    AUTO_RECONNECT = True
 
     def __init__(self, device_address=None):
         if device_address is None:
