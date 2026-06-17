@@ -580,6 +580,12 @@ class ProxyClientBase:
         self.stats['max_reply_time'] = max(dt, maxr)
         self.stats['last_reply_time'] = t0
 
+    def __setattr__(self, name, value):
+        if (name not in self.__dict__
+           and not hasattr(type(self), name)):
+            raise AttributeError(f"{type(self).__name__!r} has no attribute {name!r}.")
+        object.__setattr__(self, name, value)
+
     @classmethod
     def _new_property(cls, name, doc):
         """
