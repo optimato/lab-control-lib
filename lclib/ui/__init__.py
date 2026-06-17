@@ -7,7 +7,7 @@ This file is part of lab-control-lib
 
 from .uitools import is_interactive, ask, ask_yes_no, user_prompt
 from .spec_magics import activate as activate_spec_magics
-from .ui import init, Scan, choose_experiment, choose_investigation
+from .ui import init, Scan, choose_experiment, choose_investigation, build_motors
 try:
     from . import viewers
 except:
