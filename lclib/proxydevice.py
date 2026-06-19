@@ -356,6 +356,8 @@ class ProxyClientBase:
     SLEEP_INTERVAL = 0.1
     RECONNECT_INTERVAL = 3.0
 
+    _frozen = False
+
     def __init__(self, admin=True, name=None, args=None, kwargs=None, clean=True, reconnect='if_successful', address=None):
         """
         Base class for client proxy. Subclasses are created dynamically by the
@@ -470,6 +472,20 @@ class ProxyClientBase:
             raise
         self.disconnect()
 
+    def protect_attributes(self):
+        """
+        Freeze attibute setting to catch typos in user scripts.
+        """
+        self._frozen = True
+
+    def __setattr__(self, name, value):
+        if (
+            getattr(self, "_frozen", False)
+            and name not in self.__dict__
+            and not hasattr(type(self), name)):
+            raise AttributeError(f"{type(self).__name__!r} has no attribute {name!r}.")
+        object.__setattr__(self, name, value)
+
     def _serve(self):
         """
         Serve rpyc incoming connections. This replaces rpyc.BgServingThread, which
@@ -579,12 +595,6 @@ class ProxyClientBase:
         self.stats['min_reply_time'] = min(dt, minr)
         self.stats['max_reply_time'] = max(dt, maxr)
         self.stats['last_reply_time'] = t0
-
-    def __setattr__(self, name, value):
-        if (name not in self.__dict__
-           and not hasattr(type(self), name)):
-            raise AttributeError(f"{type(self).__name__!r} has no attribute {name!r}.")
-        object.__setattr__(self, name, value)
 
     @classmethod
     def _new_property(cls, name, doc):
