@@ -26,7 +26,24 @@ _runtime = {'manager': None}
 
 INVESTIGATIONS = None
 
-__all__ = ['init', 'Scan', 'choose_experiment', 'choose_investigation']
+__all__ = ['init', 'Scan', 'choose_experiment', 'choose_investigation', 'build_motors']
+
+
+def build_motors():
+    # Clear motors dict
+    logger.info('Clearing motors')
+    motors.clear()
+
+    # Loop through active driver clients
+    for name, client in drivers.items():
+        # Instantiate motors if they exist
+        new_motors = _driver_classes[name].create_motors(driver=client)
+
+        for motorname in new_motors.keys():
+            logger.info(f'Created motor "{motorname}" ({name})')
+
+        motors.update(new_motors)
+
 
 def init(yes=None, manager_name='manager'):
     """
@@ -82,6 +99,10 @@ def init(yes=None, manager_name='manager'):
             logger.info(f'Created motor "{motorname}" ({name})')
 
         motors.update(new_motors)
+
+    # Protect against typos for user clients 
+    for client in drivers.values():
+        client.protect_attributes()
 
     if ask_yes_no('Dump motors and drivers in global namespace?'):
         # This is a bit of black magic
