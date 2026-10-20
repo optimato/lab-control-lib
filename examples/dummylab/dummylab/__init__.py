@@ -1,28 +1,34 @@
 """
 Dummy example lab
 
-To test fully (currently):
-* In one terminal, start monitor:
+To test fully:
 
-  ``python -m lclib dummylab start monitor``
+* Install lab-control-lib:
+  ``cd [path to lab-control-lib]``
+  ``pip install .``
 
-* In another terminal, start experiment manager:
+* If not already done, install the daemon service scripts:
+  ``cd scripts``
+  ``chmod +x *.sh``
+  ``sudo ./linux_install_daemon.sh``
+  (similar for Windows)
 
-  ``python -m lclib dummylab start manager``
+* Install dummylab:
+  ``cd [path to lab-control-lib]/examples/dummylab``
+  ``pip install .``
 
-* In another terminal, open a python process and instantiate the fake motor controller:
+* On a separate terminal, open a python process and instantiate the fake motor controller:
 
 ::
     import dummylab
     d = dummylab.dummymotor.DummyControllerInterface()
     # Will start listening for a connection
 
-* In another terminal, start the dummymotor driver:
+* Start all the drivers:
 
+  ``python -m lclib dummylab start monitor``
+  ``python -m lclib dummylab start manager``
   ``python -m lclib dummylab start dummymotor``
-
-* In another terminal, start the dummydetector driver:
-
   ``python -m lclib dummylab start dummydetector``
 
 * Finally, start an interactive python session (or jupyter notebook), and initialize everything:
@@ -52,7 +58,8 @@ host_ips = {
 lclib.local_ip_list.append('localhost')
 
 lclib.init(lab_name='DummyLab',
-           host_ips=host_ips)
+           host_ips=host_ips,
+           monitor_address=(host_ips['control'], 5001))
 
 # Create and register Monitor
 @register_driver
