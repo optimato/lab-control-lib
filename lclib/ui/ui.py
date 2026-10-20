@@ -45,7 +45,7 @@ def build_motors():
         motors.update(new_motors)
 
 
-def init(yes=None, manager_name='manager'):
+def init(yes=None, manager_name='manager',force_admin=False):
     """
     Initialize components of the setup.
     Syntax:
@@ -71,6 +71,8 @@ def init(yes=None, manager_name='manager'):
     if man is None:
         raise RuntimeError(f'Could not connect to manager {manager_name}.')
     drivers[manager_name] = man
+    if force_admin: 
+        man.ask_admin(True,True)
 
     # Keep track of current manager
     _runtime['manager_name'] = manager_name
@@ -88,9 +90,12 @@ def init(yes=None, manager_name='manager'):
         driver_client = client_or_None(name, admin=True, client_name=client_name)
         if driver_client:
             drivers[name] = driver_client
+            if force_admin:
+                driver_client.ask_admin(True,True)
         else:
             logger.warning(f"Could not connect to {name}")
             continue
+        
 
         # Instantiate motors if they exist
         new_motors = _driver_classes[name].create_motors(driver=driver_client)
