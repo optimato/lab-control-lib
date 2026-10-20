@@ -27,7 +27,7 @@ class GridRow:
         self.host_label = ui.label(self.hostname).classes('text-lg')
         self.name_label = ui.label(self.name).classes('text-lg')
         self.uptime_label = ui.label('Uptime: 0.0 h').classes('text-lg')
-        self.status_label = ui.label('UNKOWN').classes('text-lg')
+        self.status_label = ui.label('UNKNOWN').classes('text-lg')
         self.start_button = ui.button(icon='play_arrow', on_click=self.start).props('round dense color=green-600').classes('shadow-xs')
         self.stop_button = ui.button(icon='stop', on_click=self.shutdown).props('round dense color=red-600').classes('shadow-xs')
 

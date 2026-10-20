@@ -52,6 +52,7 @@ class SmaractBase(SocketDriverBase):
     DEFAULT_CONFIG.update({'speed': DEFAULT_SPEED,
                            'accel': DEFAULT_ACCEL,
                            'sensormode': 2})
+    AUTO_RECONNECT = True
 
     def __init__(self, device_address=None):
         if device_address is None:
@@ -441,7 +442,7 @@ class SmaractBase(SocketDriverBase):
 
         # TODO: IS CHECK_DONE CALLED AT THE RIGHT MOMENT HERE?
 
-        code, v = self.send_cmd(f':FRM{channel:d},2,60000,1')
+        code, v = self.send_cmd(f':FRM{channel:d},3,1000,1')
         if (code != 'E' or v[0] != channel) or v[1] != 0:
             self.logger.warning(f'Reference mark not found on channel {channel}')
             return -1
@@ -451,12 +452,13 @@ class SmaractBase(SocketDriverBase):
 
 
 class SmaractMotor(MotorBase):
-    def __init__(self, name, driver, axis):
+    def __init__(self, name, driver, axis, scalar):
         """
         SmarAct Motor. axis is the driver's channel
         """
         super(SmaractMotor, self).__init__(name, driver)
         self.axis = axis
+        self.set_scalar(scalar)
 
     def _get_pos(self):
         """

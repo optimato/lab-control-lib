@@ -106,7 +106,7 @@ class MonitorBase(DriverBase):
         """
         client = self.clients.get(name)
         if client is None or not client.connected:
-            self.logger.warning(f'Client {name}: no metadata available.')
+            self.logger.debug(f'Client {name}: no metadata available.')
             return None
         t0 = time.time()
         meta = client.get_meta()
@@ -173,7 +173,7 @@ class MonitorBase(DriverBase):
             self.logger.warning(f'Empty request: {request_ID}!')
 
         # Grab all available metadata
-        meta = {}
+        meta = {'monitor': {'throttled': False}}
         times = {}
         for name, future in request.items():
             if not future.done():
@@ -190,6 +190,33 @@ class MonitorBase(DriverBase):
         self.meta_cache.update(meta)
         self.meta_cache['monitor'] = {'throttled': True}
         return meta
+
+    @proxycall()
+    def abortall(self, components=None):
+        """
+        Abort all servers - except self!
+
+        Args:
+            components: if not None, abort only listed components. Default is None - abort all.
+        """
+        if components is None:
+            components = list(self.clients.keys())
+
+        for name in components:
+            c = self.clients.get(name)
+            if c is None:
+                self.logger.error(f'Unknown component {name}!')
+                continue
+            if name == self.name:
+                # We don't abort ourselves
+                continue
+            if not c.connected:
+                # Not connected
+                self.logger.info(f'{name} not connected: skipping')
+                continue
+            self.logger.debug(f'Aborting {name}')
+            c.abort()
+            self.logger.info(f'{name} aborted.')
 
     @proxycall(admin=True)
     def killall(self, components=None):
@@ -286,8 +313,10 @@ class MonitorBase(DriverBase):
     @meta_max_rate.setter
     def meta_max_rate(self, value):
         value = float(value)
-        assert value > 0.
-        assert value < self.META_MAX_RATE_MAX
+        if value < 0.:
+            raise ValueError("meta_max_rate must be greater than 0.")
+        if value >= self.META_MAX_RATE_MAX:
+            raise ValueError(f"meta_max_rate must be less than {self.META_MAX_RATE_MAX}.")
         self.config['meta_max_rate'] = value
 
     @property

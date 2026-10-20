@@ -67,7 +67,7 @@ def generate_service_scripts():
             schtasks /Create /SC ONLOGON /TN $taskName /TR "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`"" /RL LIMITED /F
             Write-Host "Daemon '$taskName' installed as scheduled task."
 
-            schtask /Run /TN lclib-daemon
+            schtasks /Run /TN lclib-daemon
             Write-Host "Scheduled Task Started. Logs are at {log_path_str}"
             """)
         win_remove_content = textwrap.dedent(f"""\

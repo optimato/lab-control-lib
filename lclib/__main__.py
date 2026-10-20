@@ -13,7 +13,7 @@ import logging
 
 from . import logs, get_config, client_or_None, _driver_classes
 from .camera import CameraBase
-from .logs import logging_muted, log_to_file, logger as rootlogger
+from .logs import logging_muted, log_to_file, log_to_mem, logger as rootlogger
 from . import ui
 from . import daemon as dd
 
@@ -85,6 +85,7 @@ def cli(ctx, labname, daemon, restart):
     lab_info['this_host'] = config['this_host']
     lab_info['local_hostname'] = config['local_hostname']
     lab_info['log_dir'] = logs.log_dir
+    lab_info['conf_path'] = config['conf_path']
 
     # List of addresses to access registered devices
     lab_info['device_addresses'] = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
@@ -207,18 +208,17 @@ def lstart(name, loglevel, loglevel_global):
         except KeyError:
             raise click.BadParameter(f'Unknown log level: {loglevel}')
 
-    # Log to file
-    log_file = os.path.join(lab_info['log_dir'], f'optimato-labcontrol-{name}.log')
+    # Log to file and to memory
+    log_file = os.path.join(lab_info['log_dir'], f'{lab_info["lab_name"]}-{lab_info["module"]}-{name}.log')
     log_to_file(log_file)
+    log_to_mem()
 
     # Start the server
-    # with logging_muted():
-    # s = Classes[name].Server(address=net_info['control'], instantiate=True)
     s = _driver_classes[name].Server(instantiate=True)
+    s.instance.set_log_level(ll)
+    s.logger.setLevel(ll)
 
     click.secho('RUNNING', fg='green')
-
-    s.instance.set_log_level(ll)
 
     # Wait for completion, then exit.
     s.wait()
@@ -245,7 +245,15 @@ def forcekill(name):
     daemon_client = dd.daemon_client(address=(host[0], dd.DAEMON_PORT))
     if daemon_client is None:
         raise click.UsageError(f'Daemon is not running on host {host[0]}')
-    daemon_client.killprocess(lab=lab_info['module'], driver=name)
+    daemon_client.kill_process(lab=lab_info['module'], driver=name)
+
+@cli.command(help='Abort all drivers (does not kill them).')
+def abortall():
+    d = client_or_None('monitor', client_name=f'killer-{lab_info["this_host"]}')
+    if d:
+        d.abortall()
+    else:
+        click.Abort('Could not connect to monitor!')
 
 @cli.command(help='Kill all running server proxy.')
 def killall():

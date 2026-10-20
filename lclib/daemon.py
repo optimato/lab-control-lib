@@ -8,12 +8,18 @@ This file is part of lab-control-lib
 import subprocess
 import sys
 import logging
+import os
 
 from . import proxydevice, proxycall, ProxyDeviceError, DAEMON_PORT
+from . import logs
 
 logger = logging.getLogger(__name__)
+log_path = os.path.expanduser(f"~/.lclib/")
+os.makedirs(log_path, exist_ok=True)
+log_file = os.path.join(log_path, 'lclib-daemon.log')
+logs.log_to_file(log_file, logobj=logger)
 
-__all__ = ['start_daemon']
+__all__ = ['start_daemon', 'daemon_server', 'daemon_client']
 
 def daemon_server():
     """
