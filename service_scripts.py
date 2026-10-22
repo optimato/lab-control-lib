@@ -60,14 +60,35 @@ def generate_service_scripts():
         # Generate install and remove scripts
         win_install_content = textwrap.dedent(f"""\
             # This script was generated automatically
-            # It installs the lclib-daemon as a Scheduled Task
+            # It installs the lclib-daemon as a Scheduled Task, started at logon.
+            # Running it again replaces an existing installation.
             $taskName = "{service}"
             $scriptPath = "{user_task_ps1_path}"
+            $user = "$env:USERDOMAIN\\$env:USERNAME"
 
-            schtasks /Create /SC ONLOGON /TN $taskName /TR "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`"" /RL LIMITED /F
+            # Stop a running daemon, so that the new settings apply
+            # (the drivers it started are stopped too)
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+
+            $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`""
+            $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+            $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+
+            # Run indefinitely (the default limit is 3 days), also on battery power (some UPS
+            # report as batteries), never start a second instance, and restart the task if it fails.
+            $settings = New-ScheduledTaskSettingsSet `
+                -ExecutionTimeLimit ([TimeSpan]::Zero) `
+                -AllowStartIfOnBatteries `
+                -DontStopIfGoingOnBatteries `
+                -MultipleInstances IgnoreNew `
+                -RestartCount 999 `
+                -RestartInterval (New-TimeSpan -Minutes 1)
+
+            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
             Write-Host "Daemon '$taskName' installed as scheduled task."
+            Write-Host "Execution time limit: $((Get-ScheduledTask -TaskName $taskName).Settings.ExecutionTimeLimit) (PT0S means no limit)"
 
-            schtasks /Run /TN lclib-daemon
+            Start-ScheduledTask -TaskName $taskName
             Write-Host "Scheduled Task Started. Logs are at {log_path_str}"
             """)
         win_remove_content = textwrap.dedent(f"""\
@@ -75,7 +96,8 @@ def generate_service_scripts():
             # It removes the lclib-daemon Scheduled Task
             $taskName = "{service}"
 
-            schtasks /Delete /TN $taskName /F
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
             Write-Host "Scheduled Task '$taskName' removed."
             """)
         Path(user_task_ps1_path).write_text(ps_script, encoding="utf-8")
