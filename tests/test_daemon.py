@@ -9,11 +9,13 @@ Run with:
 """
 import logging
 import os
+import signal
 import socket
 import subprocess
 import sys
 import time
 
+import psutil
 import pytest
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -59,7 +61,7 @@ def env(tmp_path_factory):
                 HOME=str(home),
                 USERPROFILE=str(home),
                 LCLIB_DAEMON_PORT=str(_free_port()),
-                FAKELAB_PORT=str(_free_ports(3)),
+                FAKELAB_PORT=str(_free_ports(4)),
                 FAKELAB_SLOW_INIT='5',
                 PYTHONPATH=os.pathsep.join(p for p in python_path if p))
 
@@ -97,7 +99,14 @@ def daemon(env):
 
     # Stop the drivers still running, then the daemon
     for name in client.running():
-        client.kill_process(lab=LAB, driver=name[len(LAB) + 1:])
+        try:
+            client.kill_process(lab=LAB, driver=name[len(LAB) + 1:])
+        except RuntimeError:
+            # Exited in the meantime
+            pass
+    t0 = time.time()
+    while client.running() and time.time() - t0 < 30:
+        time.sleep(.2)
     client.disconnect()
     # Let the client thread finish (it logs on exit) before pytest closes its output capture
     client.serving_thread.join(5)
@@ -119,13 +128,13 @@ def _wait_started(client, driver, timeout=60):
         status = _status(client, driver)
     return status
 
-def _wait_exited(client, driver, timeout=15):
+def _wait_exited(client, driver, timeout=30):
     """
     Wait until the driver process has exited, and return its status.
     """
     t0 = time.time()
     status = _status(client, driver)
-    while status['state'] in ('starting', 'running') and time.time() - t0 < timeout:
+    while status['state'] in ('starting', 'running', 'stopping') and time.time() - t0 < timeout:
         time.sleep(.2)
         status = _status(client, driver)
     return status
@@ -147,6 +156,35 @@ def _ensure_stopped(client, driver):
     if _status(client, driver)['state'] in ('starting', 'running'):
         client.kill_process(lab=LAB, driver=driver)
     assert _wait_exited(client, driver)['state'] in ('exited', 'unknown')
+
+def _process_gone(pid, timeout=5):
+    """
+    Wait until the process has exited (a zombie only waits to be reaped). Return True if it has.
+    """
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        try:
+            if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                return True
+        except psutil.NoSuchProcess:
+            return True
+        time.sleep(.2)
+    return False
+
+def _daemon_log_line(env, text, timeout=10):
+    """
+    Wait for a line containing text in the daemon log, and return the last such line.
+    """
+    path = os.path.join(env['HOME'], '.lclib', 'lclib-daemon.log')
+    t0 = time.time()
+    while True:
+        with open(path, encoding='utf-8') as f:
+            lines = [line.rstrip('\n') for line in f if text in line]
+        if lines or time.time() - t0 > timeout:
+            break
+        time.sleep(.2)
+    assert lines, f'{text!r} not found in the daemon log'
+    return lines[-1]
 
 def _lc(env, *args):
     """
@@ -256,12 +294,77 @@ def test_start_twice_refused(daemon):
     with pytest.raises(RuntimeError, match='already running'):
         daemon.start(lab=LAB, driver='chatty')
 
-def test_kill_process(daemon):
+def test_kill_process_is_graceful(daemon):
     _ensure_running(daemon, 'chatty')
-    daemon.kill_process(lab=LAB, driver='chatty')
+    t0 = time.time()
+    status = daemon.kill_process(lab=LAB, driver='chatty')
+    assert time.time() - t0 < 1
+    assert status['state'] in ('stopping', 'exited')
+
     status = _wait_exited(daemon, 'chatty')
     assert status['state'] == 'exited'
     assert status['failed'] is False
+    # Shut down through its server (not terminated), so its shutdown() ran
+    assert status['returncode'] == 0
+    with open(status['out_file'], encoding='utf-8') as f:
+        assert 'chatty shutdown' in f.read()
+
+def test_kill_process_terminates_stubborn_driver(daemon, fakelab, env):
+    _ensure_running(daemon, 'stubborn')
+    client = fakelab.Stubborn.Client(admin=False)
+    child_pid = client.child_pid()
+    client.disconnect()
+
+    t0 = time.time()
+    daemon.kill_process(lab=LAB, driver='stubborn')
+    status = _wait_exited(daemon, 'stubborn')
+    elapsed = time.time() - t0
+    assert status['state'] == 'exited'
+    assert status['failed'] is False
+    # Its shutdown started, but never finished: terminated after the grace period
+    assert dd.ProcessPool.STOP_GRACE_TIME <= elapsed < dd.ProcessPool.STOP_GRACE_TIME + 10
+    with open(status['out_file'], encoding='utf-8') as f:
+        assert 'stubborn shutdown started' in f.read()
+    assert 'did not shut down' in _daemon_log_line(env, f"(pid {status['pid']}) did not shut down")
+
+    # Its child process was terminated too
+    assert _process_gone(child_pid), 'The child process of the driver is still running'
+
+def test_kill_while_starting(daemon):
+    _ensure_stopped(daemon, 'slow')
+    daemon.start(lab=LAB, driver='slow')
+    t0 = time.time()
+    daemon.kill_process(lab=LAB, driver='slow')
+    status = _wait_exited(daemon, 'slow')
+    assert status['state'] == 'exited'
+    assert status['failed'] is False
+    # No server to ask yet, so no grace period
+    assert time.time() - t0 < 5
+
+def test_unexpected_exit_is_recorded(daemon, env):
+    status = _ensure_running(daemon, 'chatty')
+    pid = status['pid']
+    spawn_file = os.path.join(os.path.dirname(status['out_file']), 'spawn.json')
+
+    # Kill the driver behind the daemon's back
+    os.kill(pid, getattr(signal, 'SIGKILL', signal.SIGTERM))
+
+    line = _daemon_log_line(env, f'(pid {pid}) exited with')
+    assert '[WARNING]' in line and line.endswith('Last output:')
+    if hasattr(signal, 'SIGKILL'):
+        assert 'signal SIGKILL' in line
+
+    record = dd.read_json(spawn_file)
+    assert record['ended'] is not None
+    assert record['returncode'] != 0
+    assert _status(daemon, 'chatty')['failed'] is True
+
+def test_requested_stop_is_logged(daemon, env):
+    pid = _ensure_running(daemon, 'chatty')['pid']
+    daemon.kill_process(lab=LAB, driver='chatty')
+
+    line = _daemon_log_line(env, f'(pid {pid}) exited with')
+    assert '[INFO]' in line and 'Last output' not in line
 
 def test_unknown_driver_status(daemon):
     assert _status(daemon, 'nosuchdriver')['state'] == 'unknown'
@@ -285,6 +388,16 @@ def test_cli_start_failure(env, daemon):
     assert result.returncode == 1
     assert 'FAILED' in result.stdout
     assert 'RuntimeError: broken on purpose' in result.stdout
+
+def test_cli_forcekill(env, daemon):
+    _ensure_running(daemon, 'chatty')
+    result = _lc(env, 'forcekill', 'chatty')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'STOPPED' in result.stdout
+
+    result = _lc(env, 'forcekill', 'chatty')
+    assert result.returncode == 1
+    assert 'is not running' in result.stderr
 
 def test_lstart_already_running(env, daemon):
     _ensure_running(daemon, 'chatty')

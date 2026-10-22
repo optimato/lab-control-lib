@@ -11,9 +11,13 @@ import logging
 import os
 import re
 import json
+import signal
 import time
 import threading
 import uuid
+
+import psutil
+import rpyc
 
 from . import proxydevice, proxycall, ProxyDeviceError, DAEMON_PORT
 from . import logs
@@ -23,7 +27,7 @@ logger = logging.getLogger(__name__)
 __all__ = ['daemon_server', 'daemon_client', 'setup_daemon_logging', 'run_dir']
 
 # Incremented when the daemon API changes, so that clients can detect old daemons
-API_VERSION = 2
+API_VERSION = 3
 
 # Number of runs (output and ready files) kept for each driver
 KEEP_RUNS = 10
@@ -110,6 +114,20 @@ def _check_name(name):
         raise ValueError(f'Invalid name: {name!r}')
     return name
 
+def _describe_returncode(returncode):
+    """
+    Human-readable description of a process return code.
+    """
+    if returncode is None:
+        return 'unknown exit code'
+    if returncode < 0:
+        # POSIX: killed by a signal
+        try:
+            return f'signal {signal.Signals(-returncode).name}'
+        except ValueError:
+            return f'signal {-returncode}'
+    return f'exit code {returncode}'
+
 def _popen(command, **kwargs):
     """
     Start a driver process, detached from the daemon.
@@ -149,6 +167,18 @@ class ManagedProcess:
         self.record = record
         self.popen = popen
 
+        # Used to find the child processes (e.g. started by a vendor library)
+        try:
+            self.proc = psutil.Process(popen.pid)
+        except psutil.Error:
+            self.proc = None
+
+        # Set when the daemon has been asked to stop the process
+        self.stopping = False
+
+        # Set once the exit has been recorded by the daemon watcher
+        self.exit_handled = False
+
     @property
     def pid(self):
         return self.record['pid']
@@ -165,6 +195,47 @@ class ManagedProcess:
         True if the process is running.
         """
         return self.popen.poll() is None
+
+    def wait(self, timeout):
+        """
+        Wait for the process to exit. Return True if it did.
+        """
+        try:
+            self.popen.wait(timeout)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+
+    def terminate_tree(self, timeout=5.):
+        """
+        Terminate the process and its descendants, and kill those that do not exit in time.
+        Descendants go first: on Windows, the process might be a venv launcher running the
+        actual interpreter.
+        """
+        try:
+            children = self.proc.children(recursive=True) if self.proc is not None else []
+        except psutil.Error:
+            children = []
+
+        for child in children:
+            try:
+                child.terminate()
+            except psutil.Error:
+                pass
+        try:
+            self.popen.terminate()
+        except OSError:
+            pass
+
+        _, still_alive = psutil.wait_procs(children, timeout=timeout)
+        for child in still_alive:
+            try:
+                child.kill()
+            except psutil.Error:
+                pass
+        if not self.wait(timeout):
+            self.popen.kill()
+            self.wait(timeout)
 
 def daemon_server():
     """
@@ -198,9 +269,17 @@ class ProcessPool:
     A process pool to manage driver instantiations.
     """
 
+    WATCH_INTERVAL = 1.     # Interval (in seconds) between checks for exited processes
+    STOP_GRACE_TIME = 10.   # Time (in seconds) given to a driver to shut down before terminating it
+
     def __init__(self):
         self.processes = {}
         self._lock = threading.Lock()
+
+        # Thread recording the exit of driver processes
+        self._watcher = threading.Thread(target=self._watch, daemon=True)
+        self._watcher.start()
+
         logger.info(f'Daemon process pool initialized (run directory: {run_dir()}).')
 
     @staticmethod
@@ -309,6 +388,8 @@ class ProcessPool:
         returncode = mp.returncode
         if returncode is not None:
             state = 'exited'
+        elif mp.stopping:
+            state = 'stopping'
         elif read_json(mp.record['ready_file']) is not None:
             state = 'running'
         else:
@@ -361,7 +442,8 @@ class ProcessPool:
 
         Returns:
             dict with keys:
-              state: 'starting', 'running', 'exited', or 'unknown' (not started by this daemon)
+              state: 'starting', 'running', 'stopping', 'exited', or 'unknown' (not started
+                     by this daemon)
               failed: for exited drivers, True if the driver failed to start or crashed
               error_tail: for exited drivers, the last lines of the process output
               pid, started, uptime, address, log_file, out_file, out_size, returncode
@@ -385,7 +467,12 @@ class ProcessPool:
     @proxycall()
     def kill_process(self, lab, driver):
         """
-        Kill the driver process.
+        Stop the driver process. The driver is first asked to shut down through its server,
+        and terminated if it is still running after a grace period. Returns immediately:
+        use `status` to follow the shutdown.
+
+        Returns:
+            dict: the status of the driver (see `status`).
         """
         # Fetch the process
         name = self._name(lab, driver)
@@ -396,17 +483,52 @@ class ProcessPool:
         if mp is None or not mp.alive():
             raise RuntimeError(f'Driver {driver} (lab {lab}) is not running (or not managed by this daemon)')
 
-        # Terminate
-        mp.record['stop_requested'] = True
-        self._save_record(name, mp.record)
-        proc = mp.popen
-        proc.terminate()
+        if not mp.stopping:
+            mp.stopping = True
+            mp.record['stop_requested'] = True
+            self._save_record(name, mp.record)
+            logger.info(f'Stopping driver {name} (pid {mp.pid}).')
+            threading.Thread(target=self._stop_process, args=(name, mp), daemon=True).start()
+        return self._status(name, mp)
+
+    def _stop_process(self, name, mp):
+        """
+        Shut down a driver: through its server if possible, by terminating the process
+        otherwise. Runs on its own thread.
+        """
         try:
-            proc.wait(timeout=5)
-            logger.info(f"Process {proc.pid} for driver {driver} terminated.")
-        except subprocess.TimeoutExpired:
-            logger.warning(f"Process {proc.pid} for driver {driver} did not terminate, killing it.")
-            proc.kill()
+            if self._ask_shutdown(name, mp):
+                if mp.wait(self.STOP_GRACE_TIME):
+                    return
+                logger.warning(f'Driver {name} (pid {mp.pid}) did not shut down within '
+                               f'{self.STOP_GRACE_TIME:g} s: terminating it.')
+            mp.terminate_tree()
+        except Exception:
+            logger.exception(f'Error while stopping driver {name}.')
+
+    def _ask_shutdown(self, name, mp):
+        """
+        Ask the driver server to shut down (as `lc kill` does), so that the driver can
+        release its device. Return True if the request was sent.
+        """
+        ready = read_json(mp.record['ready_file'])
+        if ready is None:
+            # Still starting: there is no server to ask yet
+            return False
+        host, port = ready['address']
+        try:
+            conn = rpyc.connect(host, port, config={'sync_request_timeout': self.STOP_GRACE_TIME})
+            try:
+                conn.root.kill()
+            finally:
+                conn.close()
+        except EOFError:
+            # Normal: the server closes the connection when shutting down
+            pass
+        except Exception as e:
+            logger.warning(f'Could not ask driver {name} to shut down: {e!r}')
+            return False
+        return True
 
     @proxycall()
     def running(self):
@@ -416,3 +538,36 @@ class ProcessPool:
         with self._lock:
             items = list(self.processes.items())
         return [name for name, mp in items if mp.alive()]
+
+    def _watch(self):
+        """
+        Record the exit of the managed processes. Runs on its own thread.
+        """
+        while True:
+            time.sleep(self.WATCH_INTERVAL)
+            try:
+                with self._lock:
+                    items = list(self.processes.items())
+                for name, mp in items:
+                    if not mp.exit_handled and not mp.alive():
+                        mp.exit_handled = True
+                        self._process_exited(name, mp)
+            except Exception:
+                logger.exception('Error in the process watcher.')
+
+    def _process_exited(self, name, mp):
+        """
+        Save the exit code in spawn.json, and log the exit (with the end of the process
+        output if the exit was not requested).
+        """
+        record = mp.record
+        record['returncode'] = mp.returncode
+        record['ended'] = time.time()
+        self._save_record(name, record)
+
+        msg = f"Driver {name} (pid {mp.pid}) exited with {_describe_returncode(record['returncode'])}"
+        if record['stop_requested'] or record['returncode'] == 0:
+            logger.info(msg + '.')
+        else:
+            tail = '\n'.join(tail_file(record['out_file'], 20))
+            logger.warning(f'{msg}. Last output:\n{tail}')

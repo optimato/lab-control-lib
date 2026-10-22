@@ -63,9 +63,13 @@ def _connect_daemon(ip):
     if client is None:
         raise click.UsageError(f'Daemon is not running on host {ip}')
     try:
-        client.api_version()
+        version = client.api_version()
     except AttributeError:
-        raise click.UsageError(f'The daemon on host {ip} is too old: restart it (python -m lclib -r on that host).')
+        # Daemon older than the version check
+        version = 1
+    if version < dd.API_VERSION:
+        raise click.UsageError(f'The daemon on host {ip} is too old: update lclib on that host '
+                               f'and restart the daemon (python -m lclib -r).')
     return client
 
 
@@ -322,7 +326,7 @@ def kill(name):
         time.sleep(.2)
         d.kill_server()
 
-@cli.command(help='Kill directly the process for driver [name].')
+@cli.command(help='Stop the process of driver [name] through the daemon of its host (terminate it if needed).')
 @click.argument('name', nargs=-1)
 def forcekill(name):
     # Find the host where the driver can be launched
@@ -330,7 +334,24 @@ def forcekill(name):
     host = lab_info['device_addresses'][name]
 
     daemon_client = _connect_daemon(host[0])
-    daemon_client.kill_process(lab=lab_info['module'], driver=name)
+    try:
+        status = daemon_client.kill_process(lab=lab_info['module'], driver=name)
+    except RuntimeError as e:
+        # Only the first line: the rest is the remote traceback
+        raise click.ClickException(str(e).splitlines()[0])
+
+    # The daemon asks the driver to shut down, and terminates it after a grace period
+    click.echo(f'{name+":":<15}', nl=False)
+    t0 = time.time()
+    while status['state'] == 'stopping' and time.time() - t0 < 2 * dd.ProcessPool.STOP_GRACE_TIME:
+        time.sleep(.25)
+        status = daemon_client.status(lab=lab_info['module'], driver=name)
+
+    if status['state'] == 'exited':
+        click.secho('STOPPED', fg='green')
+    else:
+        click.secho(status['state'].upper(), fg='yellow')
+        sys.exit(1)
 
 @cli.command(help='Abort all drivers (does not kill them).')
 def abortall():

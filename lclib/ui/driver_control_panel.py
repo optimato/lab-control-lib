@@ -21,6 +21,7 @@ class GridRow:
               'NOT RESPONDING': ('text-red-600', False, True),
               'UNMANAGED': ('text-orange-600', False, True),
               'FAILED': ('text-red-600', True, False),
+              'STOPPING': ('text-gray-600', False, False),
               'OFFLINE': ('text-black', True, False)}
 
     # Time (in seconds) given to the client to connect to a driver that just became ready
@@ -73,7 +74,9 @@ class GridRow:
         elif self.unreachable_since is None:
             self.unreachable_since = time.time()
 
-        if alive:
+        if daemon_state == 'stopping':
+            self.state = 'STOPPING'
+        elif alive:
             # Managed: started by the daemon. Unmanaged: started by hand (lstart)
             self.state = 'ONLINE' if daemon_state in ('starting', 'running') else 'UNMANAGED'
         elif daemon_state == 'starting':

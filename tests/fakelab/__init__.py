@@ -8,6 +8,7 @@ This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 import os
+import subprocess
 import sys
 import time
 
@@ -44,6 +45,9 @@ class Chatty(DriverBase):
             sys.stdout.write(f'stdout chatter {i:08d}\n')
         return n
 
+    def shutdown(self):
+        self.logger.warning('chatty shutdown')
+
 
 @register_driver
 @proxydevice(address=('localhost', BASE_PORT + 1))
@@ -67,3 +71,23 @@ class Slow(DriverBase):
     def __init__(self):
         super().__init__()
         time.sleep(float(os.environ.get('FAKELAB_SLOW_INIT', 5)))
+
+
+@register_driver
+@proxydevice(address=('localhost', BASE_PORT + 3))
+class Stubborn(DriverBase):
+    """
+    A driver with a child process, whose shutdown never finishes.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'])
+
+    @proxycall()
+    def child_pid(self):
+        return self.child.pid
+
+    def shutdown(self):
+        self.logger.warning('stubborn shutdown started')
+        time.sleep(600)

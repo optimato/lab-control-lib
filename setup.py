@@ -48,7 +48,7 @@ MICRO = 1
 ISRELEASED = False
 VERSION = '%d.%d.%d' % (MAJOR, MINOR, MICRO)
 
-REQUIRES = ['numpy', 'ipython', 'h5py', 'napari', 'rpyc', 'zmq', 'click']
+REQUIRES = ['numpy', 'ipython', 'h5py', 'napari', 'rpyc', 'zmq', 'click', 'psutil']
 
 setup(
     name='labcontrol-lib',
