@@ -74,7 +74,7 @@ drivers = {}   # Dictionary for driver instances
 motors = {}    # Dictionary of motor instances
 
 DEFAULT_MONITOR_PORT = 5001
-DAEMON_PORT = 9998
+DAEMON_PORT = int(os.environ.get('LCLIB_DAEMON_PORT', 9998))
 DEFAULT_LOG_LEVEL = 20 # logging.INFO
 
 # Global variables set by init()

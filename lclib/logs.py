@@ -64,19 +64,20 @@ class DualFormatter(logging.Formatter):
 
 dual_formatter = DualFormatter()
 
+# Log files always use the extended format: they are mostly read after the fact
+extended_formatter = dual_formatter.extended_formatter
+
 class JsonFormatter(logging.Formatter):
     """
     Format a record as JSON encoded.
     """
     def format(self, record):
         keys = ['created',
-                'exc_text',
                 'filename',
                 'funcName',
                 'levelname',
                 'levelno',
                 'lineno',
-                'message',
                 'module',
                 'msecs',
                 'name',
@@ -85,11 +86,15 @@ class JsonFormatter(logging.Formatter):
                 'processName',
                 'relativeCreated',
                 'thread',
-                'threadName',
-                'msg']
+                'threadName']
 
         d = {k: getattr(record, k, None) for k in keys}
-        return json.dumps(d)
+
+        # Computed here rather than relying on another handler having formatted the record
+        d['message'] = record.getMessage()
+        d['msg'] = str(record.msg)
+        d['exc_text'] = self.formatException(record.exc_info) if record.exc_info else None
+        return json.dumps(d, default=str)
 
 json_formatter = JsonFormatter()
 
@@ -107,9 +112,12 @@ class InMemoryLogHandler(logging.Handler):
         self.setFormatter(json_formatter)
 
     def emit(self, record):
-        msg = self.format(record)
-        with self._access_lock:
-            self.log_buffer.append(msg)
+        try:
+            msg = self.format(record)
+            with self._access_lock:
+                self.log_buffer.append(msg)
+        except Exception:
+            self.handleError(record)
 
     def get_logs(self, last_n=None, since=None):
         """
@@ -148,8 +156,17 @@ def log_uncaught_exceptions(exc_type, exc_value, exc_traceback):
     logger.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
 sys.excepthook = log_uncaught_exceptions
 
+# Same for uncaught exceptions in threads (otherwise only printed on stderr)
+def log_uncaught_thread_exceptions(args):
+    if issubclass(args.exc_type, SystemExit):
+        return
+    thread_name = args.thread.name if args.thread is not None else 'unknown'
+    logger.error(f"Uncaught exception in thread {thread_name}",
+                 exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+threading.excepthook = log_uncaught_thread_exceptions
+
 # Function to implement file logging
-def log_to_file(log_file_name, logobj=None, level=logging.DEBUG):
+def log_to_file(log_file_name, logobj=None, level=logging.DEBUG, max_bytes=1024 * 1024 * 10, backup_count=300):
     """
     Set up file logging with rotation.
     Parameters:
@@ -157,10 +174,12 @@ def log_to_file(log_file_name, logobj=None, level=logging.DEBUG):
     log_file_name (str): The name of the log file.
     logobj (logging.Logger, optional): The logger object to which the handler should be added. If None, the root logger is used.
     level (int): The logging level for the file handler.
+    max_bytes (int): Size of a log file before rotation.
+    backup_count (int): Number of rotated log files to keep.
     """
-    file_handler = logging.handlers.RotatingFileHandler(log_file_name, maxBytes=1024 * 1024 * 10, backupCount=300,
+    file_handler = logging.handlers.RotatingFileHandler(log_file_name, maxBytes=max_bytes, backupCount=backup_count,
                                                         encoding='utf-8')
-    file_handler.setFormatter(dual_formatter)
+    file_handler.setFormatter(extended_formatter)
     file_handler.setLevel(level)
     logobj = logobj or logger
     logobj.addHandler(file_handler)

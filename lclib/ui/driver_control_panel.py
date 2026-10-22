@@ -15,6 +15,17 @@ class GridRow:
     Class representing a row in a grid.
     """
 
+    # Status label color, and visibility of the start and stop buttons, for each state
+    STYLES = {'ONLINE': ('text-green-600', False, True),
+              'STARTING': ('text-blue-600', False, True),
+              'NOT RESPONDING': ('text-red-600', False, True),
+              'UNMANAGED': ('text-orange-600', False, True),
+              'FAILED': ('text-red-600', True, False),
+              'OFFLINE': ('text-black', True, False)}
+
+    # Time (in seconds) given to the client to connect to a driver that just became ready
+    CONNECT_GRACE = 5.
+
     def __init__(self, device_info):
         self.name = device_info['name']
         self.labname = device_info['labname']
@@ -22,18 +33,26 @@ class GridRow:
         self.hostname = device_info['hostname']
         self.state = None
         self.startup_time = None
+        self.unreachable_since = None
         self.client = client_or_None(self.name, keep_trying=True, client_name='driver_control_panel')
         self.client.logger.setLevel(50)
         self.host_label = ui.label(self.hostname).classes('text-lg')
         self.name_label = ui.label(self.name).classes('text-lg')
         self.uptime_label = ui.label('Uptime: 0.0 h').classes('text-lg')
         self.status_label = ui.label('UNKNOWN').classes('text-lg')
+        with self.status_label:
+            # Shows the error of a failed driver
+            self.status_tooltip = ui.tooltip('')
+        self.status_tooltip.set_visibility(False)
         self.start_button = ui.button(icon='play_arrow', on_click=self.start).props('round dense color=green-600').classes('shadow-xs')
         self.stop_button = ui.button(icon='stop', on_click=self.shutdown).props('round dense color=red-600').classes('shadow-xs')
 
-    def update_state(self):
+    def update_state(self, daemon_status=None):
         """
         Update the state of the device.
+
+        daemon_status: the status of this driver according to the daemon of its host
+                       (None if the daemon is not available or does not manage the driver)
         """
         # Check through direct client
         alive = self.client.connected
@@ -45,16 +64,38 @@ class GridRow:
                 print(f'Failed to get startup time for {self.name}: {e}')
                 self.startup_time = None
 
-        # Check if the daemon is running
-        if self.daemon is None or not self.daemon.connected:
-            managed = False
-        else:
-            running = self.daemon.running()
-            if f'{self.labname}_{self.name}' in running:
-                managed = True
+        # Combine with what the daemon knows about the driver process
+        daemon_state = daemon_status['state'] if daemon_status else None
+
+        # Since when the daemon reports the driver as ready but the client cannot reach it
+        if alive or daemon_state != 'running':
+            self.unreachable_since = None
+        elif self.unreachable_since is None:
+            self.unreachable_since = time.time()
+
+        if alive:
+            # Managed: started by the daemon. Unmanaged: started by hand (lstart)
+            self.state = 'ONLINE' if daemon_state in ('starting', 'running') else 'UNMANAGED'
+        elif daemon_state == 'starting':
+            self.state = 'STARTING'
+        elif daemon_state == 'running':
+            if time.time() - self.unreachable_since < self.CONNECT_GRACE:
+                self.state = 'STARTING'
             else:
-                managed = False
-        self.state = [['OFFLINE', 'NOT RESPONDING'], ['UNMANAGED', 'ONLINE']][alive][managed] 
+                self.state = 'NOT RESPONDING'
+        elif daemon_state == 'exited' and daemon_status['failed']:
+            self.state = 'FAILED'
+        else:
+            self.state = 'OFFLINE'
+
+        # Last line of the output of a failed driver (usually the exception)
+        error = ''
+        if self.state == 'FAILED':
+            lines = [line for line in daemon_status['error_tail'] or [] if line.strip()]
+            error = lines[-1] if lines else ''
+        self.status_tooltip.set_text(error)
+        self.status_tooltip.set_visibility(bool(error))
+
         self.update_style()
     
     def start(self):
@@ -62,17 +103,21 @@ class GridRow:
         Start the device.
         """
         # Check if the daemon is running
-        if self.daemon is None:
+        if self.daemon is None or not self.daemon.connected:
             ui.notify(f'Daemon on {self.hostname} is not running.')
             return
 
-        # Start the driver
+        # Start the driver. The daemon returns immediately: the startup is then
+        # followed by update_state.
         try:
             self.daemon.start(lab=self.labname, driver=self.name)
-            self.update_style()
-            ui.notify(f'Started driver {self.name} on {self.hostname}.')
         except Exception as e:
-            ui.notify(f'Failed to start driver {self.name} on {self.hostname}: {e}')
+            # Only the first line: the rest is the remote traceback
+            ui.notify(f'Failed to start driver {self.name} on {self.hostname}: {str(e).splitlines()[0]}')
+            return
+        self.state = 'STARTING'
+        self.update_style()
+        ui.notify(f'Starting driver {self.name} on {self.hostname}.')
 
     def update_style(self):
         """
@@ -88,22 +133,12 @@ class GridRow:
             self.uptime_label.set_text("Uptime: N/A")
         
         # Update status label and button visibility based on state
-        if self.state == 'ONLINE':
-            self.status_label.classes(remove='text-black text-red-600 text-orange-600').classes('text-green-600').set_text('ONLINE')
-            self.start_button.set_visibility(False)
-            self.stop_button.set_visibility(True)
-        elif self.state == 'OFFLINE':
-            self.status_label.classes(remove='text-green-600 text-red-600 text-orange-600').classes('text-black').set_text('OFFLINE')
-            self.start_button.set_visibility(True)
-            self.stop_button.set_visibility(False)
-        elif self.state == 'NOT RESPONDING':
-            self.status_label.classes(remove='text-green-600 text-black text-orange-600').classes('text-red-600').set_text('NOT RESPONDING')
-            self.start_button.set_visibility(False)
-            self.stop_button.set_visibility(True)
-        else:  # UNMANAGED
-            self.status_label.classes(remove='text-green-600 text-black text-red-600').classes('text-orange-600').set_text('UNMANAGED')
-            self.start_button.set_visibility(False)
-            self.stop_button.set_visibility(True)
+        state = self.state if self.state in self.STYLES else 'UNMANAGED'
+        color, show_start, show_stop = self.STYLES[state]
+        all_colors = ' '.join({c for c, _, _ in self.STYLES.values()})
+        self.status_label.classes(remove=all_colors).classes(color).set_text(state)
+        self.start_button.set_visibility(show_start)
+        self.stop_button.set_visibility(show_stop)
 
     def shutdown(self):
         """
@@ -128,6 +163,9 @@ class GridRow:
                 # Create a new client ready for the next start
                 self.client = client_or_None(self.name, keep_trying=True, client_name='driver_control_panel')
                 self.client.logger.setLevel(50)
+            elif self.state in ('STARTING', 'NOT RESPONDING') and self.daemon is not None and self.daemon.connected:
+                # The driver cannot be reached: ask the daemon to stop its process
+                self.daemon.kill_process(lab=self.labname, driver=self.name)
             self.state = 'OFFLINE'
             self.startup_time = None
             self.update_style()
@@ -163,6 +201,7 @@ class DeviceManagerApp:
 
         # Connect to host daemons
         self.daemons = {}
+        self.status_errors = set()   # hosts whose daemon status could not be read
         for host, ip in self.host_list:
             try:
                 # Create a constantly-trying-to-connect client
@@ -231,7 +270,7 @@ class DeviceManagerApp:
     def start_all_drivers(self, e):
         """Start all drivers."""
         for entry in self.entries:
-            if entry.state == 'OFFLINE':
+            if entry.state in ('OFFLINE', 'FAILED'):
                 entry.start()
 
     def stop_all_drivers(self, e):
@@ -248,16 +287,30 @@ class DeviceManagerApp:
         time.sleep(1)
         self.update_state()
         for entry in self.entries:
-            if entry.state == 'OFFLINE':
+            if entry.state in ('OFFLINE', 'FAILED'):
                 entry.start()
 
     def update_state(self):
         """Update the state of the UI."""
         self.spinner.classes(remove='hidden')
-        #for card in self.driver_cards:
+
+        # Status of all the drivers managed by each daemon (one call per host)
+        statuses = {}
+        for host, daemon in self.daemons.items():
+            if daemon is None or not daemon.connected:
+                continue
+            try:
+                statuses[host] = daemon.status_all()
+                self.status_errors.discard(host)
+            except Exception as e:
+                # Report only once per host (e.g. a daemon that is too old)
+                if host not in self.status_errors:
+                    print(f'[WARNING] Could not get driver status from daemon on {host}: {str(e).splitlines()[0]}')
+                    self.status_errors.add(host)
 
         for entry in self.entries:
-            entry.update_state()
+            host_statuses = statuses.get(entry.hostname, {})
+            entry.update_state(host_statuses.get(f'{self.labname}_{entry.name}'))
         self.spinner.classes(add='hidden')
 
     async def periodic_update(self):

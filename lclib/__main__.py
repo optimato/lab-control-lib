@@ -8,16 +8,65 @@ This file is part of lab-control-lib
 import time
 import sys
 import os
+import signal
 import click
 import logging
 
 from . import logs, get_config, client_or_None, _driver_classes
+from .proxydevice import ProxyServerBase
 from .camera import CameraBase
 from .logs import logging_muted, log_to_file, log_to_mem, logger as rootlogger
 from . import ui
 from . import daemon as dd
 
 lab_info = {}
+
+
+def _parse_level(level):
+    """
+    Convert a log level given as a number or a name to an int.
+    """
+    try:
+        return int(level)
+    except ValueError:
+        try:
+            return logging._nameToLevel[level.upper()]
+        except KeyError:
+            raise click.BadParameter(f'Unknown log level: {level}')
+
+def _exit_on_sigterm(signum, frame):
+    """
+    Turn SIGTERM into a normal exit, so that atexit handlers (driver shutdown) are called.
+    """
+    sys.exit(128 + signum)
+
+def _raised_by_driver(error):
+    """
+    True if error was raised while instantiating the driver. In this case the proxy
+    server has already logged it, with its traceback.
+    """
+    tb = error.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_code is ProxyServerBase.create_instance.__code__:
+            return True
+        tb = tb.tb_next
+    return False
+
+def _connect_daemon(ip):
+    """
+    Connect to the daemon of the host with the given ip, and check that it is recent enough.
+    """
+    # Only warnings and errors from the daemon client
+    rootlogger.getChild(dd.ProcessPool.Client.__name__).setLevel(logging.WARNING)
+    with logging_muted():
+        client = dd.daemon_client(address=(ip, dd.DAEMON_PORT))
+    if client is None:
+        raise click.UsageError(f'Daemon is not running on host {ip}')
+    try:
+        client.api_version()
+    except AttributeError:
+        raise click.UsageError(f'The daemon on host {ip} is too old: restart it (python -m lclib -r on that host).')
+    return client
 
 
 @click.group(help=f'Lab-control-lib driver management', invoke_without_command=True)
@@ -31,6 +80,7 @@ def cli(ctx, labname, daemon, restart):
     """
     if daemon:
         # Start daemon - this will block forever
+        dd.setup_daemon_logging()
         s = dd.daemon_server()
         click.echo(f'Starting daemon on {s.ADDRESS[0]}:{s.ADDRESS[1]}')
         s.wait()
@@ -69,7 +119,10 @@ def cli(ctx, labname, daemon, restart):
         import importlib
         try:
             labpackage = importlib.import_module(labname)
-        except ModuleNotFoundError:
+        except ModuleNotFoundError as e:
+            # A missing dependency of the lab package (e.g. a vendor SDK) is reported as such
+            if e.name != labname:
+                raise
             raise click.BadParameter(f'Package {labname} not found')
 
     # Get again properly populated config
@@ -123,7 +176,8 @@ def running():
 @click.argument('name', nargs=-1)
 @click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
 @click.option('--log-global', '-L', 'loglevel_global', default='INFO', show_default=True, help='Log level for all components')
-def start(name, loglevel, loglevel_global):
+@click.option('--timeout', '-t', default=60., show_default=True, help='Time (in seconds) to wait for the driver to be ready.')
+def start(name, loglevel, loglevel_global, timeout):
 
     # Without driver name: list available drivers on current host
     if not name:
@@ -137,9 +191,7 @@ def start(name, loglevel, loglevel_global):
     name = name[0]
     host = lab_info['device_addresses'][name]
 
-    daemon_client = dd.daemon_client(address=(host[0], dd.DAEMON_PORT))
-    if daemon_client is None:
-        raise click.UsageError(f'Daemon is not running on host {host[0]}')
+    daemon_client = _connect_daemon(host[0])
 
     click.echo(f'{name+":":<15}', nl=False)
 
@@ -150,24 +202,38 @@ def start(name, loglevel, loglevel_global):
         click.secho('ALREADY RUNNING', fg='yellow')
         return
 
-    # Spawn the driver
-    success, msg = daemon_client.start(lab=lab_info['module'],
-                                       driver=name,
-                                       loglevel=loglevel,
-                                       loglevel_global=loglevel_global)  
+    # Spawn the driver, then wait until it is ready
+    status = daemon_client.start(lab=lab_info['module'],
+                                 driver=name,
+                                 loglevel=loglevel,
+                                 loglevel_global=loglevel_global)
+    t0 = time.time()
+    while status['state'] == 'starting' and time.time() - t0 < timeout:
+        time.sleep(.25)
+        status = daemon_client.status(lab=lab_info['module'], driver=name)
 
-    if success:
+    if status['state'] == 'running':
         click.secho('RUNNING', fg='green')
+    elif status['state'] == 'starting':
+        click.secho('STILL STARTING', fg='yellow')
+        click.echo(f'The driver is not ready after {timeout:g} s. Its output is in {status["out_file"]} on host {host[0]}.')
+        sys.exit(1)
     else:
         click.secho('FAILED', fg='red')
-        click.echo(msg)
+        click.echo('\n'.join(status['error_tail']))
+        sys.exit(1)
     sys.exit(0)
 
 @cli.command(help='Start locally the server proxy of driver [name]. Does not return.')
 @click.argument('name', nargs=-1)
 @click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
 @click.option('--log-global', '-L', 'loglevel_global', default='INFO', show_default=True, help='Log level for all components')
-def lstart(name, loglevel, loglevel_global):
+@click.option('--ready-file', default=None, hidden=True, help='File written once the server is ready (used by the daemon).')
+@click.option('--console-level', default=None, hidden=True, help='Log level of the console output (used by the daemon).')
+def lstart(name, loglevel, loglevel_global, ready_file, console_level):
+
+    # Exit cleanly on SIGTERM, so that the driver can release its device
+    signal.signal(signal.SIGTERM, _exit_on_sigterm)
 
     try:
         llg = int(loglevel_global)
@@ -198,7 +264,7 @@ def lstart(name, loglevel, loglevel_global):
         d = client_or_None(name, client_name=f'check-{lab_info["this_host"]}')
     if d is not None:
         click.secho('ALREADY RUNNING', fg='yellow')
-        return
+        sys.exit(3)
 
     try:
         ll = int(loglevel)
@@ -213,10 +279,31 @@ def lstart(name, loglevel, loglevel_global):
     log_to_file(log_file)
     log_to_mem()
 
+    # Everything is now logged to file: the console output can be restricted
+    if console_level is not None:
+        logs.console_handler.setLevel(_parse_level(console_level))
+
     # Start the server
-    s = _driver_classes[name].Server(instantiate=True)
+    try:
+        s = _driver_classes[name].Server(instantiate=True)
+    except Exception as error:
+        if _raised_by_driver(error):
+            # Already logged, no need for a second traceback
+            sys.exit(1)
+        raise
     s.instance.set_log_level(ll)
     s.logger.setLevel(ll)
+
+    # Tell the daemon that the server is ready, once it accepts connections
+    # (rpyc starts listening on the serving thread)
+    if ready_file is not None:
+        t0 = time.time()
+        while not s.rpyc_server.active and time.time() - t0 < 2.:
+            time.sleep(.01)
+        dd.write_json_atomic(ready_file, {'pid': os.getpid(),
+                                          'address': s.ADDRESS,
+                                          'log_file': log_file,
+                                          'time': time.time()})
 
     click.secho('RUNNING', fg='green')
 
@@ -242,9 +329,7 @@ def forcekill(name):
     name = name[0]
     host = lab_info['device_addresses'][name]
 
-    daemon_client = dd.daemon_client(address=(host[0], dd.DAEMON_PORT))
-    if daemon_client is None:
-        raise click.UsageError(f'Daemon is not running on host {host[0]}')
+    daemon_client = _connect_daemon(host[0])
     daemon_client.kill_process(lab=lab_info['module'], driver=name)
 
 @cli.command(help='Abort all drivers (does not kill them).')
