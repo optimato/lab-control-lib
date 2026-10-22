@@ -30,3 +30,8 @@ library, it is not necessary to reinstall the service, but only to restart it. T
 done with the following command::
 
     $ python -m lclib -r
+
+Under Windows, if the daemon was installed with an earlier version of the script, Windows stops it
+after 3 days (and when the computer runs on battery power). Running ``windows_install_daemon.ps1``
+again replaces the scheduled task with one that runs indefinitely. The installation scripts are
+generated on installation, and can also be regenerated with ``python service_scripts.py``.
