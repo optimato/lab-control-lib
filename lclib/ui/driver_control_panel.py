@@ -27,6 +27,9 @@ class GridRow:
     # Time (in seconds) given to the client to connect to a driver that just became ready
     CONNECT_GRACE = 5.
 
+    # Number of lines shown in the log dialog
+    LOG_LINES = 200
+
     def __init__(self, device_info):
         self.name = device_info['name']
         self.labname = device_info['labname']
@@ -45,6 +48,7 @@ class GridRow:
             # Shows the error of a failed driver
             self.status_tooltip = ui.tooltip('')
         self.status_tooltip.set_visibility(False)
+        self.log_button = ui.button(icon='article', on_click=self.show_log).props('round dense flat').classes('shadow-xs')
         self.start_button = ui.button(icon='play_arrow', on_click=self.start).props('round dense color=green-600').classes('shadow-xs')
         self.stop_button = ui.button(icon='stop', on_click=self.shutdown).props('round dense color=red-600').classes('shadow-xs')
 
@@ -142,6 +146,54 @@ class GridRow:
         self.status_label.classes(remove=all_colors).classes(color).set_text(state)
         self.start_button.set_visibility(show_start)
         self.stop_button.set_visibility(show_stop)
+
+    async def show_log(self):
+        """
+        Show the end of the driver log (or of its process output), fetched from the daemon.
+        """
+        if self.daemon is None or not self.daemon.connected:
+            ui.notify(f'Daemon on {self.hostname} is not running.')
+            return
+
+        # Default source: the log file, or the process output if the driver never became ready
+        result = await self._fetch_log(None)
+        if result is None:
+            return
+
+        def display(result):
+            title.set_text(f'{self.name} on {self.hostname}: {result["path"]}')
+            log.clear()
+            for line in result['lines']:
+                log.push(line)
+
+        async def switch_source(e):
+            result = await self._fetch_log(e.value)
+            if result is not None:
+                display(result)
+
+        with ui.dialog() as dialog, ui.card().classes('w-full max-w-[1200px]'):
+            title = ui.label().classes('text-lg font-bold')
+            log = ui.log().classes('w-full h-[60vh] text-xs')
+            with ui.row().classes('w-full justify-end'):
+                ui.toggle({'log': 'Log file', 'out': 'Process output'}, value=result['source'],
+                          on_change=switch_source)
+                ui.button('Close', on_click=dialog.close)
+        display(result)
+
+        # Opens the dialog and waits until it is closed
+        await dialog
+        dialog.delete()
+
+    async def _fetch_log(self, source):
+        """
+        Get the end of the driver log from the daemon (None if it failed).
+        """
+        try:
+            return await run.io_bound(self.daemon.tail, self.labname, self.name, self.LOG_LINES, source)
+        except Exception as e:
+            # Only the first line: the rest is the remote traceback
+            ui.notify(f'Could not get the log of {self.name}: {str(e).splitlines()[0]}')
+            return None
 
     def shutdown(self):
         """
@@ -253,11 +305,12 @@ class DeviceManagerApp:
                 self.start_all = ui.button('Start all', on_click=self.start_all_drivers).classes('text-lg font-bold').props('color=green-600 icon=play_arrow')
                 self.stop_all = ui.button('Stop all', on_click=self.stop_all_drivers).classes('text-lg font-bold').props('color=red-600 icon=stop')
                 self.restart_all = ui.button('Restart all', on_click=self.restart_all_drivers).classes('text-lg font-bold').props('color=orange-600 icon=restart_alt')
-            with ui.grid(columns='80px 120px 1fr auto auto').classes('w-full gap-2'):
+            with ui.grid(columns='80px 120px 1fr auto auto auto').classes('w-full gap-2'):
                 ui.label('Host').classes('text-lg font-bold text-left')
                 ui.label('Driver').classes('text-lg font-bold text-left')
                 ui.label('Uptime').classes('text-lg font-bold text-left')
                 ui.label('Status').classes('text-lg font-bold text-left')
+                ui.label('Log').classes('text-lg font-bold text-left')
                 ui.label('Action').classes('text-lg font-bold text-left')
             sep = ui.separator().classes('w-full h-1 bg-slate-200')  # Add a separator
 
@@ -265,7 +318,7 @@ class DeviceManagerApp:
             for host_name, address in self.host_list:
                 for driver_name, info in self.device_info.items():
                     if info['address'] == address:
-                        with ui.grid(columns='80px 120px 1fr auto auto').classes('w-full gap-2'):
+                        with ui.grid(columns='80px 120px 1fr auto auto auto').classes('w-full gap-2'):
                             self.entries.append(GridRow(self.device_info[driver_name]))
                         sep = ui.separator().classes('w-full h-1 bg-slate-200')  # Add a separator
         sep.set_visibility(False)
