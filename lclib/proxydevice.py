@@ -77,6 +77,7 @@ This file is part of lab-control-lib
 """
 
 import logging
+import functools
 import rpyc
 import atexit
 import threading
@@ -115,7 +116,22 @@ class ProxyDeviceError(Exception):
 
 # Register custom error
 rpyc.core.vinegar._generic_exceptions_cache[
-    "lclib.util.proxydevice.ProxyDeviceError"] = ProxyDeviceError
+    f"{__name__}.ProxyDeviceError"] = ProxyDeviceError
+
+
+def _log_errors(name, method):
+    """
+    Wrap a service method so that its exceptions are logged by the server (i.e. in the
+    driver log) before being sent to the client.
+    """
+    @functools.wraps(method)
+    def wrapped(service_self, *args, **kwargs):
+        try:
+            return method(service_self, *args, **kwargs)
+        except Exception as error:
+            service_self.server.log_call_error(name, error)
+            raise
+    return wrapped
 
 
 class ThreadedServer(rpyc.ThreadedServer):
@@ -245,17 +261,28 @@ class WrapServiceBase(rpyc.Service):
 
                     # Define callback function
                     def callback(result, error):
-                        # Send result or error to client
-                        result_and_error = _m({"result": result, "error": error})
                         try:
-                            c.root.notify_result(result_and_error)
-                        except EOFError:
-                            # This happens if keyboard interrupt killed the client
-                            pass
+                            if error is not None:
+                                service_self.server.log_call_error(name, error)
 
-                        # Either way we are done with this call so we reset the
-                        # attribute holding the thread.
-                        service_self.server.awaiting_result = None
+                            # Send result or error to client
+                            try:
+                                result_and_error = _m({"result": result, "error": error})
+                            except Exception as e:
+                                # Result or error cannot be pickled: send a description instead
+                                result_and_error = _m({"result": None, "error": RuntimeError(
+                                    f"{name}: result or error could not be sent ({e!r}). Error: {error!r}")})
+                            try:
+                                c.root.notify_result(result_and_error)
+                            except EOFError:
+                                # This happens if keyboard interrupt killed the client
+                                pass
+                        except Exception:
+                            service_self.server.logger.exception(f"Could not send the result of {name} to the client.")
+                        finally:
+                            # Either way we are done with this call so we reset the
+                            # attribute holding the thread.
+                            service_self.server.awaiting_result = None
 
                     # Create the thread and start it
                     service_self.server.awaiting_result = Future(
@@ -267,7 +294,7 @@ class WrapServiceBase(rpyc.Service):
                 return _m({"result": None})
 
         # Attach the method to the service with "exposed_" prefix as per rpyc
-        setattr(cls, f"exposed_{name}", method)
+        setattr(cls, f"exposed_{name}", _log_errors(name, method))
 
     @classmethod
     def _new_exposed_property(cls, name, admin):
@@ -301,8 +328,8 @@ class WrapServiceBase(rpyc.Service):
             return _m({"result": None})
 
         # Attach the two methods to the service.
-        setattr(cls, f"exposed__get_{name}", get_method)
-        setattr(cls, f"exposed__set_{name}", set_method)
+        setattr(cls, f"exposed__get_{name}", _log_errors(f"{name} (get)", get_method))
+        setattr(cls, f"exposed__set_{name}", _log_errors(f"{name} (set)", set_method))
 
 
 class ClientServiceBase(rpyc.Service):
@@ -927,6 +954,16 @@ class ProxyServerBase:
         True only if current client is admin.
         """
         return self.admin == self.this_id
+
+    def log_call_error(self, name, error):
+        """
+        Log an exception raised by a remote call, before it is sent to the client.
+        """
+        if isinstance(error, ProxyDeviceError):
+            # Refused call (e.g. not admin): no need for a traceback
+            self.logger.warning(f"Call to {name} refused: {error}")
+        else:
+            self.logger.error(f"Call to {name} failed: {error!r}", exc_info=error)
 
     def _proxy_print(self, *objects, sep=' ', end='\n', file=None, flush=False):
         """
