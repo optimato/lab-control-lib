@@ -410,6 +410,49 @@ def test_unpicklable_error_does_not_jam_driver(daemon, fakelab):
     finally:
         client.disconnect()
 
+#
+# Log access
+#
+
+def test_tail_log_and_output(daemon, fakelab):
+    status = _ensure_running(daemon, 'chatty')
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        client.chat(5)
+    finally:
+        client.disconnect()
+
+    # By default: the driver log file
+    result = daemon.tail(lab=LAB, driver='chatty', n=10)
+    assert result['source'] == 'log'
+    assert result['path'] == status['log_file']
+    assert len(result['lines']) == 10
+    assert any('chatter 00000004' in line for line in result['lines'])
+
+    # The process output (stdout and stderr)
+    result = daemon.tail(lab=LAB, driver='chatty', n=10, source='out')
+    assert result['source'] == 'out'
+    assert result['path'] == status['out_file']
+    assert 'stdout chatter 00000004' in result['lines']
+
+def test_tail_failed_driver(daemon):
+    daemon.start(lab=LAB, driver='broken')
+    _wait_started(daemon, 'broken')
+
+    # It never became ready: its log file is unknown, so the default is its output
+    result = daemon.tail(lab=LAB, driver='broken')
+    assert result['source'] == 'out'
+    assert 'RuntimeError: broken on purpose' in result['lines']
+    with pytest.raises(RuntimeError, match='never became ready'):
+        daemon.tail(lab=LAB, driver='broken', source='log')
+
+def test_tail_errors(daemon):
+    with pytest.raises(RuntimeError, match='never started'):
+        daemon.tail(lab=LAB, driver='nosuchdriver')
+    _ensure_running(daemon, 'chatty')
+    with pytest.raises(ValueError, match='Unknown source'):
+        daemon.tail(lab=LAB, driver='chatty', source='nosuchsource')
+
 def test_unknown_driver_status(daemon):
     assert _status(daemon, 'nosuchdriver')['state'] == 'unknown'
 

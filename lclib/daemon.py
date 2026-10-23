@@ -465,6 +465,45 @@ class ProcessPool:
         return {name: self._status(name, mp) for name, mp in items}
 
     @proxycall()
+    def tail(self, lab, driver, n=200, source=None):
+        """
+        Get the last lines of a driver's log. This also works for drivers that are not
+        running anymore, including the ones started by a previous daemon.
+
+        Args:
+            lab (str): The name of the lab package.
+            driver (str): The name of the driver.
+            n (int): The number of lines.
+            source (str): 'log' for the driver log file, 'out' for the process output
+                          (stdout and stderr). Default: 'log' if known, 'out' otherwise.
+
+        Returns:
+            dict: {'source': source, 'path': file path, 'lines': list of lines}
+        """
+        name = self._name(lab, driver)
+        with self._lock:
+            mp = self.processes.get(name)
+        record = mp.record if mp is not None else read_json(self._spawn_file(name))
+        if record is None:
+            raise RuntimeError(f'Driver {driver} (lab {lab}) was never started by the daemon on this host.')
+
+        # Only paths found in the run files are read, never paths provided by the client
+        ready = read_json(record['ready_file'])
+        log_file = ready.get('log_file') if ready else None
+        if source is None:
+            source = 'log' if log_file else 'out'
+        if source == 'log':
+            if not log_file:
+                raise RuntimeError(f'The log file of driver {driver} is unknown (it never became ready): '
+                                   f'use its output instead.')
+            path = log_file
+        elif source == 'out':
+            path = record['out_file']
+        else:
+            raise ValueError(f"Unknown source {source!r} (should be 'log' or 'out').")
+        return {'source': source, 'path': path, 'lines': tail_file(path, n)}
+
+    @proxycall()
     def kill_process(self, lab, driver):
         """
         Stop the driver process. The driver is first asked to shut down through its server,
