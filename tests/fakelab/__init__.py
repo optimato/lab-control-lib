@@ -10,11 +10,13 @@ This file is part of lab-control-lib
 import os
 import subprocess
 import sys
+import threading
 import time
 
 import lclib
 from lclib import register_driver, proxydevice, proxycall
 from lclib.base import DriverBase
+from lclib.util import Future
 
 # To test how a missing dependency of a lab package (e.g. a vendor SDK) is reported
 if os.environ.get('FAKELAB_MISSING_DEP'):
@@ -26,6 +28,16 @@ BASE_PORT = int(os.environ.get('FAKELAB_PORT', 15000))
 lclib.local_ip_list.append('localhost')
 
 lclib.init(lab_name='FakeLab', host_ips={'control': 'localhost'})
+
+
+class UnpicklableError(Exception):
+    """
+    An exception that cannot be sent to a client.
+    """
+
+    def __init__(self):
+        super().__init__('cannot be pickled')
+        self.lock = threading.Lock()
 
 
 @register_driver
@@ -44,6 +56,33 @@ class Chatty(DriverBase):
             self.logger.warning(f'chatter {i:08d} ' + 'x' * 100)
             sys.stdout.write(f'stdout chatter {i:08d}\n')
         return n
+
+    @proxycall()
+    def fail(self):
+        raise ValueError('failing on purpose')
+
+    @proxycall(admin=True)
+    def admin_only(self):
+        return True
+
+    @proxycall(block=False)
+    def fail_unpicklable(self):
+        raise UnpicklableError()
+
+    @proxycall(block=False)
+    def wait_a_bit(self):
+        time.sleep(.1)
+        return 'done'
+
+    @proxycall()
+    def fail_in_thread(self):
+        """
+        Start a thread that fails (as a failing periodic call would).
+        """
+        Future(self._fail)
+
+    def _fail(self):
+        raise ValueError('failing in a thread')
 
     def shutdown(self):
         self.logger.warning('chatty shutdown')

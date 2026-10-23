@@ -21,11 +21,8 @@ import pytest
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_DIR = os.path.dirname(TESTS_DIR)
 
-# Test this working tree, not an installed copy of lclib
-sys.path.insert(0, REPO_DIR)
-
 from lclib import daemon as dd
-from lclib import logs
+from lclib import logs, ProxyDeviceError
 
 LAB = 'fakelab'
 
@@ -171,11 +168,10 @@ def _process_gone(pid, timeout=5):
         time.sleep(.2)
     return False
 
-def _daemon_log_line(env, text, timeout=10):
+def _log_line(path, text, timeout=10):
     """
-    Wait for a line containing text in the daemon log, and return the last such line.
+    Wait for a line containing text in a log file, and return the last such line.
     """
-    path = os.path.join(env['HOME'], '.lclib', 'lclib-daemon.log')
     t0 = time.time()
     while True:
         with open(path, encoding='utf-8') as f:
@@ -183,8 +179,14 @@ def _daemon_log_line(env, text, timeout=10):
         if lines or time.time() - t0 > timeout:
             break
         time.sleep(.2)
-    assert lines, f'{text!r} not found in the daemon log'
+    assert lines, f'{text!r} not found in {path}'
     return lines[-1]
+
+def _daemon_log_line(env, text, timeout=10):
+    """
+    Wait for a line containing text in the daemon log, and return the last such line.
+    """
+    return _log_line(os.path.join(env['HOME'], '.lclib', 'lclib-daemon.log'), text, timeout)
 
 def _lc(env, *args):
     """
@@ -365,6 +367,48 @@ def test_requested_stop_is_logged(daemon, env):
 
     line = _daemon_log_line(env, f'(pid {pid}) exited with')
     assert '[INFO]' in line and 'Last output' not in line
+
+#
+# Errors in remote calls
+#
+
+def test_remote_call_errors_are_logged(daemon, fakelab):
+    log_file = _ensure_running(daemon, 'chatty')['log_file']
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        # The client gets the exception as before...
+        with pytest.raises(ValueError, match='failing on purpose'):
+            client.fail()
+        # ... and a refused call raises a real ProxyDeviceError
+        with pytest.raises(ProxyDeviceError):
+            client.admin_only()
+        client.fail_in_thread()
+    finally:
+        client.disconnect()
+
+    # The driver log has the error with its traceback
+    line = _log_line(log_file, "Call to fail failed: ValueError('failing on purpose')")
+    assert '[ERROR]' in line
+    with open(log_file, encoding='utf-8') as f:
+        assert f.read().split(line, 1)[1].lstrip().startswith('Traceback')
+
+    # A refused call is a warning, without traceback
+    assert '[WARNING]' in _log_line(log_file, 'Call to admin_only refused')
+
+    # An exception in a thread (e.g. a periodic call) is logged too
+    _log_line(log_file, 'Uncaught exception in thread')
+    _log_line(log_file, 'ValueError: failing in a thread')
+
+def test_unpicklable_error_does_not_jam_driver(daemon, fakelab):
+    _ensure_running(daemon, 'chatty')
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        with pytest.raises(RuntimeError, match='could not be sent'):
+            client.fail_unpicklable()
+        # This used to fail with "Current of past non-blocking call still pending."
+        assert client.wait_a_bit() == 'done'
+    finally:
+        client.disconnect()
 
 def test_unknown_driver_status(daemon):
     assert _status(daemon, 'nosuchdriver')['state'] == 'unknown'
