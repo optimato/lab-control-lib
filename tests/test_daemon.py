@@ -486,6 +486,58 @@ def test_cli_forcekill(env, daemon):
     assert result.returncode == 1
     assert 'is not running' in result.stderr
 
+def test_cli_status(env, daemon):
+    _ensure_running(daemon, 'chatty')
+    daemon.start(lab=LAB, driver='broken')
+    _wait_started(daemon, 'broken')
+
+    result = _lc(env, 'status')
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    # One row per driver: name, host, state[, uptime, pid]
+    drivers = {'chatty', 'broken', 'slow', 'stubborn'}
+    rows = {words[0]: words[1:] for words in map(str.split, result.stdout.splitlines())
+            if words and words[0] in drivers}
+    assert set(rows) == drivers
+    assert rows['chatty'][:2] == ['control', 'RUNNING']
+    assert rows['chatty'][3] == str(_status(daemon, 'chatty')['pid'])
+    assert rows['broken'] == ['control', 'FAILED']
+
+def test_cli_status_without_daemon(env):
+    result = _lc(dict(env, LCLIB_DAEMON_PORT=str(_free_port())), 'status')
+    assert result.returncode == 0
+    assert 'UNKNOWN' in result.stdout
+    assert 'Daemon is not running on host localhost' in result.stdout
+
+def test_cli_log(env, daemon, fakelab):
+    _ensure_running(daemon, 'chatty')
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        client.chat(3)
+    finally:
+        client.disconnect()
+
+    result = _lc(env, 'log', 'chatty', '-n', '20')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '--- chatty log file:' in result.stdout
+    assert 'chatter 00000002' in result.stdout
+
+    result = _lc(env, 'log', 'chatty', '--out')
+    assert '--- chatty process output:' in result.stdout
+    assert 'stdout chatter 00000002' in result.stdout
+
+    # A driver that never became ready: its output, with the error
+    daemon.start(lab=LAB, driver='broken')
+    _wait_started(daemon, 'broken')
+    result = _lc(env, 'log', 'broken')
+    assert '--- broken process output:' in result.stdout
+    assert 'RuntimeError: broken on purpose' in result.stdout
+
+def test_cli_log_unknown_driver(env):
+    result = _lc(env, 'log', 'nosuchdriver')
+    assert result.returncode == 2
+    assert 'Unknown driver nosuchdriver' in result.stderr
+
 def test_lstart_already_running(env, daemon):
     _ensure_running(daemon, 'chatty')
     result = _lc(env, 'lstart', 'chatty')

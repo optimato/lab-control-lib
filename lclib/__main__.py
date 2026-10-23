@@ -72,6 +72,30 @@ def _connect_daemon(ip):
                                f'and restart the daemon (python -m lclib -r).')
     return client
 
+def _host_name(ip):
+    """
+    Name of the host with the given ip (the ip itself if not in the lab hosts).
+    """
+    names = {host_ip: host for host, host_ip in lab_info['host_ips'].items()}
+    return names.get(ip, ip)
+
+def _format_duration(seconds):
+    """
+    Format a duration as [days d] h:mm:ss.
+    """
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    text = f'{hours}:{minutes:02}:{seconds:02}'
+    return f'{days}d {text}' if days else text
+
+# Colors of the driver states shown by `status`
+STATE_COLORS = {'RUNNING': 'green',
+                'STARTING': 'yellow',
+                'STOPPING': 'yellow',
+                'FAILED': 'red',
+                'UNKNOWN': 'red'}
+
 
 @click.group(help=f'Lab-control-lib driver management', invoke_without_command=True)
 @click.argument('labname', required=False)
@@ -143,6 +167,7 @@ def cli(ctx, labname, daemon, restart):
     lab_info['local_hostname'] = config['local_hostname']
     lab_info['log_dir'] = logs.log_dir
     lab_info['conf_path'] = config['conf_path']
+    lab_info['host_ips'] = config['host_ips']
 
     # List of addresses to access registered devices
     lab_info['device_addresses'] = {name: cls.Server.ADDRESS for name, cls in _driver_classes.items()}
@@ -385,9 +410,69 @@ def cp():
     app.run(reload=False)
     sys.exit(0)
 
-@cli.command(help='Start Display real-time logs of all running drivers')
-def logall():
-    click.echo('Not implemented.')
+@cli.command(name='status', help='Show the status of all drivers, according to the daemon of their host.')
+def status_cmd():
+    lab = lab_info['module']
+
+    # Status of the drivers managed by each daemon (one call per host)
+    statuses = {}
+    problems = {}
+    for ip in {address[0] for address in lab_info['device_addresses'].values()}:
+        try:
+            client = _connect_daemon(ip)
+        except click.UsageError as e:
+            problems[ip] = e.message
+            continue
+        statuses[ip] = client.status_all()
+        client.disconnect()
+
+    click.echo(f'{"Driver":<20}{"Host":<12}{"State":<12}{"Uptime":<14}PID')
+    unmanaged = False
+    for name, address in lab_info['device_addresses'].items():
+        ip = address[0]
+        click.echo(f'{name:<20}{_host_name(ip):<12}', nl=False)
+        if ip in problems:
+            click.secho('UNKNOWN', fg=STATE_COLORS['UNKNOWN'])
+            continue
+        status = statuses[ip].get(f'{lab}_{name}')
+        if status is None:
+            click.echo('-')
+            unmanaged = True
+            continue
+        state = status['state'].upper()
+        if state == 'EXITED' and status['failed']:
+            state = 'FAILED'
+        click.secho(f'{state:<12}', fg=STATE_COLORS.get(state), nl=False)
+        if status['state'] == 'exited':
+            click.echo()
+        else:
+            click.echo(f'{_format_duration(status["uptime"]):<14}{status["pid"]}')
+
+    for problem in problems.values():
+        click.secho(problem, fg='red')
+    if unmanaged:
+        click.echo('\n-: not started by the daemon (use the "running" command to check if it runs anyway).')
+
+@cli.command(name='log', help='Show the end of the log of driver [name], from the daemon of its host.')
+@click.argument('name')
+@click.option('-n', 'nlines', default=50, show_default=True, help='Number of lines.')
+@click.option('--out', 'output', is_flag=True, help='Show the process output (stdout and stderr) instead of the log file.')
+def log_cmd(name, nlines, output):
+    if name not in lab_info['device_addresses']:
+        raise click.BadParameter(f'Unknown driver {name}.')
+    ip = lab_info['device_addresses'][name][0]
+
+    daemon_client = _connect_daemon(ip)
+    try:
+        result = daemon_client.tail(lab=lab_info['module'], driver=name, n=nlines,
+                                    source='out' if output else None)
+    except (RuntimeError, ValueError) as e:
+        # Only the first line: the rest is the remote traceback
+        raise click.ClickException(str(e).splitlines()[0])
+
+    source = 'log file' if result['source'] == 'log' else 'process output'
+    click.secho(f'--- {name} {source}: {result["path"]} (on {_host_name(ip)}) ---', fg='blue')
+    click.echo('\n'.join(result['lines']))
 
 @cli.command(help='Start frame viewer')
 @click.argument('name', nargs=1)
