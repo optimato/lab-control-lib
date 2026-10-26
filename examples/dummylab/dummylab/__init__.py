@@ -34,9 +34,6 @@ To test fully:
     d = dummylab.dummymotor.DummyControllerInterface()
     # Will start listening for a connection
 
-  The fake controller stops when the motor driver disconnects: restart it before starting the
-  motor driver again.
-
 * Start all the drivers:
 
   ``python -m lclib dummylab start monitor``

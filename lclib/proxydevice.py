@@ -534,10 +534,11 @@ class ProxyClientBase:
                     host=self.ADDRESS[0],
                     port=self.ADDRESS[1],
                 )
-            except ConnectionRefusedError:
-                # No server present
+            except (OSError, EOFError) as e:
+                # No server present. Depending on the platform and firewall, the connection is
+                # refused or times out (e.g. on Windows): both must lead to a new attempt.
                 if (self.reconnect != 'always') or ((self.reconnect == 'if_successful') and self.first_connect) or (self.reconnect == 'never'):
-                    self.logger.error(f"Connection to {self.ADDRESS} refused. Is the server running?")
+                    self.logger.error(f"Connection to {self.ADDRESS} failed ({e!r}). Is the server running?")
                     raise
 
                 # Try reconnecting

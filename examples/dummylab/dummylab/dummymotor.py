@@ -171,6 +171,9 @@ class DummyControllerInterface:
                 self.serve(client)
             except socket.timeout:
                 continue
+            except (ConnectionResetError, BrokenPipeError):
+                # The client disappeared while being served: wait for a new one
+                print('Client connection lost')
 
     def serve(self, client):
         """
@@ -184,9 +187,15 @@ class DummyControllerInterface:
         while True:
             # Read data
             try:
-                data = _recv_all(client).strip().decode('ascii')
+                raw = _recv_all(client)
             except socket.timeout:
                 continue
+            if not raw:
+                # The client closed the connection: wait for a new one
+                print('Client disconnected')
+                client.close()
+                return
+            data = raw.strip().decode('ascii')
             print(f'Received: {data} | ', end=' ')
 
             t = time.time()
@@ -205,7 +214,7 @@ class DummyControllerInterface:
             if data == 'DO_INIT':
                 self.initialized = True
                 reply = 'OK: INIT'
-            if not self.initialized:
+            elif not self.initialized:
                 reply = 'ERROR: NOT INITIALIZED'
             elif data == 'STATUS':
                 if self.in_motion:

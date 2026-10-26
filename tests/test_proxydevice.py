@@ -18,6 +18,7 @@ import threading
 import time
 
 import pytest
+import rpyc
 
 
 @proxydevice(address=("127.0.0.1", 5055))
@@ -210,6 +211,31 @@ def test_non_blocking_call_in_background(client):
     finally:
         client.clean = True
     assert client.awaited_result == {'result': 1, 'error': None}
+
+def test_client_retries_after_connection_timeout(server, monkeypatch):
+    # Behind a firewall (typically on Windows), connecting to a port without server times out
+    # instead of being refused. The client must keep trying.
+    real_connect = rpyc.connect
+    attempts = []
+
+    def connect_timing_out_once(*args, **kwargs):
+        attempts.append(time.time())
+        if len(attempts) == 1:
+            raise TimeoutError('timed out')
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(rpyc, 'connect', connect_timing_out_once)
+    monkeypatch.setattr(A.Client, 'RECONNECT_INTERVAL', .1)
+    c = A.Client(admin=False, address=server.ADDRESS, reconnect='always')
+    try:
+        t0 = time.time()
+        while not c.connected and time.time() - t0 < 5:
+            time.sleep(.05)
+        assert c.connected
+        assert len(attempts) == 2
+    finally:
+        c.disconnect()
+        c.serving_thread.join(5)
 
 def test_input_is_asked_to_admin_client(server, client, monkeypatch):
     # input() on the server side is answered by the admin client (here, in this process)
