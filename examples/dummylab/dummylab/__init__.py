@@ -17,6 +17,16 @@ To test fully:
   ``cd [path to lab-control-lib]/examples/dummylab``
   ``pip install .``
 
+* Try to start the motor driver:
+
+  ``python -m lclib dummylab start dummymotor``
+
+  This fails, and the error is shown right away: the driver cannot connect to its device (the
+  motor controller), which is not running yet. The failure can be checked later, from any host:
+
+  ``python -m lclib dummylab status``
+  ``python -m lclib dummylab log dummymotor``
+
 * On a separate terminal, open a python process and instantiate the fake motor controller:
 
 ::
@@ -24,12 +34,18 @@ To test fully:
     d = dummylab.dummymotor.DummyControllerInterface()
     # Will start listening for a connection
 
+  The fake controller stops when the motor driver disconnects: restart it before starting the
+  motor driver again.
+
 * Start all the drivers:
 
   ``python -m lclib dummylab start monitor``
   ``python -m lclib dummylab start manager``
   ``python -m lclib dummylab start dummymotor``
   ``python -m lclib dummylab start dummydetector``
+
+  ``python -m lclib dummylab status`` now shows them all as RUNNING. Drivers can also be started,
+  stopped and inspected from the control panel: ``python -m lclib dummylab cp``.
 
 * Finally, start an interactive python session (or jupyter notebook), and initialize everything:
 
