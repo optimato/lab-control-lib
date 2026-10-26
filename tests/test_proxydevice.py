@@ -212,6 +212,13 @@ def test_non_blocking_call_in_background(client):
         client.clean = True
     assert client.awaited_result == {'result': 1, 'error': None}
 
+def test_connection_error_gives_reason():
+    port = _free_port()
+    with pytest.raises(ProxyDeviceError, match=f'127.0.0.1:{port} failed') as info:
+        A.Client(address=('127.0.0.1', port))
+    assert 'refused' in str(info.value).lower()
+    assert isinstance(info.value.__cause__, ConnectionRefusedError)
+
 def test_client_retries_after_connection_timeout(server, monkeypatch):
     # Behind a firewall (typically on Windows), connecting to a port without server times out
     # instead of being refused. The client must keep trying.

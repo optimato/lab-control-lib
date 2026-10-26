@@ -12,7 +12,7 @@ import signal
 import click
 import logging
 
-from . import logs, get_config, client_or_None, _driver_classes
+from . import logs, get_config, client_or_None, _driver_classes, ProxyDeviceError
 from .proxydevice import ProxyServerBase
 from .camera import CameraBase
 from .logs import logging_muted, log_to_file, log_to_mem, logger as rootlogger
@@ -58,17 +58,19 @@ def _connect_daemon(ip):
     """
     # Only warnings and errors from the daemon client
     rootlogger.getChild(dd.ProcessPool.Client.__name__).setLevel(logging.WARNING)
-    with logging_muted():
-        client = dd.daemon_client(address=(ip, dd.DAEMON_PORT))
-    if client is None:
-        raise click.UsageError(f'Daemon is not running on host {ip}')
+    try:
+        with logging_muted():
+            client = dd.ProcessPool.Client(address=(ip, dd.DAEMON_PORT))
+    except ProxyDeviceError as e:
+        # The message gives the reason (refused, timed out, no route to host, ...)
+        raise click.UsageError(f'Cannot reach the daemon on host {_host_name(ip)}. {e}')
     try:
         version = client.api_version()
     except AttributeError:
         # Daemon older than the version check
         version = 1
     if version < dd.API_VERSION:
-        raise click.UsageError(f'The daemon on host {ip} is too old: update lclib on that host '
+        raise click.UsageError(f'The daemon on host {_host_name(ip)} is too old: update lclib on that host '
                                f'and restart the daemon (python -m lclib -r).')
     return client
 

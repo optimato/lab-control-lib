@@ -431,6 +431,7 @@ class ProxyClientBase:
         self.conn = None
         self.serving_thread = None
         self._connection_failed = False
+        self._connection_error = None
         self.first_connect = True
         self._active = False
         self._terminate = False
@@ -470,6 +471,7 @@ class ProxyClientBase:
         def catch_result(r, e):
             if e is None:
                 return
+            self._connection_error = e
             self._connection_failed = True
 
         self.serving_thread = Future(self._serve, callback=catch_result)
@@ -479,7 +481,10 @@ class ProxyClientBase:
             if self.conn is not None:
                 return True
             if self._connection_failed:
-                raise ProxyDeviceError('Connection failed')
+                # e.g. "Connection refused", "No route to host", "timed out"
+                e = self._connection_error
+                reason = getattr(e, 'strerror', None) or str(e) or type(e).__name__
+                raise ProxyDeviceError(f'Connection to {self.ADDRESS[0]}:{self.ADDRESS[1]} failed: {reason}') from e
             if self.reconnect == 'always':
                 return False
             time.sleep(0.05)

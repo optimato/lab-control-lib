@@ -507,7 +507,8 @@ def test_cli_status_without_daemon(env):
     result = _lc(dict(env, LCLIB_DAEMON_PORT=str(_free_port())), 'status')
     assert result.returncode == 0
     assert 'UNKNOWN' in result.stdout
-    assert 'Daemon is not running on host localhost' in result.stdout
+    assert 'Cannot reach the daemon on host control' in result.stdout
+    assert 'refused' in result.stdout.lower()
 
 def test_cli_log(env, daemon, fakelab):
     _ensure_running(daemon, 'chatty')
@@ -547,7 +548,8 @@ def test_lstart_already_running(env, daemon):
 def test_cli_without_daemon(env):
     result = _lc(dict(env, LCLIB_DAEMON_PORT=str(_free_port())), 'start', 'chatty')
     assert result.returncode == 2
-    assert 'Daemon is not running' in result.stderr
+    assert 'Cannot reach the daemon on host control' in result.stderr
+    assert 'refused' in result.stderr.lower()
 
 def test_missing_dependency_reported(env):
     result = _lc(dict(env, FAKELAB_MISSING_DEP='1'), 'list')
