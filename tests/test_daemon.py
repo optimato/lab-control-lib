@@ -9,6 +9,7 @@ Run with:
 """
 import logging
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -501,6 +502,21 @@ def test_other_loggers_are_logged(daemon, fakelab):
     with open(log_file, encoding='utf-8') as f:
         assert 'other library info' not in f.read()
 
+def test_banner(env, daemon):
+    # The lab banner is printed when the lab is imported...
+    result = subprocess.run([sys.executable, '-c', 'import fakelab'], env=env, capture_output=True, text=True)
+    assert 'This is FakeLab' in result.stdout
+
+    # ... except with LCLIB_NO_BANNER, set by the daemon for the drivers it starts
+    result = subprocess.run([sys.executable, '-c', 'import fakelab'], env=dict(env, LCLIB_NO_BANNER='1'),
+                            capture_output=True, text=True)
+    assert result.returncode == 0
+    assert 'This is FakeLab' not in result.stdout
+
+    out_file = _ensure_running(daemon, 'chatty')['out_file']
+    with open(out_file, encoding='utf-8') as f:
+        assert 'This is FakeLab' not in f.read()
+
 def test_tail_failed_driver(daemon):
     daemon.start(lab=LAB, driver='broken')
     _wait_started(daemon, 'broken')
@@ -601,6 +617,53 @@ def test_cli_log(env, daemon, fakelab):
     result = _lc(env, 'log', 'broken')
     assert '--- broken process output:' in result.stdout
     assert 'RuntimeError: broken on purpose' in result.stdout
+
+def test_cli_log_merged(env, daemon, fakelab):
+    _ensure_running(daemon, 'chatty')
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        client.chat(2)
+        with pytest.raises(ValueError):
+            client.fail()
+    finally:
+        client.disconnect()
+    # Never becomes ready: its process output is used
+    daemon.start(lab=LAB, driver='broken')
+    _wait_started(daemon, 'broken')
+
+    result = _lc(env, 'log', 'chatty', 'broken', '-n', '100')
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+
+    # Compact form: time, driver, level, logger (if not the driver itself), message
+    line = next(line for line in lines if 'chatter 00000001' in line)
+    assert re.match(r'\d{2}:\d{2}:\d{2}\.\d{3}  chatty  WARNING  chatter 00000001 ', line)
+    i, line = next((i, line) for i, line in enumerate(lines) if 'Call to fail failed' in line)
+    assert re.search(r'  chatty  ERROR    \[chatty.proxy\] Call to fail failed', line)
+    assert lines[i + 1].strip().startswith('Traceback')
+    assert any(re.search(r'  broken  CRITICAL .*Class instantiation failed', line) for line in lines)
+
+    # Only errors
+    result = _lc(env, 'log', 'chatty', 'broken', '-n', '100', '--level', 'error')
+    assert 'chatter' not in result.stdout
+    assert 'Call to fail failed' in result.stdout
+
+    # Original lines
+    result = _lc(env, 'log', 'chatty', 'broken', '-n', '100', '--raw')
+    assert any(re.match(r'chatty  \[\d{2}/\d{2}/\d{4} .*chatter 00000001', line)
+               for line in result.stdout.splitlines())
+
+def test_cli_log_all(env, daemon):
+    _ensure_running(daemon, 'chatty')
+    result = _lc(env, 'log', '--all', '-n', '10')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '  chatty  ' in result.stdout
+    # Drivers never started on their host are skipped silently
+    assert 'never started' not in result.stderr
+
+    result = _lc(env, 'log')
+    assert result.returncode == 2
+    assert 'Give driver names, or --all' in result.stderr
 
 def test_cli_log_unknown_driver(env):
     result = _lc(env, 'log', 'nosuchdriver')

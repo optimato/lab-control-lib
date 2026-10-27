@@ -9,6 +9,7 @@ import time
 import sys
 import os
 import signal
+import datetime
 import concurrent.futures
 import click
 import logging
@@ -281,13 +282,18 @@ def lstart(name, loglevel, loglevel_global, ready_file, console_level):
     if name not in lab_info['available']:
         raise click.BadParameter(f'Driver {name} cannot be launched from host {lab_info["this_host"]} ({lab_info["local_hostname"]}).')
 
-    click.echo(f'{name+":":<15}', nl=False)
+    # By hand: "<name>:   RUNNING" on one line. Started by the daemon (output in a file): the
+    # status on a line of its own, so that log lines are not mixed with it.
+    status_prefix = f'{name}: '
+    if ready_file is None:
+        click.echo(f'{name+":":<15}', nl=False)
+        status_prefix = ''
 
     # Check if already running
     with logging_muted():
         d = client_or_None(name, client_name=f'check-{lab_info["this_host"]}')
     if d is not None:
-        click.secho('ALREADY RUNNING', fg='yellow')
+        click.secho(status_prefix + 'ALREADY RUNNING', fg='yellow')
         sys.exit(3)
 
     # Otherwise, the driver level saved in its configuration (applied at instantiation)
@@ -329,7 +335,7 @@ def lstart(name, loglevel, loglevel_global, ready_file, console_level):
                                           'log_file': log_file,
                                           'time': time.time()})
 
-    click.secho('RUNNING', fg='green')
+    click.secho(status_prefix + 'RUNNING', fg='green')
 
     # Wait for completion, then exit.
     s.wait()
@@ -448,26 +454,119 @@ def status_cmd():
     if unmanaged:
         click.echo('\n-: not started by the daemon (use the "running" command to check if it runs anyway).')
 
-@cli.command(name='log', help='Show the end of the log of driver [name], from the daemon of its host.')
-@click.argument('name')
-@click.option('-n', 'nlines', default=50, show_default=True, help='Number of lines.')
+# Colors telling drivers apart in merged logs, and colors of the levels
+DRIVER_COLORS = ['cyan', 'magenta', 'blue', 'green', 'bright_cyan', 'bright_magenta', 'bright_blue', 'bright_green']
+LEVEL_COLORS = {'WARNING': 'yellow', 'ERROR': 'red', 'CRITICAL': 'red'}
+
+def _tail_drivers(names, nlines, source):
+    """
+    Get the end of the logs of the drivers, from the daemons of their hosts.
+
+    Returns ({driver: result of the daemon tail call}, {driver: problem}).
+    """
+    by_host = {}
+    for name in names:
+        by_host.setdefault(lab_info['device_addresses'][name][0], []).append(name)
+
+    results, problems = {}, {}
+    for ip, host_drivers in by_host.items():
+        try:
+            client = _connect_daemon(ip)
+        except click.UsageError as e:
+            problems.update({name: e.message for name in host_drivers})
+            continue
+        for name in host_drivers:
+            try:
+                results[name] = client.tail(lab=lab_info['module'], driver=name, n=nlines, source=source)
+            except (RuntimeError, ValueError) as e:
+                # Only the first line: the rest is the remote traceback
+                problems[name] = str(e).splitlines()[0]
+        client.disconnect()
+    return results, problems
+
+def _filter_level(entries, min_level):
+    """
+    The log entries at min_level or above (all entries if min_level is None).
+    """
+    if min_level is None:
+        return entries
+    return [e for e in entries if e.level is not None and logs.level_number(e.level) >= min_level]
+
+def _echo_entry(driver, entry, width, color, raw):
+    """
+    Print an entry of a merged log: in compact form (time, driver, level, logger if it is
+    not the driver itself, message), or its original lines after the driver name (raw).
+    """
+    label = click.style(f'{driver:<{width}}', fg=color)
+    if raw:
+        click.echo(f'{label}  {entry.lines[0]}')
+        indent = ' ' * (width + 2)
+    else:
+        if entry.time is None:
+            time_text = ' ' * 12
+        else:
+            time_text = datetime.datetime.fromtimestamp(entry.time).strftime('%H:%M:%S.%f')[:-3]
+        level_text = click.style(f'{entry.level or "":<8}', fg=LEVEL_COLORS.get(entry.level))
+        logger_text = f'[{entry.name}] ' if entry.name not in (None, driver) else ''
+        click.echo(f'{time_text}  {label}  {level_text} {logger_text}{entry.message}')
+        indent = ' ' * (12 + 2 + width + 2 + 9)
+
+    # e.g. a traceback
+    for line in entry.lines[1:]:
+        click.echo(indent + line)
+
+@cli.command(name='log', help='Show the end of the log of the drivers [names], from the daemons of their '
+                              'host. The logs of several drivers are merged by time.')
+@click.argument('names', nargs=-1)
+@click.option('-n', 'nlines', default=50, show_default=True, help='Number of lines read per driver.')
+@click.option('--all', 'all_drivers', is_flag=True, help='All the drivers of the lab.')
+@click.option('--level', default=None, help='Only the entries at this level or above (e.g. WARNING).')
 @click.option('--out', 'output', is_flag=True, help='Show the process output (stdout and stderr) instead of the log file.')
-def log_cmd(name, nlines, output):
-    if name not in lab_info['device_addresses']:
-        raise click.BadParameter(f'Unknown driver {name}.')
-    ip = lab_info['device_addresses'][name][0]
+@click.option('--raw', is_flag=True, help='Merged logs: show the original lines instead of the compact form.')
+def log_cmd(names, nlines, all_drivers, level, output, raw):
+    if all_drivers == bool(names):
+        raise click.UsageError('Give driver names, or --all.')
+    if all_drivers:
+        names = tuple(lab_info['device_addresses'])
+    for name in names:
+        if name not in lab_info['device_addresses']:
+            raise click.BadParameter(f'Unknown driver {name}.')
+    min_level = None if level is None else _parse_level(level)
 
-    daemon_client = _connect_daemon(ip)
-    try:
-        result = daemon_client.tail(lab=lab_info['module'], driver=name, n=nlines,
-                                    source='out' if output else None)
-    except (RuntimeError, ValueError) as e:
-        # Only the first line: the rest is the remote traceback
-        raise click.ClickException(str(e).splitlines()[0])
+    results, problems = _tail_drivers(names, nlines, 'out' if output else None)
 
-    source = 'log file' if result['source'] == 'log' else 'process output'
-    click.secho(f'--- {name} {source}: {result["path"]} (on {_host_name(ip)}) ---', fg='blue')
-    click.echo('\n'.join(result['lines']))
+    # One driver: its original lines
+    if len(names) == 1:
+        name = names[0]
+        if name in problems:
+            raise click.ClickException(problems[name])
+        result = results[name]
+        ip = lab_info['device_addresses'][name][0]
+        source = 'log file' if result['source'] == 'log' else 'process output'
+        click.secho(f'--- {name} {source}: {result["path"]} (on {_host_name(ip)}) ---', fg='blue')
+        lines = result['lines']
+        if min_level is not None:
+            lines = [line for entry in _filter_level(logs.parse_log_lines(lines), min_level)
+                     for line in entry.lines]
+        click.echo('\n'.join(lines))
+        return
+
+    # Several drivers: merged by time
+    entries = {name: _filter_level(logs.parse_log_lines(result['lines']), min_level)
+               for name, result in results.items()}
+    width = max(len(name) for name in results) if results else 0
+    colors = {name: DRIVER_COLORS[i % len(DRIVER_COLORS)] for i, name in enumerate(results)}
+    for name, entry in logs.merge_log_entries(entries):
+        _echo_entry(name, entry, width, colors[name], raw)
+
+    # Drivers whose log cannot be read, grouped by reason. With --all, the drivers never
+    # started on their host are expected.
+    by_problem = {}
+    for name, problem in problems.items():
+        if not (all_drivers and 'never started' in problem):
+            by_problem.setdefault(problem, []).append(name)
+    for problem, drivers in by_problem.items():
+        click.secho(f'{", ".join(drivers)}: {problem}', fg='yellow', err=True)
 
 def _driver_client(name):
     """
@@ -537,7 +636,8 @@ def loglevel_cmd(name, level, save):
             level_name = client.get_log_level(part)
         else:
             level_name = client.set_log_level(level, part, save)
-    except AttributeError:
+    except (AttributeError, TypeError):
+        # Older drivers have no get_log_level, and a set_log_level with another signature
         raise click.ClickException(f'Driver {driver} runs an older version of lclib: restart it.')
     except ValueError as e:
         # Only the first line: the rest is the remote traceback

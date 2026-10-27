@@ -45,13 +45,18 @@ In the following we assume that the custom lab package is called `labname`:
   ``FAILED`` (failed to start, or stopped unexpectedly). ``-`` means that the driver was not
   started by the daemon: it may still be running if it was started with ``lstart``.
 
-* Show the end of the log of a driver (from any host):
+* Show the end of the log of one or several drivers (from any host):
 
-  ``python -m lclib labname log [driver]``
+  ``python -m lclib labname log [driver] [driver2 ...]``
 
-  The option ``-n`` sets the number of lines (50 by default), and ``--out`` shows the process
-  output (stdout and stderr) instead of the log file. For a driver that never became ready, the
-  process output is shown, since it contains the error.
+  ``python -m lclib labname log --all``
+
+  The logs of several drivers are merged by time, in a compact form (``--raw`` shows the
+  original lines). The option ``-n`` sets the number of lines read per driver (50 by
+  default), ``--level WARNING`` keeps only the warnings and errors, and ``--out`` shows the
+  process output (stdout and stderr) instead of the log file. For a driver that never became
+  ready, the process output is shown, since it contains the error. Merging the logs of
+  several hosts relies on their clocks being synchronized.
 
 * Show or change the log level of drivers (from any host, also while the driver is busy):
 

@@ -343,11 +343,13 @@ class ProcessPool:
             command += ['-L', str(loglevel_global)]
 
         # Unbuffered output (nothing lost on a crash), encoding independent of the platform,
-        # and traceback dump on fatal errors (e.g. segfault in a vendor library).
+        # traceback dump on fatal errors (e.g. segfault in a vendor library), and no lab
+        # banner in the output file.
         env = dict(os.environ,
                    PYTHONUNBUFFERED='1',
                    PYTHONIOENCODING='utf-8:backslashreplace',
-                   PYTHONFAULTHANDLER='1')
+                   PYTHONFAULTHANDLER='1',
+                   LCLIB_NO_BANNER='1')
 
         # The child inherits the output file, so the daemon can close it right away.
         with open(out_file, 'ab') as out:

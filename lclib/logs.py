@@ -12,6 +12,8 @@ import sys
 import json
 import collections
 import threading
+import re
+import datetime
 
 # This adds another debug level but it is not well managed by
 # zmq.logs.PubHandler so for now not used.
@@ -96,6 +98,64 @@ dual_formatter = DualFormatter()
 
 # Log files always use the extended format: they are mostly read after the fact
 extended_formatter = dual_formatter.extended_formatter
+
+# A line written with the formats above: time (with or without ms), level, logger name,
+# function and process/thread (extended format only), then the message
+_log_line_pattern = re.compile(
+    r'^\[(\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2})(?:\.(\d{3}))?\] \[([A-Z]+)\] \[([^\]]*)\] '
+    r'(?:\[[^\]]*\(\):\d+\] \[PID:\d+ TID:\d+\] )?(.*)$')
+
+class LogEntry(collections.namedtuple('LogEntry', 'time level name message lines')):
+    """
+    A log entry read back from a log file: time (seconds since the epoch, None if unknown),
+    level name, logger name (None if unknown), message (the first line without its header),
+    and its lines (the first one, then for instance a traceback).
+    """
+    __slots__ = ()
+
+def parse_log_lines(lines):
+    """
+    Group log lines into entries. A line starting with a timestamp starts an entry; the
+    following lines without timestamp (e.g. a traceback, or printed text) belong to it. Lines
+    before the first timestamp form an entry of their own, without time.
+
+    Returns a list of LogEntry.
+    """
+    entries = []
+    for line in lines:
+        match = _log_line_pattern.match(line)
+        if match is not None:
+            date, ms, level, name, message = match.groups()
+            t = datetime.datetime.strptime(date, '%d/%m/%Y %H:%M:%S').timestamp() + int(ms or 0) / 1000
+            entries.append(LogEntry(t, level, name, message, [line]))
+        elif entries:
+            entries[-1].lines.append(line)
+        else:
+            entries.append(LogEntry(None, None, None, line, [line]))
+    return entries
+
+def merge_log_entries(entries_by_source):
+    """
+    Merge the log entries of several sources (e.g. drivers) by time.
+
+    Parameters:
+    -----------
+    entries_by_source (dict): {source: list of LogEntry}
+
+    Returns a list of (source, LogEntry) in time order. Entries without time stay after the
+    previous entry of their source (or before the first one). Times of different hosts can
+    only be compared if their clocks are synchronized.
+    """
+    keyed = []
+    for i, (source, entries) in enumerate(entries_by_source.items()):
+        times = [entry.time for entry in entries if entry.time is not None]
+        t = times[0] if times else 0.
+        for j, entry in enumerate(entries):
+            if entry.time is not None:
+                t = entry.time
+            keyed.append(((t, i, j), source, entry))
+    keyed.sort(key=lambda k: k[0])
+    return [(source, entry) for _, source, entry in keyed]
 
 class JsonFormatter(logging.Formatter):
     """
