@@ -435,6 +435,59 @@ def test_tail_log_and_output(daemon, fakelab):
     assert result['path'] == status['out_file']
     assert 'stdout chatter 00000004' in result['lines']
 
+def test_driver_log_names_and_levels(daemon, fakelab):
+    log_file = _ensure_running(daemon, 'chatty')['log_file']
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        client.chat(1)
+        with pytest.raises(ValueError):
+            client.fail()
+    finally:
+        client.disconnect()
+
+    # Driver messages vs. messages of its proxy server
+    assert '[chatty]' in _log_line(log_file, 'chatter 00000000')
+    assert '[chatty.proxy]' in _log_line(log_file, 'Call to fail failed')
+
+    # Routine proxy messages are DEBUG: not in the log at INFO level
+    with open(log_file, encoding='utf-8') as f:
+        content = f.read()
+    assert "Rerouting 'print'" not in content
+    assert 'ChattyProxyServer' not in content
+
+def test_driver_debug_keeps_proxy_quiet(daemon, fakelab):
+    _ensure_stopped(daemon, 'chatty')
+    daemon.start(lab=LAB, driver='chatty', loglevel='DEBUG')
+    log_file = _wait_started(daemon, 'chatty')['log_file']
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        client.debug_message()
+    finally:
+        client.disconnect()
+    # The proxy notices the disconnection on its own thread
+    time.sleep(1)
+
+    # The driver logs at DEBUG level...
+    _log_line(log_file, 'driver debug message')
+    # ... but its proxy keeps the global level: no routine (DEBUG) messages
+    with open(log_file, encoding='utf-8') as f:
+        assert 'disconnected' not in f.read()
+    _ensure_stopped(daemon, 'chatty')
+
+def test_other_loggers_are_logged(daemon, fakelab):
+    log_file = _ensure_running(daemon, 'chatty')['log_file']
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        client.log_outside()
+    finally:
+        client.disconnect()
+
+    # All messages of the lab package, warnings and errors of other libraries
+    assert '[fakelab]' in _log_line(log_file, 'lab package info')
+    assert '[otherlibrary]' in _log_line(log_file, 'other library warning')
+    with open(log_file, encoding='utf-8') as f:
+        assert 'other library info' not in f.read()
+
 def test_tail_failed_driver(daemon):
     daemon.start(lab=LAB, driver='broken')
     _wait_started(daemon, 'broken')
@@ -446,9 +499,11 @@ def test_tail_failed_driver(daemon):
     with pytest.raises(RuntimeError, match='never became ready'):
         daemon.tail(lab=LAB, driver='broken', source='log')
 
-def test_tail_errors(daemon):
+def test_tail_errors(daemon, env):
     with pytest.raises(RuntimeError, match='never started'):
         daemon.tail(lab=LAB, driver='nosuchdriver')
+    # Errors in calls to the daemon are in the daemon log
+    assert '[processpool.proxy]' in _daemon_log_line(env, 'Call to tail failed')
     _ensure_running(daemon, 'chatty')
     with pytest.raises(ValueError, match='Unknown source'):
         daemon.tail(lab=LAB, driver='chatty', source='nosuchsource')

@@ -101,14 +101,14 @@ class DriverBase:
         # register exit functions
         atexit.register(self.shutdown)
 
-        # Get logger if not set in subclass
-        if self.logger is None:
-            self.logger = rootlogger.getChild(self.__class__.__name__)
-
         # Set default name here. Can be overridden by subclass, for instance to allow multiple instances to run
         # concurrently
         if not hasattr(self, 'name'):
             self.name = self.__class__.__name__.lower()
+
+        # Get logger if not set in subclass. Its proxy server logs as its child ('<name>.proxy').
+        if self.logger is None:
+            self.logger = rootlogger.getChild(self.name)
 
         # Load (or create) config dictionary
         self.config_filename = os.path.join(get_config()['conf_path'], 'drivers', self.name + '.json')
@@ -537,7 +537,7 @@ class MotorBase:
         self.driver = driver
 
         # Store logger
-        self.logger = logging.getLogger(name)
+        self.logger = rootlogger.getChild(f'motor.{name}')
 
         # File name for motor configuration
         self.config_file = os.path.join(get_config()['conf_path'], 'motors', name + '.json')

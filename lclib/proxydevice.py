@@ -384,6 +384,7 @@ class ProxyClientBase:
     # These class attributes are set in subclasses created by the proxydevice decorator
     ADDRESS = None
     API = None
+    LOGGER_NAME = None
 
     SERVE_INTERVAL = 0.0
     SLEEP_INTERVAL = 0.1
@@ -425,7 +426,7 @@ class ProxyClientBase:
                       'last_reply_time': 0.}
 
         # Create logger
-        self.logger = rootlogger.getChild(self.__class__.__name__)
+        self.logger = rootlogger.getChild(self.LOGGER_NAME or self.__class__.__name__)
 
         # rpyc connection
         self.conn = None
@@ -548,9 +549,9 @@ class ProxyClientBase:
 
                 # Try reconnecting
                 if self.first_connect:
-                    self.logger.info(f"Connection for {self.name} to {self.ADDRESS} not yet established. Retrying...")
+                    self.logger.debug(f"Connection for {self.name} to {self.ADDRESS} not yet established. Retrying...")
                 else:
-                    self.logger.info(f"Connection for {self.name} to {self.ADDRESS} is lost. Reconnecting...")
+                    self.logger.debug(f"Connection for {self.name} to {self.ADDRESS} is lost. Reconnecting...")
                 time.sleep(self.RECONNECT_INTERVAL)
                 continue
 
@@ -584,7 +585,7 @@ class ProxyClientBase:
             # Heading out anyway.
             pass
         self._connected = False
-        self.logger.info("Connection closed.")
+        self.logger.debug("Connection closed.")
 
     def ask_admin(self, admin=None, force=None):
         """
@@ -762,6 +763,7 @@ class ProxyServerBase:
     ADDRESS = None
     API = None
     CLS = None
+    LOGGER_NAME = None
 
     def __init__(self, instantiate=True, instance_args=None, instance_kwargs=None, address=None):
         """
@@ -779,8 +781,13 @@ class ProxyServerBase:
         class attribute ADDRESS will be used.
         """
         # Create logger
-        self.logger = rootlogger.getChild(self.__class__.__name__)
+        self.logger = rootlogger.getChild(self.LOGGER_NAME or self.__class__.__name__)
         self.name = self.__class__.__name__.lower()
+
+        # The proxy logs at the global level, independently of the level of the driver (its
+        # parent logger): debugging the driver must not bring the routine proxy messages.
+        if self.logger.level == logging.NOTSET:
+            self.logger.setLevel(rootlogger.getEffectiveLevel())
 
         if address is not None:
             self.ADDRESS = address
@@ -839,7 +846,7 @@ class ProxyServerBase:
         )
 
         # Replace print and input
-        self.logger.info("Rerouting 'print' and 'input'")
+        self.logger.debug("Rerouting 'print' and 'input'")
         mods = [sys.modules[cn.__module__] for cn in self.instance.__class__.__mro__ if cn.__module__ != 'builtins']
 
         for mod in mods:
@@ -870,7 +877,7 @@ class ProxyServerBase:
             pass
 
         # Clean up
-        self.logger.info("Reseting builtin 'print' and 'input'")
+        self.logger.debug("Reseting builtin 'print' and 'input'")
         mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__) if cn.__module__ != 'builtins']
         for mod in mods:
             mod.print = builtins.print
@@ -1012,10 +1019,10 @@ class ProxyServerBase:
         if not self.clients.pop(id, None):
             self.logger.error("Disconnecting client not found!")
         elif id == self.admin:
-            self.logger.info(f"Admin client {id} disconnected")
+            self.logger.debug(f"Admin client {id} disconnected")
             self.admin = None
         else:
-            self.logger.info(f"Client {id} disconnected")
+            self.logger.debug(f"Client {id} disconnected")
 
     def create_instance(self, args=None, kwargs=None):
         """
@@ -1046,9 +1053,9 @@ class ProxyServerBase:
         for method_name, api_info in self.API.items():
             if api_info.get("interrupt"):
                 self.interrupt_method = getattr(self.instance, method_name)
-                self.logger.info(f"Method {method_name} is the abort call.")
+                self.logger.debug(f"Method {method_name} is the abort call.")
 
-        self.logger.info("Created instance of wrapped class.")
+        self.logger.debug("Created instance of wrapped class.")
 
 
 class proxycall:
@@ -1147,6 +1154,8 @@ class proxydevice:
         proxyserver_name = f"{cls.__name__}ProxyServer"
         Server = type(proxyserver_name, (ProxyServerBase,), {})
         Server.ADDRESS = self.address
+        # A child of the driver logger (e.g. 'lclib.excillum.proxy')
+        Server.LOGGER_NAME = f"{cls.__name__.lower()}.proxy"
         Server.API = API
         Server.CLS = cls
 
@@ -1154,6 +1163,7 @@ class proxydevice:
         proxyclient_name = f"{cls.__name__}ProxyClient"
         Client = type(proxyclient_name, (ProxyClientBase,), {})
         Client.ADDRESS = self.address
+        Client.LOGGER_NAME = f"{cls.__name__.lower()}.client"
         Client.API = API
 
         # Create all fake methods and properties for Client

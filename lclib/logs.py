@@ -41,6 +41,21 @@ logger = logging.getLogger(__package__.split('.')[0])
 # Do not reach root handler
 logger.propagate = False
 
+def short_name(name):
+    """
+    Logger name as shown in the logs: without the 'lclib.' prefix (e.g. 'excillum.proxy').
+    """
+    prefix = logger.name + '.'
+    return name[len(prefix):] if name.startswith(prefix) else name
+
+class ShortNameFormatter(logging.Formatter):
+    """
+    Formatter providing %(shortname)s, the logger name without the 'lclib.' prefix.
+    """
+    def format(self, record):
+        record.shortname = short_name(record.name)
+        return super().format(record)
+
 # Custom formatter
 class DualFormatter(logging.Formatter):
     """
@@ -49,10 +64,10 @@ class DualFormatter(logging.Formatter):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.default_formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+        self.default_formatter = ShortNameFormatter("[%(asctime)s] [%(levelname)s] [%(shortname)s] %(message)s",
                                       "%d/%m/%Y %H:%M:%S")
-        self.extended_formatter = logging.Formatter(
-        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] [%(funcName)s():%(lineno)s] [PID:%(process)d TID:%(thread)d] %(message)s",
+        self.extended_formatter = ShortNameFormatter(
+        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(shortname)s] [%(funcName)s():%(lineno)s] [PID:%(process)d TID:%(thread)d] %(message)s",
         "%d/%m/%Y %H:%M:%S")
 
     def format(self, record):
@@ -198,6 +213,25 @@ def log_to_mem(logobj=None, level=logging.DEBUG):
     logobj = logobj or logger
     logobj.addHandler(mem_handler)
     logobj.in_memory_handler = mem_handler
+
+# Function to collect what is logged outside lclib
+def log_other_loggers(package=None, level=logging.INFO):
+    """
+    Send to the lclib handlers (console, file, memory) what is logged outside lclib: warnings
+    and errors of all modules (lab package, libraries), and the messages of `package` (e.g.
+    the lab package) from `level`. Call after the lclib handlers are set up.
+    Parameters:
+    -----------
+    package (str, optional): name of a package whose messages are kept from `level`.
+    level (int): The logging level for the messages of `package`.
+    """
+    root = logging.getLogger()
+    for handler in logger.handlers:
+        if handler not in root.handlers:
+            root.addHandler(handler)
+    root.setLevel(logging.WARNING)
+    if package:
+        logging.getLogger(package).setLevel(level)
 
 # Context manager to mute logging
 class logging_muted:

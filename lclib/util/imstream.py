@@ -9,10 +9,10 @@ This file is part of lab-control-lib
 
 import zmq
 import numpy as np
-import logging
 import threading
 import time
 from . import Future
+from ..logs import logger as rootlogger
 
 class FramePublisher:
     """
@@ -34,7 +34,7 @@ class FramePublisher:
 
         if arrays is True, publish numpy arrays. If false, publish raw byte buffers.
         """
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = rootlogger.getChild(self.__class__.__name__)
         self.port = port
         self.address = f'tcp://*:{port}'
         self.logger.info(f'Publishing on {self.address}')
@@ -142,7 +142,7 @@ class FrameSubscriber:
         Initializes zmq socket to receive frames and metadata.
         """
 
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = rootlogger.getChild(self.__class__.__name__)
         ip, port = address
         self.address = f'tcp://{ip}:{port}'
         self.logger.info(f'Connecting to {self.address}')

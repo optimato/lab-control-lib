@@ -57,7 +57,7 @@ def _connect_daemon(ip):
     Connect to the daemon of the host with the given ip, and check that it is recent enough.
     """
     # Only warnings and errors from the daemon client
-    rootlogger.getChild(dd.ProcessPool.Client.__name__).setLevel(logging.WARNING)
+    rootlogger.getChild(dd.ProcessPool.Client.LOGGER_NAME).setLevel(logging.WARNING)
     try:
         with logging_muted():
             client = dd.ProcessPool.Client(address=(ip, dd.DAEMON_PORT))
@@ -310,6 +310,10 @@ def lstart(name, loglevel, loglevel_global, ready_file, console_level):
     log_to_file(log_file)
     log_to_mem()
 
+    # Also what is logged outside lclib: warnings and errors of all modules, and the
+    # messages of the lab package (from the global level)
+    logs.log_other_loggers(lab_info['module'], rootlogger.getEffectiveLevel())
+
     # Everything is now logged to file: the console output can be restricted
     if console_level is not None:
         logs.console_handler.setLevel(_parse_level(console_level))
@@ -322,8 +326,8 @@ def lstart(name, loglevel, loglevel_global, ready_file, console_level):
             # Already logged, no need for a second traceback
             sys.exit(1)
         raise
+    # Driver level only: the proxy server keeps the global level (see ProxyServerBase)
     s.instance.set_log_level(ll)
-    s.logger.setLevel(ll)
 
     # Tell the daemon that the server is ready, once it accepts connections
     # (rpyc starts listening on the serving thread)

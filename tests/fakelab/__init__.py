@@ -7,6 +7,7 @@ FAKELAB_PORT, so that the tests never collide with a running lab.
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
+import logging
 import os
 import subprocess
 import sys
@@ -28,6 +29,10 @@ BASE_PORT = int(os.environ.get('FAKELAB_PORT', 15000))
 lclib.local_ip_list.append('localhost')
 
 lclib.init(lab_name='FakeLab', host_ips={'control': 'localhost'})
+
+# Loggers outside lclib: one of the lab package, one of another library
+logger = logging.getLogger(__name__)
+other_logger = logging.getLogger('otherlibrary')
 
 
 class UnpicklableError(Exception):
@@ -56,6 +61,19 @@ class Chatty(DriverBase):
             self.logger.warning(f'chatter {i:08d} ' + 'x' * 100)
             sys.stdout.write(f'stdout chatter {i:08d}\n')
         return n
+
+    @proxycall()
+    def debug_message(self):
+        self.logger.debug('driver debug message')
+
+    @proxycall()
+    def log_outside(self):
+        """
+        Log through loggers outside lclib.
+        """
+        logger.info('lab package info')
+        other_logger.info('other library info')
+        other_logger.warning('other library warning')
 
     @proxycall()
     def fail(self):

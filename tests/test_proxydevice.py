@@ -9,7 +9,7 @@ then, from ipython:
     %run tests/test_proxydevice.py interactive
 """
 
-from lclib import proxycall, proxydevice, ProxyDeviceError
+from lclib import proxycall, proxydevice, ProxyDeviceError, logs
 
 import atexit
 import logging
@@ -185,6 +185,52 @@ def test_errors_are_logged_by_server(server, client):
     # The error is logged with its traceback
     error = next(r for r in handler.records if r.levelname == 'ERROR')
     assert error.exc_info is not None
+
+def test_logger_names(server, client):
+    # The proxy server and the clients log as children of the driver logger ('lclib.a')
+    assert server.logger.name == 'lclib.a.proxy'
+    assert client.logger.name == 'lclib.a.client'
+
+    # Shown without the 'lclib.' prefix
+    record = server.logger.makeRecord(server.logger.name, logging.INFO, __file__, 0, 'hello', None, None)
+    for formatter in (logs.dual_formatter, logs.extended_formatter):
+        line = formatter.format(record)
+        assert '[a.proxy]' in line and 'lclib.' not in line
+
+def test_proxy_level_independent_of_driver(server):
+    # The proxy has its own level (the global level when created)...
+    assert server.logger.level != logging.NOTSET
+    proxy_level = server.logger.getEffectiveLevel()
+
+    # ... so a driver set to DEBUG does not make the proxy verbose
+    driver_logger = logging.getLogger('lclib.a')
+    level = driver_logger.level
+    driver_logger.setLevel(logging.DEBUG)
+    try:
+        assert server.logger.getEffectiveLevel() == proxy_level
+    finally:
+        driver_logger.setLevel(level)
+
+def test_routine_proxy_messages_are_debug(server):
+    handler = _ListHandler()
+    server.logger.addHandler(handler)
+    level = server.logger.level
+    server.logger.setLevel(logging.DEBUG)
+    try:
+        c = A.Client(admin=False, address=server.ADDRESS)
+        c.disconnect()
+        c.serving_thread.join(5)
+        # The server notices the disconnection on its own thread
+        t0 = time.time()
+        while not any('disconnected' in r.getMessage() for r in handler.records) and time.time() - t0 < 5:
+            time.sleep(.05)
+    finally:
+        server.logger.removeHandler(handler)
+        server.logger.setLevel(level)
+
+    disconnected = [r for r in handler.records if 'disconnected' in r.getMessage()]
+    assert disconnected
+    assert all(r.levelno == logging.DEBUG for r in disconnected)
 
 def test_non_blocking_call_with_abort(client):
     # long_task takes 10 s unless aborted: abort it from another thread after 1.5 s

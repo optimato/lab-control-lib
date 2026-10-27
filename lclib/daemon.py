@@ -36,17 +36,18 @@ _valid_name = re.compile(r'^[A-Za-z0-9_.-]+$')
 
 def setup_daemon_logging(level=logging.INFO):
     """
-    Configure logging for the daemon process: log to ~/.lclib/lclib-daemon.log
-    (and to the console, through the lclib logger).
+    Configure logging for the daemon process: everything logged by lclib in this process
+    (including errors in calls made to the daemon) goes to ~/.lclib/lclib-daemon.log, and
+    to the console.
 
     This is called only by the daemon process: other processes importing this module
     do not write to the daemon log.
     """
     log_path = os.path.expanduser('~/.lclib/')
     os.makedirs(log_path, exist_ok=True)
-    logs.log_to_file(os.path.join(log_path, 'lclib-daemon.log'), logobj=logger,
+    logs.log_to_file(os.path.join(log_path, 'lclib-daemon.log'), logobj=logs.logger,
                      max_bytes=5 * 1024 * 1024, backup_count=5)
-    logger.setLevel(level)
+    logs.logger.setLevel(level)
 
 def run_dir():
     """

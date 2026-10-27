@@ -13,9 +13,10 @@ import os
 import glob
 from collections import OrderedDict
 import pickle
-import logging
 
-logger = logging.getLogger()
+from ..logs import logger as rootlogger
+
+logger = rootlogger.getChild('h5rw')
 
 __all__ = ['h5write', 'h5append', 'h5read', 'h5info', 'h5options']
 
