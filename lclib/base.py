@@ -192,10 +192,12 @@ class DriverBase:
                 meta[key] = call()
         return meta
 
-    @proxycall()
     def set_log_level(self, level):
         """
         Set logging level for this driver only.
+
+        Clients call this through the proxy server (`client.set_log_level`), without the
+        instance lock, so that it works while the driver is busy.
         """
         self.logger.setLevel(level)
 

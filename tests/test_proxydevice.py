@@ -45,6 +45,11 @@ class A:
         print('Called wrong_call')
         raise RuntimeError('oops')
 
+    # A long blocking call (holds the instance lock)
+    @proxycall()
+    def slow(self, t):
+        time.sleep(t)
+
     # An exposed input
     @proxycall()
     def interact(self):
@@ -210,6 +215,51 @@ def test_proxy_level_independent_of_driver(server):
         assert server.logger.getEffectiveLevel() == proxy_level
     finally:
         driver_logger.setLevel(level)
+
+def test_log_level(server, client):
+    driver_logger = logging.getLogger('lclib.a')
+    driver_level, proxy_level = driver_logger.level, server.logger.level
+    try:
+        # The driver level by default, given by name (any case) or number
+        assert client.set_log_level('debug') == 'DEBUG'
+        assert driver_logger.level == logging.DEBUG
+        assert client.get_log_level() == 'DEBUG'
+        assert server.logger.level == proxy_level
+
+        # The proxy level, separately
+        assert client.set_log_level(30, part='proxy') == 'WARNING'
+        assert client.get_log_level('proxy') == 'WARNING'
+        assert client.get_log_level() == 'DEBUG'
+
+        with pytest.raises(ValueError, match='Unknown log level'):
+            client.set_log_level('loud')
+        with pytest.raises(ValueError, match='Unknown part'):
+            client.set_log_level('INFO', part='everything')
+        # A has no configuration to save the level in
+        with pytest.raises(ValueError, match='can be saved'):
+            client.set_log_level('INFO', save=True)
+    finally:
+        driver_logger.setLevel(driver_level)
+        server.logger.setLevel(proxy_level)
+
+def test_log_level_while_busy(server, client):
+    # A long call holds the instance lock (other proxycalls wait for it)...
+    busy = threading.Thread(target=client.slow, args=(3,))
+    busy.start()
+    time.sleep(.5)
+
+    # ... but the log level can be changed anyway (from another connection)
+    other = A.Client(admin=False, address=server.ADDRESS)
+    level = other.get_log_level()
+    try:
+        t0 = time.time()
+        assert other.set_log_level('DEBUG') == 'DEBUG'
+        assert time.time() - t0 < 1
+    finally:
+        other.set_log_level(level)
+        other.disconnect()
+        other.serving_thread.join(5)
+        busy.join()
 
 def test_routine_proxy_messages_are_debug(server):
     handler = _ListHandler()

@@ -24,6 +24,9 @@ In the following we assume that the custom lab package is called `labname`:
   followed by the end of the driver output, which usually shows the error that prevented the
   driver from starting.
 
+  The driver starts at its saved log level (see ``loglevel`` below), unless the option ``-l``
+  gives one.
+
   To start the driver without the use of the daemon, use instead the ``lstart`` command
   (standing for "local start"):
 
@@ -49,6 +52,16 @@ In the following we assume that the custom lab package is called `labname`:
   The option ``-n`` sets the number of lines (50 by default), and ``--out`` shows the process
   output (stdout and stderr) instead of the log file. For a driver that never became ready, the
   process output is shown, since it contains the error.
+
+* Show or change the log level of drivers (from any host, also while the driver is busy):
+
+  ``python -m lclib labname loglevel``  (all the drivers that can be reached)
+
+  ``python -m lclib labname loglevel [driver] [level]``
+
+  With ``--save``, the driver keeps this level for its next starts. The proxy server of the
+  driver has its own level, which normally stays at ``INFO``; for debugging the proxy itself,
+  use ``[driver].proxy`` as the name.
 
 * Show all currently running proxy drivers (started by the daemon or not):
 

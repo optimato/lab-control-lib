@@ -41,6 +41,21 @@ logger = logging.getLogger(__package__.split('.')[0])
 # Do not reach root handler
 logger.propagate = False
 
+def level_number(level):
+    """
+    Logging level as a number, from a number or a name (e.g. 10, '10', 'DEBUG' or 'debug').
+    """
+    if isinstance(level, int):
+        return level
+    try:
+        return int(level)
+    except ValueError:
+        pass
+    number = logging.getLevelName(str(level).upper())
+    if not isinstance(number, int):
+        raise ValueError(f'Unknown log level: {level}')
+    return number
+
 def short_name(name):
     """
     Logger name as shown in the logs: without the 'lclib.' prefix (e.g. 'excillum.proxy').

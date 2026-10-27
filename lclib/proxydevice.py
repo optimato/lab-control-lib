@@ -72,6 +72,10 @@ On another computer:
     a.get_multiple(5)
      -> 5
 
+Every client also provides `ask_admin`, `kill_server`, `get_log_level` and `set_log_level`
+(the last two work even while the instance is busy). These names are reserved: do not use
+them for methods exposed with `proxycall`.
+
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
@@ -90,7 +94,7 @@ import pickle
 import enum
 
 from .util import Future
-from .logs import logger as rootlogger
+from .logs import logger as rootlogger, level_number
 
 __all__ = ['proxydevice', 'proxycall', 'ProxyDeviceError']
 
@@ -205,6 +209,18 @@ class WrapServiceBase(rpyc.Service):
             self.server.logger.info("Abort requested but no interrupt method exists!")
             return
         return self.server.interrupt_method()
+
+    def exposed_get_log_level(self, part='driver'):
+        """
+        Log level of the driver or of the proxy server (without the instance lock).
+        """
+        return self.server.get_log_level(part)
+
+    def exposed_set_log_level(self, level, part='driver', save=False):
+        """
+        Set the log level of the driver or of the proxy server (without the instance lock).
+        """
+        return self.server.set_log_level(level, part, save)
 
     @classmethod
     def _new_exposed_method(cls, name, admin, block):
@@ -603,6 +619,22 @@ class ProxyClientBase:
         """
         self.conn.root.abort()
 
+    def get_log_level(self, part='driver'):
+        """
+        Log level of the driver (part='driver') or of its proxy server (part='proxy').
+        """
+        return self.conn.root.get_log_level(part)
+
+    def set_log_level(self, level, part='driver', save=False):
+        """
+        Set the log level of the driver (part='driver') or of its proxy server (part='proxy').
+        This works even while the driver is busy. With save=True, the driver level is kept
+        for the next starts.
+
+        Returns the name of the new level.
+        """
+        return self.conn.root.set_log_level(level, part, save)
+
     @property
     def server_startup_time(self):
         """
@@ -977,6 +1009,58 @@ class ProxyServerBase:
             self.logger.warning(f"Call to {name} refused: {error}")
         else:
             self.logger.error(f"Call to {name} failed: {error!r}", exc_info=error)
+
+    def _part_logger(self, part):
+        """
+        The logger of the driver (part='driver') or of the proxy server (part='proxy').
+        """
+        if part == 'proxy':
+            return self.logger
+        if part != 'driver':
+            raise ValueError(f"Unknown part {part!r} (should be 'driver' or 'proxy').")
+        logger = getattr(self.instance, 'logger', None)
+        if isinstance(logger, logging.Logger):
+            return logger
+        # Not a DriverBase: the parent of the proxy logger ('lclib.<driver>')
+        return logging.getLogger(self.logger.name.rsplit('.', 1)[0])
+
+    def get_log_level(self, part='driver'):
+        """
+        Name of the log level of the driver (part='driver') or of the proxy server (part='proxy').
+        """
+        return logging.getLevelName(self._part_logger(part).getEffectiveLevel())
+
+    def set_log_level(self, level, part='driver', save=False):
+        """
+        Set the log level of the driver (part='driver') or of the proxy server (part='proxy').
+        This does not use the instance lock, so it works while the driver is busy.
+
+        Parameters:
+        level (int or str): the level, e.g. 'DEBUG' or 10
+        part (str): 'driver' or 'proxy'
+        save (bool): if True, also store the driver level in its configuration, for the next
+                     starts (only for drivers with a configuration, e.g. DriverBase)
+
+        Returns:
+        str: the name of the new level
+        """
+        level = level_number(level)
+        logger = self._part_logger(part)
+        config = getattr(self.instance, 'config', None)
+        if save and (part != 'driver' or config is None):
+            raise ValueError('Only the level of a driver with a configuration can be saved.')
+
+        if part == 'driver' and callable(getattr(self.instance, 'set_log_level', None)):
+            # e.g. DriverBase, which may also pass the level to its components
+            self.instance.set_log_level(level)
+        else:
+            logger.setLevel(level)
+        if save:
+            config['log_level'] = level
+
+        name = logging.getLevelName(level)
+        self.logger.info(f"Log level of the {part} set to {name}{' (saved)' if save else ''}.")
+        return name
 
     def _proxy_print(self, *objects, sep=' ', end='\n', file=None, flush=False):
         """

@@ -474,6 +474,19 @@ def test_driver_debug_keeps_proxy_quiet(daemon, fakelab):
         assert 'disconnected' not in f.read()
     _ensure_stopped(daemon, 'chatty')
 
+def test_log_level_saved(daemon, fakelab, env):
+    log_file = _ensure_running(daemon, 'chatty')['log_file']
+    config_file = os.path.join(env['HOME'], '.fakelab-lclib', 'drivers', 'chatty.json')
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        assert client.set_log_level('DEBUG', save=True) == 'DEBUG'
+        assert client.get_log_level() == 'DEBUG'
+        assert dd.read_json(config_file)['log_level'] == logging.DEBUG
+        _log_line(log_file, 'Log level of the driver set to DEBUG (saved)')
+    finally:
+        client.set_log_level('INFO', save=True)
+        client.disconnect()
+
 def test_other_loggers_are_logged(daemon, fakelab):
     log_file = _ensure_running(daemon, 'chatty')['log_file']
     client = fakelab.Chatty.Client(admin=False)
@@ -593,6 +606,52 @@ def test_cli_log_unknown_driver(env):
     result = _lc(env, 'log', 'nosuchdriver')
     assert result.returncode == 2
     assert 'Unknown driver nosuchdriver' in result.stderr
+
+def test_cli_loglevel(env, daemon):
+    _ensure_running(daemon, 'chatty')
+    _ensure_stopped(daemon, 'slow')
+
+    # All drivers: the running ones have a level
+    result = _lc(env, 'loglevel')
+    assert result.returncode == 0, result.stdout + result.stderr
+    rows = {words[0]: words[1:] for words in map(str.split, result.stdout.splitlines())
+            if words and words[0] in ('chatty', 'slow')}
+    assert rows['chatty'] == ['control', 'INFO']
+    assert rows['slow'] == ['control', '-']
+
+    try:
+        assert 'chatty: DEBUG' in _lc(env, 'loglevel', 'chatty', 'debug').stdout
+        assert 'chatty: DEBUG' in _lc(env, 'loglevel', 'chatty').stdout
+
+        # The proxy server, separately (power users)
+        assert 'chatty.proxy: WARNING' in _lc(env, 'loglevel', 'chatty.proxy', 'WARNING').stdout
+        assert 'chatty: DEBUG' in _lc(env, 'loglevel', 'chatty').stdout
+        result = _lc(env, 'loglevel', 'chatty.proxy', 'INFO', '--save')
+        assert result.returncode == 1
+        assert 'can be saved' in result.stderr
+    finally:
+        _lc(env, 'loglevel', 'chatty', 'INFO')
+        _lc(env, 'loglevel', 'chatty.proxy', 'INFO')
+
+def test_cli_loglevel_errors(env):
+    result = _lc(env, 'loglevel', 'nosuchdriver')
+    assert result.returncode == 2
+    assert 'Unknown driver nosuchdriver' in result.stderr
+
+    result = _lc(env, 'loglevel', 'chatty', 'loud')
+    assert result.returncode == 2
+    assert 'Unknown log level: loud' in result.stderr
+
+def test_saved_level_used_at_next_start(env, daemon):
+    _ensure_running(daemon, 'chatty')
+    try:
+        assert 'chatty: DEBUG (saved)' in _lc(env, 'loglevel', 'chatty', 'DEBUG', '--save').stdout
+        _ensure_stopped(daemon, 'chatty')
+        # Started without -l: the saved level is used
+        _ensure_running(daemon, 'chatty')
+        assert 'chatty: DEBUG' in _lc(env, 'loglevel', 'chatty').stdout
+    finally:
+        _lc(env, 'loglevel', 'chatty', 'INFO', '--save')
 
 def test_lstart_already_running(env, daemon):
     _ensure_running(daemon, 'chatty')

@@ -9,6 +9,7 @@ import time
 import sys
 import os
 import signal
+import concurrent.futures
 import click
 import logging
 
@@ -27,12 +28,9 @@ def _parse_level(level):
     Convert a log level given as a number or a name to an int.
     """
     try:
-        return int(level)
-    except ValueError:
-        try:
-            return logging._nameToLevel[level.upper()]
-        except KeyError:
-            raise click.BadParameter(f'Unknown log level: {level}')
+        return logs.level_number(level)
+    except ValueError as e:
+        raise click.BadParameter(str(e))
 
 def _exit_on_sigterm(signum, frame):
     """
@@ -205,8 +203,8 @@ def running():
 
 @cli.command(help='Spawn the server proxy of driver [name].')
 @click.argument('name', nargs=-1)
-@click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
-@click.option('--log-global', '-L', 'loglevel_global', default='INFO', show_default=True, help='Log level for all components')
+@click.option('--log', '-l', 'loglevel', default=None, help='Log level of the driver. [default: its saved level]')
+@click.option('--log-global', '-L', 'loglevel_global', default=None, help='Log level for all components. [default: the lab level]')
 @click.option('--timeout', '-t', default=60., show_default=True, help='Time (in seconds) to wait for the driver to be ready.')
 def start(name, loglevel, loglevel_global, timeout):
 
@@ -257,8 +255,8 @@ def start(name, loglevel, loglevel_global, timeout):
 
 @cli.command(help='Start locally the server proxy of driver [name]. Does not return.')
 @click.argument('name', nargs=-1)
-@click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
-@click.option('--log-global', '-L', 'loglevel_global', default='INFO', show_default=True, help='Log level for all components')
+@click.option('--log', '-l', 'loglevel', default=None, help='Log level of the driver. [default: its saved level]')
+@click.option('--log-global', '-L', 'loglevel_global', default=None, help='Log level for all components. [default: the lab level]')
 @click.option('--ready-file', default=None, hidden=True, help='File written once the server is ready (used by the daemon).')
 @click.option('--console-level', default=None, hidden=True, help='Log level of the console output (used by the daemon).')
 def lstart(name, loglevel, loglevel_global, ready_file, console_level):
@@ -266,14 +264,9 @@ def lstart(name, loglevel, loglevel_global, ready_file, console_level):
     # Exit cleanly on SIGTERM, so that the driver can release its device
     signal.signal(signal.SIGTERM, _exit_on_sigterm)
 
-    try:
-        llg = int(loglevel_global)
-    except ValueError:
-        try:
-            llg = logging._nameToLevel[loglevel_global]
-        except KeyError:
-            raise click.BadParameter(f'Unknown log level: {loglevel_global}')
-    rootlogger.setLevel(llg)
+    # Otherwise, the level of the lab configuration (set at import)
+    if loglevel_global is not None:
+        rootlogger.setLevel(_parse_level(loglevel_global))
 
     # Without driver name: list available drivers on current host
     if not name:
@@ -297,13 +290,8 @@ def lstart(name, loglevel, loglevel_global, ready_file, console_level):
         click.secho('ALREADY RUNNING', fg='yellow')
         sys.exit(3)
 
-    try:
-        ll = int(loglevel)
-    except ValueError:
-        try:
-            ll = logging._nameToLevel[loglevel]
-        except KeyError:
-            raise click.BadParameter(f'Unknown log level: {loglevel}')
+    # Otherwise, the driver level saved in its configuration (applied at instantiation)
+    ll = None if loglevel is None else _parse_level(loglevel)
 
     # Log to file and to memory
     log_file = os.path.join(lab_info['log_dir'], f'{lab_info["lab_name"]}-{lab_info["module"]}-{name}.log')
@@ -327,7 +315,8 @@ def lstart(name, loglevel, loglevel_global, ready_file, console_level):
             sys.exit(1)
         raise
     # Driver level only: the proxy server keeps the global level (see ProxyServerBase)
-    s.instance.set_log_level(ll)
+    if ll is not None:
+        s.instance.set_log_level(ll)
 
     # Tell the daemon that the server is ready, once it accepts connections
     # (rpyc starts listening on the serving thread)
@@ -480,6 +469,81 @@ def log_cmd(name, nlines, output):
     click.secho(f'--- {name} {source}: {result["path"]} (on {_host_name(ip)}) ---', fg='blue')
     click.echo('\n'.join(result['lines']))
 
+def _driver_client(name):
+    """
+    A client to the driver, without admin rights (None if it cannot be reached).
+    Call with logging muted: connection errors are logged.
+    """
+    # Only warnings and errors from the client
+    rootlogger.getChild(_driver_classes[name].Client.LOGGER_NAME).setLevel(logging.WARNING)
+    return client_or_None(name, admin=False, client_name=f'loglevel-{lab_info["this_host"]}')
+
+def _echo_log_levels():
+    """
+    Print the log level of all the drivers that can be reached.
+    """
+    def driver_level(name):
+        client = _driver_client(name)
+        if client is None:
+            return '-'
+        try:
+            return client.get_log_level()
+        except Exception:
+            # e.g. a driver running an older version of lclib
+            return '?'
+        finally:
+            client.disconnect()
+
+    # In parallel: unreachable hosts take seconds to time out
+    names = lab_info['device_addresses']
+    with logging_muted(), concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+        levels = dict(zip(names, pool.map(driver_level, names)))
+
+    click.echo(f'{"Driver":<20}{"Host":<12}Level')
+    for name, address in names.items():
+        click.echo(f'{name:<20}{_host_name(address[0]):<12}{levels[name]}')
+    if '-' in levels.values():
+        click.echo('\n-: not reachable (not running?)')
+    if '?' in levels.values():
+        click.echo('?: level unknown (driver running an older version of lclib?)')
+
+@cli.command(name='loglevel', help='Show or set the log level of driver [name] (or of its proxy server, with '
+                                   '[name].proxy). Without name: the level of all reachable drivers.')
+@click.argument('name', required=False)
+@click.argument('level', required=False)
+@click.option('--save', is_flag=True, help='Keep the driver level for its next starts.')
+def loglevel_cmd(name, level, save):
+    if name is None:
+        _echo_log_levels()
+        return
+
+    # The driver itself, or its proxy server (power users)
+    driver, part = name, 'driver'
+    if name.endswith('.proxy'):
+        driver, part = name[:-len('.proxy')], 'proxy'
+    if driver not in lab_info['device_addresses']:
+        raise click.BadParameter(f'Unknown driver {driver}.')
+    if level is not None:
+        level = _parse_level(level)
+    elif save:
+        raise click.UsageError('--save needs a level.')
+
+    with logging_muted():
+        client = _driver_client(driver)
+    if client is None:
+        raise click.ClickException(f'Cannot reach driver {driver} (is it running?).')
+    try:
+        if level is None:
+            level_name = client.get_log_level(part)
+        else:
+            level_name = client.set_log_level(level, part, save)
+    except AttributeError:
+        raise click.ClickException(f'Driver {driver} runs an older version of lclib: restart it.')
+    except ValueError as e:
+        # Only the first line: the rest is the remote traceback
+        raise click.ClickException(str(e).splitlines()[0])
+    click.echo(f'{name}: {level_name}' + (' (saved)' if save else ''))
+
 @cli.command(help='Start frame viewer')
 @click.argument('name', nargs=1)
 @click.option('--log', '-l', 'loglevel', default='INFO', show_default=True, help='Log level.')
@@ -507,13 +571,7 @@ def viewer(name, loglevel, vtype, maxfps):
         click.echo(f'Invalid FPS')
         sys.exit(0)
 
-    try:
-        ll = int(loglevel)
-    except ValueError:
-        try:
-            ll = logging._nameToLevel[loglevel]
-        except KeyError:
-            raise click.BadParameter(f'Unknown log level: {loglevel}')
+    ll = _parse_level(loglevel)
 
     v = Vclass(address=addr, max_fps=maxfps, camera_name=name)
     v.logger.setLevel(ll)
