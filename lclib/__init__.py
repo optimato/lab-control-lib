@@ -74,6 +74,7 @@ drivers = {}   # Dictionary for driver instances
 motors = {}    # Dictionary of motor instances
 
 DEFAULT_MONITOR_PORT = 5001
+DAEMON_PORT = int(os.environ.get('LCLIB_DAEMON_PORT', 9998))
 DEFAULT_LOG_LEVEL = 20 # logging.INFO
 
 # Global variables set by init()
@@ -184,6 +185,13 @@ def init(lab_name,
     global config
     BANNER = '*{0:^120}*'
 
+    # No banner for drivers started by the daemon: their output goes to a file
+    show_banner = not os.environ.get('LCLIB_NO_BANNER')
+
+    def banner(*lines):
+        if show_banner:
+            print('\n'.join(BANNER.format(line) for line in lines))
+
     #
     # Lab name
     #
@@ -211,7 +219,7 @@ def init(lab_name,
     config['conf_path'] = conf_path
     config['module'] = parent_module
 
-    print(BANNER.format(f'This is {lab_name} (module "{parent_module}")'))
+    banner(f'This is {lab_name} (module "{parent_module}")')
 
     # Store local info extracted already at import
     config['local_hostname'] = local_hostname
@@ -232,10 +240,10 @@ def init(lab_name,
     if ui.is_interactive():
         log_file_name = os.path.join(log_dir, f'{lab_name.lower()}-lclib.log')
         logs.log_to_file(log_file_name)
-        print(BANNER.format('[Logging to file on this host]'))
+        banner('[Logging to file on this host]')
     else:
-        print(BANNER.format('[Not logging to file on this host]'))
-    print(BANNER.format(""))
+        banner('[Not logging to file on this host]')
+    banner('')
 
     logger.debug('Logging config completed')
 
@@ -262,19 +270,21 @@ def init(lab_name,
     try:
         this_host = [name for name, ip in host_ips.items() if ip in local_ip_list][0]
     except IndexError:
-        print(BANNER.format('[Host IP not part of the control network.]'))
+        if show_banner:
+            banner('[Host IP not part of the control network.]')
+        else:
+            logger.warning('Host IP not part of the control network.')
         this_host = 'unknown'
 
     config['this_host'] = this_host
 
-    print('\n'.join([BANNER.format(f"{lab_name} Lab Control"),
-                     BANNER.format(f"Running on host '{local_hostname}'"),
-                     BANNER.format(f"a.k.a. '{this_host}' with IP {local_ip_list}")
-                     ])
-          )
+    banner(f"{lab_name} Lab Control",
+           f"Running on host '{local_hostname}'",
+           f"a.k.a. '{this_host}' with IP {local_ip_list}")
 
 from . import monitor
 from . import manager
 from . import base
 from . import camera
 from . import ui
+from . import daemon

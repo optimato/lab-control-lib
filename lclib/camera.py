@@ -754,7 +754,6 @@ class CameraBase(DriverBase):
                     'magnification': self.magnification}
         return json.dumps(settings)
 
-    @proxycall()
     def set_log_level(self, level):
         """
         Set logging level - also for the filewriter process.

@@ -9,7 +9,6 @@ This file is part of lab-control-lib
 
 import inspect
 import os
-import logging
 
 from .. import _driver_classes, get_config, drivers, motors, client_or_None, local_hostname
 from . import uitools
@@ -175,7 +174,7 @@ class Scan:
         self.name = self.scan_data['scan_name']
         self.scan_path = self.scan_data['path']
 
-        self.logger = logging.getLogger(self.name)
+        self.logger = rootlogger.getChild(f'scan.{self.name}')
         self.logger.info(f'Starting scan {self.name}')
         self.logger.info(f'Files will be saved in {self.scan_path}')
 

@@ -108,8 +108,11 @@ tests.py
 # logging
 xnig.log
 
-#pycharm
+# pycharm
 .idea/
 
-#version file
+# version file
 lclib/_version.py
+
+# auto-generated scripts
+scripts/

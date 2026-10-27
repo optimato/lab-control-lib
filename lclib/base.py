@@ -101,14 +101,14 @@ class DriverBase:
         # register exit functions
         atexit.register(self.shutdown)
 
-        # Get logger if not set in subclass
-        if self.logger is None:
-            self.logger = rootlogger.getChild(self.__class__.__name__)
-
         # Set default name here. Can be overridden by subclass, for instance to allow multiple instances to run
         # concurrently
         if not hasattr(self, 'name'):
             self.name = self.__class__.__name__.lower()
+
+        # Get logger if not set in subclass. Its proxy server logs as its child ('<name>.proxy').
+        if self.logger is None:
+            self.logger = rootlogger.getChild(self.name)
 
         # Load (or create) config dictionary
         self.config_filename = os.path.join(get_config()['conf_path'], 'drivers', self.name + '.json')
@@ -192,10 +192,12 @@ class DriverBase:
                 meta[key] = call()
         return meta
 
-    @proxycall()
     def set_log_level(self, level):
         """
         Set logging level for this driver only.
+
+        Clients call this through the proxy server (`client.set_log_level`), without the
+        instance lock, so that it works while the driver is busy.
         """
         self.logger.setLevel(level)
 
@@ -220,6 +222,27 @@ class DriverBase:
         """
         if not self.quiet:
             print(s, end=end, flush=True)
+
+    @proxycall()
+    def get_logs(self, last_n=None, since=None):
+        """
+        Get the last `last_n` log messages as a list.
+        Parameters:
+        -----------
+        last_n (int): If specified, return only the last `last_n` messages.
+        since (float): If specified, return messages logged after this timestamp.
+        Return None if logging to memory is not enabled.
+        """
+        handler = None
+        if hasattr(self.logger, 'in_memory_handler'):
+            handler = self.logger.in_memory_handler
+        elif hasattr(rootlogger, 'in_memory_handler'):
+            handler = rootlogger.in_memory_handler
+        if handler is None:
+            self.logger.warning('In-memory logging is not enabled. Cannot retrieve logs.')
+            return None
+        # Get logs from the in-memory handler
+        return handler.get_logs(last_n=last_n, since=since)
 
     @classmethod
     def register_motor(cls, motor_name, **kwargs):
@@ -516,7 +539,7 @@ class MotorBase:
         self.driver = driver
 
         # Store logger
-        self.logger = logging.getLogger(name)
+        self.logger = rootlogger.getChild(f'motor.{name}')
 
         # File name for motor configuration
         self.config_file = os.path.join(get_config()['conf_path'], 'motors', name + '.json')

@@ -72,11 +72,16 @@ On another computer:
     a.get_multiple(5)
      -> 5
 
+Every client also provides `ask_admin`, `kill_server`, `get_log_level` and `set_log_level`
+(the last two work even while the instance is busy). These names are reserved: do not use
+them for methods exposed with `proxycall`.
+
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
 
 import logging
+import functools
 import rpyc
 import atexit
 import threading
@@ -89,7 +94,7 @@ import pickle
 import enum
 
 from .util import Future
-from .logs import logger as rootlogger
+from .logs import logger as rootlogger, level_number
 
 __all__ = ['proxydevice', 'proxycall', 'ProxyDeviceError']
 
@@ -115,7 +120,22 @@ class ProxyDeviceError(Exception):
 
 # Register custom error
 rpyc.core.vinegar._generic_exceptions_cache[
-    "lclib.util.proxydevice.ProxyDeviceError"] = ProxyDeviceError
+    f"{__name__}.ProxyDeviceError"] = ProxyDeviceError
+
+
+def _log_errors(name, method):
+    """
+    Wrap a service method so that its exceptions are logged by the server (i.e. in the
+    driver log) before being sent to the client.
+    """
+    @functools.wraps(method)
+    def wrapped(service_self, *args, **kwargs):
+        try:
+            return method(service_self, *args, **kwargs)
+        except Exception as error:
+            service_self.server.log_call_error(name, error)
+            raise
+    return wrapped
 
 
 class ThreadedServer(rpyc.ThreadedServer):
@@ -169,6 +189,12 @@ class WrapServiceBase(rpyc.Service):
         """
         return self.server.ask_admin(admin=admin, force=force)
 
+    def exposed_startup_time(self):
+        """
+        Return startup time of the server.
+        """
+        return self.server.startup_time
+
     def exposed_kill(self):
         """
         Kill the server.
@@ -183,6 +209,18 @@ class WrapServiceBase(rpyc.Service):
             self.server.logger.info("Abort requested but no interrupt method exists!")
             return
         return self.server.interrupt_method()
+
+    def exposed_get_log_level(self, part='driver'):
+        """
+        Log level of the driver or of the proxy server (without the instance lock).
+        """
+        return self.server.get_log_level(part)
+
+    def exposed_set_log_level(self, level, part='driver', save=False):
+        """
+        Set the log level of the driver or of the proxy server (without the instance lock).
+        """
+        return self.server.set_log_level(level, part, save)
 
     @classmethod
     def _new_exposed_method(cls, name, admin, block):
@@ -239,17 +277,28 @@ class WrapServiceBase(rpyc.Service):
 
                     # Define callback function
                     def callback(result, error):
-                        # Send result or error to client
-                        result_and_error = _m({"result": result, "error": error})
                         try:
-                            c.root.notify_result(result_and_error)
-                        except EOFError:
-                            # This happens if keyboard interrupt killed the client
-                            pass
+                            if error is not None:
+                                service_self.server.log_call_error(name, error)
 
-                        # Either way we are done with this call so we reset the
-                        # attribute holding the thread.
-                        service_self.server.awaiting_result = None
+                            # Send result or error to client
+                            try:
+                                result_and_error = _m({"result": result, "error": error})
+                            except Exception as e:
+                                # Result or error cannot be pickled: send a description instead
+                                result_and_error = _m({"result": None, "error": RuntimeError(
+                                    f"{name}: result or error could not be sent ({e!r}). Error: {error!r}")})
+                            try:
+                                c.root.notify_result(result_and_error)
+                            except EOFError:
+                                # This happens if keyboard interrupt killed the client
+                                pass
+                        except Exception:
+                            service_self.server.logger.exception(f"Could not send the result of {name} to the client.")
+                        finally:
+                            # Either way we are done with this call so we reset the
+                            # attribute holding the thread.
+                            service_self.server.awaiting_result = None
 
                     # Create the thread and start it
                     service_self.server.awaiting_result = Future(
@@ -261,7 +310,7 @@ class WrapServiceBase(rpyc.Service):
                 return _m({"result": None})
 
         # Attach the method to the service with "exposed_" prefix as per rpyc
-        setattr(cls, f"exposed_{name}", method)
+        setattr(cls, f"exposed_{name}", _log_errors(name, method))
 
     @classmethod
     def _new_exposed_property(cls, name, admin):
@@ -295,8 +344,8 @@ class WrapServiceBase(rpyc.Service):
             return _m({"result": None})
 
         # Attach the two methods to the service.
-        setattr(cls, f"exposed__get_{name}", get_method)
-        setattr(cls, f"exposed__set_{name}", set_method)
+        setattr(cls, f"exposed__get_{name}", _log_errors(f"{name} (get)", get_method))
+        setattr(cls, f"exposed__set_{name}", _log_errors(f"{name} (set)", set_method))
 
 
 class ClientServiceBase(rpyc.Service):
@@ -351,6 +400,7 @@ class ProxyClientBase:
     # These class attributes are set in subclasses created by the proxydevice decorator
     ADDRESS = None
     API = None
+    LOGGER_NAME = None
 
     SERVE_INTERVAL = 0.0
     SLEEP_INTERVAL = 0.1
@@ -392,12 +442,13 @@ class ProxyClientBase:
                       'last_reply_time': 0.}
 
         # Create logger
-        self.logger = rootlogger.getChild(self.__class__.__name__)
+        self.logger = rootlogger.getChild(self.LOGGER_NAME or self.__class__.__name__)
 
         # rpyc connection
         self.conn = None
         self.serving_thread = None
         self._connection_failed = False
+        self._connection_error = None
         self.first_connect = True
         self._active = False
         self._terminate = False
@@ -437,6 +488,7 @@ class ProxyClientBase:
         def catch_result(r, e):
             if e is None:
                 return
+            self._connection_error = e
             self._connection_failed = True
 
         self.serving_thread = Future(self._serve, callback=catch_result)
@@ -446,7 +498,10 @@ class ProxyClientBase:
             if self.conn is not None:
                 return True
             if self._connection_failed:
-                raise ProxyDeviceError('Connection failed')
+                # e.g. "Connection refused", "No route to host", "timed out"
+                e = self._connection_error
+                reason = getattr(e, 'strerror', None) or str(e) or type(e).__name__
+                raise ProxyDeviceError(f'Connection to {self.ADDRESS[0]}:{self.ADDRESS[1]} failed: {reason}') from e
             if self.reconnect == 'always':
                 return False
             time.sleep(0.05)
@@ -501,17 +556,18 @@ class ProxyClientBase:
                     host=self.ADDRESS[0],
                     port=self.ADDRESS[1],
                 )
-            except ConnectionRefusedError:
-                # No server present
+            except (OSError, EOFError) as e:
+                # No server present. Depending on the platform and firewall, the connection is
+                # refused or times out (e.g. on Windows): both must lead to a new attempt.
                 if (self.reconnect != 'always') or ((self.reconnect == 'if_successful') and self.first_connect) or (self.reconnect == 'never'):
-                    self.logger.error(f"Connection to {self.ADDRESS} refused. Is the server running?")
+                    self.logger.error(f"Connection to {self.ADDRESS} failed ({e!r}). Is the server running?")
                     raise
 
                 # Try reconnecting
                 if self.first_connect:
-                    self.logger.info(f"Connection for {self.name} to {self.ADDRESS} not yet established. Retrying...")
+                    self.logger.debug(f"Connection for {self.name} to {self.ADDRESS} not yet established. Retrying...")
                 else:
-                    self.logger.info(f"Connection for {self.name} to {self.ADDRESS} is lost. Reconnecting...")
+                    self.logger.debug(f"Connection for {self.name} to {self.ADDRESS} is lost. Reconnecting...")
                 time.sleep(self.RECONNECT_INTERVAL)
                 continue
 
@@ -545,7 +601,7 @@ class ProxyClientBase:
             # Heading out anyway.
             pass
         self._connected = False
-        self.logger.info("Connection closed.")
+        self.logger.debug("Connection closed.")
 
     def ask_admin(self, admin=None, force=None):
         """
@@ -562,6 +618,29 @@ class ProxyClientBase:
         Call the remote interrupt method.
         """
         self.conn.root.abort()
+
+    def get_log_level(self, part='driver'):
+        """
+        Log level of the driver (part='driver') or of its proxy server (part='proxy').
+        """
+        return self.conn.root.get_log_level(part)
+
+    def set_log_level(self, level, part='driver', save=False):
+        """
+        Set the log level of the driver (part='driver') or of its proxy server (part='proxy').
+        This works even while the driver is busy. With save=True, the driver level is kept
+        for the next starts.
+
+        Returns the name of the new level.
+        """
+        return self.conn.root.set_log_level(level, part, save)
+
+    @property
+    def server_startup_time(self):
+        """
+        Return the server startup time.
+        """
+        return self.conn.root.startup_time()
 
     def _stop(self):
         """
@@ -716,6 +795,7 @@ class ProxyServerBase:
     ADDRESS = None
     API = None
     CLS = None
+    LOGGER_NAME = None
 
     def __init__(self, instantiate=True, instance_args=None, instance_kwargs=None, address=None):
         """
@@ -733,8 +813,13 @@ class ProxyServerBase:
         class attribute ADDRESS will be used.
         """
         # Create logger
-        self.logger = rootlogger.getChild(self.__class__.__name__)
+        self.logger = rootlogger.getChild(self.LOGGER_NAME or self.__class__.__name__)
         self.name = self.__class__.__name__.lower()
+
+        # The proxy logs at the global level, independently of the level of the driver (its
+        # parent logger): debugging the driver must not bring the routine proxy messages.
+        if self.logger.level == logging.NOTSET:
+            self.logger.setLevel(rootlogger.getEffectiveLevel())
 
         if address is not None:
             self.ADDRESS = address
@@ -761,6 +846,9 @@ class ProxyServerBase:
 
         # A variable telling who is admin
         self.admin = None
+
+        # Instantiation time
+        self.startup_time = None
 
         atexit.register(self.stop)
 
@@ -790,7 +878,7 @@ class ProxyServerBase:
         )
 
         # Replace print and input
-        self.logger.info("Rerouting 'print' and 'input'")
+        self.logger.debug("Rerouting 'print' and 'input'")
         mods = [sys.modules[cn.__module__] for cn in self.instance.__class__.__mro__ if cn.__module__ != 'builtins']
 
         for mod in mods:
@@ -821,7 +909,7 @@ class ProxyServerBase:
             pass
 
         # Clean up
-        self.logger.info("Reseting builtin 'print' and 'input'")
+        self.logger.debug("Reseting builtin 'print' and 'input'")
         mods = [sys.modules[cn.__module__] for cn in [self.instance.__class__] + list(self.instance.__class__.__bases__) if cn.__module__ != 'builtins']
         for mod in mods:
             mod.print = builtins.print
@@ -912,6 +1000,68 @@ class ProxyServerBase:
         """
         return self.admin == self.this_id
 
+    def log_call_error(self, name, error):
+        """
+        Log an exception raised by a remote call, before it is sent to the client.
+        """
+        if isinstance(error, ProxyDeviceError):
+            # Refused call (e.g. not admin): no need for a traceback
+            self.logger.warning(f"Call to {name} refused: {error}")
+        else:
+            self.logger.error(f"Call to {name} failed: {error!r}", exc_info=error)
+
+    def _part_logger(self, part):
+        """
+        The logger of the driver (part='driver') or of the proxy server (part='proxy').
+        """
+        if part == 'proxy':
+            return self.logger
+        if part != 'driver':
+            raise ValueError(f"Unknown part {part!r} (should be 'driver' or 'proxy').")
+        logger = getattr(self.instance, 'logger', None)
+        if isinstance(logger, logging.Logger):
+            return logger
+        # Not a DriverBase: the parent of the proxy logger ('lclib.<driver>')
+        return logging.getLogger(self.logger.name.rsplit('.', 1)[0])
+
+    def get_log_level(self, part='driver'):
+        """
+        Name of the log level of the driver (part='driver') or of the proxy server (part='proxy').
+        """
+        return logging.getLevelName(self._part_logger(part).getEffectiveLevel())
+
+    def set_log_level(self, level, part='driver', save=False):
+        """
+        Set the log level of the driver (part='driver') or of the proxy server (part='proxy').
+        This does not use the instance lock, so it works while the driver is busy.
+
+        Parameters:
+        level (int or str): the level, e.g. 'DEBUG' or 10
+        part (str): 'driver' or 'proxy'
+        save (bool): if True, also store the driver level in its configuration, for the next
+                     starts (only for drivers with a configuration, e.g. DriverBase)
+
+        Returns:
+        str: the name of the new level
+        """
+        level = level_number(level)
+        logger = self._part_logger(part)
+        config = getattr(self.instance, 'config', None)
+        if save and (part != 'driver' or config is None):
+            raise ValueError('Only the level of a driver with a configuration can be saved.')
+
+        if part == 'driver' and callable(getattr(self.instance, 'set_log_level', None)):
+            # e.g. DriverBase, which may also pass the level to its components
+            self.instance.set_log_level(level)
+        else:
+            logger.setLevel(level)
+        if save:
+            config['log_level'] = level
+
+        name = logging.getLevelName(level)
+        self.logger.info(f"Log level of the {part} set to {name}{' (saved)' if save else ''}.")
+        return name
+
     def _proxy_print(self, *objects, sep=' ', end='\n', file=None, flush=False):
         """
         Print locally and on client.
@@ -953,10 +1103,10 @@ class ProxyServerBase:
         if not self.clients.pop(id, None):
             self.logger.error("Disconnecting client not found!")
         elif id == self.admin:
-            self.logger.info(f"Admin client {id} disconnected")
+            self.logger.debug(f"Admin client {id} disconnected")
             self.admin = None
         else:
-            self.logger.info(f"Client {id} disconnected")
+            self.logger.debug(f"Client {id} disconnected")
 
     def create_instance(self, args=None, kwargs=None):
         """
@@ -980,14 +1130,16 @@ class ProxyServerBase:
             self.instance = None
             raise
 
+        self.startup_time = time.time()
+
         # Look for interrupt call
         self.interrupt_method = None
         for method_name, api_info in self.API.items():
             if api_info.get("interrupt"):
                 self.interrupt_method = getattr(self.instance, method_name)
-                self.logger.info(f"Method {method_name} is the abort call.")
+                self.logger.debug(f"Method {method_name} is the abort call.")
 
-        self.logger.info("Created instance of wrapped class.")
+        self.logger.debug("Created instance of wrapped class.")
 
 
 class proxycall:
@@ -1086,6 +1238,8 @@ class proxydevice:
         proxyserver_name = f"{cls.__name__}ProxyServer"
         Server = type(proxyserver_name, (ProxyServerBase,), {})
         Server.ADDRESS = self.address
+        # A child of the driver logger (e.g. 'lclib.excillum.proxy')
+        Server.LOGGER_NAME = f"{cls.__name__.lower()}.proxy"
         Server.API = API
         Server.CLS = cls
 
@@ -1093,6 +1247,7 @@ class proxydevice:
         proxyclient_name = f"{cls.__name__}ProxyClient"
         Client = type(proxyclient_name, (ProxyClientBase,), {})
         Client.ADDRESS = self.address
+        Client.LOGGER_NAME = f"{cls.__name__.lower()}.client"
         Client.API = API
 
         # Create all fake methods and properties for Client
