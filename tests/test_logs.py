@@ -78,6 +78,41 @@ def test_merge_log_entries():
     # Continuation lines stay with their entry
     assert merged[0][1].lines[1] == 'continuation of a'
 
+def test_log_follower():
+    def read(*lines):
+        return logs.parse_log_lines(lines)
+
+    follower = logs.LogFollower()
+    first = read('[27/10/2026 12:00:01] [INFO] [a] one',
+                 '[27/10/2026 12:00:02] [ERROR] [a] two',
+                 'Traceback (most recent call last):')
+
+    # First read: everything is new
+    added, new, complete = follower.new_entries('a', first)
+    assert added is None and new == first and complete
+
+    # Same window plus new entries: only the new ones. The traceback being written when
+    # read the first time has more lines now.
+    second = read('[27/10/2026 12:00:02] [ERROR] [a] two',
+                  'Traceback (most recent call last):',
+                  'ValueError: wrong',
+                  '[27/10/2026 12:00:03] [INFO] [a] three')
+    added, new, complete = follower.new_entries('a', second)
+    assert added == (second[0], ['ValueError: wrong'])
+    assert [e.message for e in new] == ['three'] and complete
+
+    # Nothing new
+    assert follower.new_entries('a', second[-1:]) == (None, [], True)
+    assert follower.new_entries('a', []) == (None, [], True)
+
+    # The last entry seen is not in the window anymore: lines may have been missed
+    third = read('[27/10/2026 12:00:09] [INFO] [a] nine')
+    added, new, complete = follower.new_entries('a', third)
+    assert new == third and not complete
+
+    # Sources are followed separately
+    assert follower.new_entries('b', first)[1] == first
+
 def test_util_loggers():
     from lclib.util import h5rw, imstream
     assert h5rw.logger.name == 'lclib.h5rw'

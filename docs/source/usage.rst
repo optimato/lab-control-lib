@@ -58,6 +58,11 @@ In the following we assume that the custom lab package is called `labname`:
   ready, the process output is shown, since it contains the error. Merging the logs of
   several hosts relies on their clocks being synchronized.
 
+  With ``-f`` (follow), the new entries keep being shown, every 2 s, until Ctrl-C. To follow
+  the logs of all the drivers:
+
+  ``python -m lclib labname logall``
+
 * Show or change the log level of drivers (from any host, also while the driver is busy):
 
   ``python -m lclib labname loglevel``  (all the drivers that can be reached)

@@ -63,6 +63,10 @@ class Chatty(DriverBase):
         return n
 
     @proxycall()
+    def say(self, text):
+        self.logger.warning(text)
+
+    @proxycall()
     def debug_message(self):
         self.logger.debug('driver debug message')
 

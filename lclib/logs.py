@@ -157,6 +157,41 @@ def merge_log_entries(entries_by_source):
     keyed.sort(key=lambda k: k[0])
     return [(source, entry) for _, source, entry in keyed]
 
+class LogFollower:
+    """
+    Find the new entries in logs that are read again and again (e.g. the end of a log file,
+    every few seconds), by remembering the last entry seen for each source.
+    """
+
+    def __init__(self):
+        # source: (time and first line of the last entry seen, number of its lines)
+        self.last = {}
+
+    def new_entries(self, source, entries):
+        """
+        The entries of `source` not seen yet (all of them, the first time).
+
+        Returns (added, new, complete):
+        added: (entry, lines) if the last entry seen has more lines since (e.g. a traceback
+               being written), None otherwise
+        new: the new entries
+        complete: False if entries may have been missed (the last entry seen is not in
+                  `entries` anymore: more new entries than read, or a new log file)
+        """
+        if not entries:
+            return None, [], True
+        last = self.last.get(source)
+        self.last[source] = ((entries[-1].time, entries[-1].lines[0]), len(entries[-1].lines))
+        if last is None:
+            return None, entries, True
+
+        key, nlines = last
+        for i in range(len(entries) - 1, -1, -1):
+            if (entries[i].time, entries[i].lines[0]) == key:
+                added = entries[i].lines[nlines:]
+                return ((entries[i], added) if added else None), entries[i + 1:], True
+        return None, entries, False
+
 class JsonFormatter(logging.Formatter):
     """
     Format a record as JSON encoded.

@@ -665,6 +665,50 @@ def test_cli_log_all(env, daemon):
     assert result.returncode == 2
     assert 'Give driver names, or --all' in result.stderr
 
+def _run_until_ctrl_c(env, args, seconds, during=None):
+    """
+    Run a command line that does not return, call `during` after a few seconds, stop it
+    with Ctrl-C after `seconds`, and return (return code, stdout, stderr).
+    """
+    proc = subprocess.Popen([sys.executable, '-m', 'lclib', LAB, *args], env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        time.sleep(4)
+        if during is not None:
+            during()
+        time.sleep(seconds - 4)
+    finally:
+        proc.send_signal(signal.SIGINT)
+        out, err = proc.communicate(timeout=10)
+    return proc.returncode, out, err
+
+def test_cli_log_follow(env, daemon, fakelab):
+    _ensure_running(daemon, 'chatty')
+    daemon.start(lab=LAB, driver='broken')
+    _wait_started(daemon, 'broken')
+    before, after = f'before following {time.time()}', f'while following {time.time()}'
+
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        client.say(before)
+        code, out, err = _run_until_ctrl_c(env, ['log', 'chatty', 'broken', '-f', '-n', '5'],
+                                           seconds=10, during=lambda: client.say(after))
+    finally:
+        client.disconnect()
+
+    assert code == 0, err
+    # Each entry is shown once: the next reads only show the new entries
+    assert out.count(before) == 1
+    assert out.count(after) == 1
+
+def test_cli_logall(env, daemon):
+    _ensure_running(daemon, 'chatty')
+    code, out, err = _run_until_ctrl_c(env, ['logall', '-n', '5'], seconds=6)
+    assert code == 0, err
+    assert '  chatty  ' in out
+    # Drivers never started on their host are not reported
+    assert 'never started' not in err
+
 def test_cli_log_unknown_driver(env):
     result = _lc(env, 'log', 'nosuchdriver')
     assert result.returncode == 2
