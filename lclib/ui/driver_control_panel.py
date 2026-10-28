@@ -3,7 +3,7 @@ Driver control panel based on NiceGUI
 """
 
 from .. import get_config, _driver_classes, client_or_None, DAEMON_PORT
-from ..daemon import daemon_client
+from ..daemon import daemon_client, API_VERSION
 import time
 
 run = None
@@ -22,7 +22,9 @@ class GridRow:
               'UNMANAGED': ('text-orange-600', False, True),
               'FAILED': ('text-red-600', True, False),
               'STOPPING': ('text-gray-600', False, False),
-              'OFFLINE': ('text-black', True, False)}
+              'OFFLINE': ('text-black', True, False),
+              'NO DAEMON': ('text-gray-600', False, False),
+              'OLD DAEMON': ('text-red-600', False, False)}
 
     # Time (in seconds) given to the client to connect to a driver that just became ready
     CONNECT_GRACE = 5.
@@ -38,6 +40,8 @@ class GridRow:
         self.state = None
         self.startup_time = None
         self.unreachable_since = None
+        # Why the daemon of the host cannot be used: (state, explanation), or None
+        self.daemon_problem = None
         self.client = client_or_None(self.name, keep_trying=True, client_name='driver_control_panel')
         self.client.logger.setLevel(50)
         self.host_label = ui.label(self.hostname).classes('text-lg')
@@ -52,13 +56,17 @@ class GridRow:
         self.start_button = ui.button(icon='play_arrow', on_click=self.start).props('round dense color=green-600').classes('shadow-xs')
         self.stop_button = ui.button(icon='stop', on_click=self.shutdown).props('round dense color=red-600').classes('shadow-xs')
 
-    def update_state(self, daemon_status=None):
+    def update_state(self, daemon_status=None, daemon_problem=None):
         """
         Update the state of the device.
 
         daemon_status: the status of this driver according to the daemon of its host
                        (None if the daemon is not available or does not manage the driver)
+        daemon_problem: why the daemon of the host cannot be used, as (state, explanation),
+                        or None
         """
+        self.daemon_problem = daemon_problem
+
         # Check through direct client
         alive = self.client.connected
  
@@ -83,6 +91,8 @@ class GridRow:
         elif alive:
             # Managed: started by the daemon. Unmanaged: started by hand (lstart)
             self.state = 'ONLINE' if daemon_state in ('starting', 'running') else 'UNMANAGED'
+        elif daemon_problem is not None:
+            self.state = daemon_problem[0]
         elif daemon_state == 'starting':
             self.state = 'STARTING'
         elif daemon_state == 'running':
@@ -95,13 +105,16 @@ class GridRow:
         else:
             self.state = 'OFFLINE'
 
-        # Last line of the output of a failed driver (usually the exception)
-        error = ''
+        # Tooltip: the last line of the output of a failed driver (usually the exception),
+        # or why the daemon cannot be used
+        tooltip = ''
         if self.state == 'FAILED':
             lines = [line for line in daemon_status['error_tail'] or [] if line.strip()]
-            error = lines[-1] if lines else ''
-        self.status_tooltip.set_text(error)
-        self.status_tooltip.set_visibility(bool(error))
+            tooltip = lines[-1] if lines else ''
+        elif daemon_problem is not None:
+            tooltip = daemon_problem[1]
+        self.status_tooltip.set_text(tooltip)
+        self.status_tooltip.set_visibility(bool(tooltip))
 
         self.update_style()
     
@@ -109,9 +122,12 @@ class GridRow:
         """
         Start the device.
         """
-        # Check if the daemon is running
+        # Check that the daemon can be used
         if self.daemon is None or not self.daemon.connected:
             ui.notify(f'Daemon on {self.hostname} is not running.')
+            return
+        if self.daemon_problem is not None:
+            ui.notify(self.daemon_problem[1])
             return
 
         # Start the driver. The daemon returns immediately: the startup is then
@@ -153,6 +169,9 @@ class GridRow:
         """
         if self.daemon is None or not self.daemon.connected:
             ui.notify(f'Daemon on {self.hostname} is not running.')
+            return
+        if self.daemon_problem is not None:
+            ui.notify(self.daemon_problem[1])
             return
 
         # Default source: the log file, or the process output if the driver never became ready
@@ -218,7 +237,8 @@ class GridRow:
                 # Create a new client ready for the next start
                 self.client = client_or_None(self.name, keep_trying=True, client_name='driver_control_panel')
                 self.client.logger.setLevel(50)
-            elif self.state in ('STARTING', 'NOT RESPONDING') and self.daemon is not None and self.daemon.connected:
+            elif (self.state in ('STARTING', 'NOT RESPONDING') and self.daemon is not None
+                  and self.daemon.connected and self.daemon_problem is None):
                 # The driver cannot be reached: ask the daemon to stop its process
                 self.daemon.kill_process(lab=self.labname, driver=self.name)
             self.state = 'OFFLINE'
@@ -256,7 +276,6 @@ class DeviceManagerApp:
 
         # Connect to host daemons
         self.daemons = {}
-        self.status_errors = set()   # hosts whose daemon status could not be read
         for host, ip in self.host_list:
             try:
                 # Create a constantly-trying-to-connect client
@@ -350,24 +369,45 @@ class DeviceManagerApp:
         """Update the state of the UI."""
         self.spinner.classes(remove='hidden')
 
-        # Status of all the drivers managed by each daemon (one call per host)
-        statuses = {}
+        # Status of all the drivers managed by each daemon (one call per host), or the
+        # reason why the daemon cannot be used
+        statuses, problems = {}, {}
         for host, daemon in self.daemons.items():
-            if daemon is None or not daemon.connected:
-                continue
-            try:
-                statuses[host] = daemon.status_all()
-                self.status_errors.discard(host)
-            except Exception as e:
-                # Report only once per host (e.g. a daemon that is too old)
-                if host not in self.status_errors:
-                    print(f'[WARNING] Could not get driver status from daemon on {host}: {str(e).splitlines()[0]}')
-                    self.status_errors.add(host)
+            problem = self._daemon_problem(host, daemon)
+            if problem is None:
+                try:
+                    statuses[host] = daemon.status_all()
+                except Exception as e:
+                    # Only the first line: the rest is the remote traceback
+                    problem = ('NO DAEMON', f'Daemon on {host}: {str(e).splitlines()[0]}')
+            if problem is not None:
+                problems[host] = problem
 
         for entry in self.entries:
             host_statuses = statuses.get(entry.hostname, {})
-            entry.update_state(host_statuses.get(f'{self.labname}_{entry.name}'))
+            entry.update_state(host_statuses.get(f'{self.labname}_{entry.name}'), problems.get(entry.hostname))
         self.spinner.classes(add='hidden')
+
+    @staticmethod
+    def _daemon_problem(host, daemon):
+        """
+        Why the daemon of the host cannot be used, as (state shown for its drivers,
+        explanation), or None if it can.
+        """
+        if daemon is None or not daemon.connected:
+            reason = daemon.connection_error if daemon is not None else None
+            return ('NO DAEMON', f'Daemon on {host} not reachable' + (f': {reason}.' if reason else '.'))
+        try:
+            version = daemon.api_version()
+        except AttributeError:
+            # Daemon older than the version check
+            version = 1
+        except Exception as e:
+            return ('NO DAEMON', f'Daemon on {host}: {str(e).splitlines()[0]}')
+        if version < API_VERSION:
+            return ('OLD DAEMON', f'Daemon on {host} too old: update lclib on that host and restart '
+                                  f'the daemon (python -m lclib -r).')
+        return None
 
     async def periodic_update(self):
         """Periodically update the state."""
