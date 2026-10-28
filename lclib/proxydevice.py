@@ -429,6 +429,7 @@ class ProxyClientBase:
         self.client_name = name or self.name
         self.clean = clean
         self.reconnect = reconnect
+        self._admin = admin
         if address is not None:
             self.ADDRESS = address
 
@@ -498,10 +499,8 @@ class ProxyClientBase:
             if self.conn is not None:
                 return True
             if self._connection_failed:
-                # e.g. "Connection refused", "No route to host", "timed out"
-                e = self._connection_error
-                reason = getattr(e, 'strerror', None) or str(e) or type(e).__name__
-                raise ProxyDeviceError(f'Connection to {self.ADDRESS[0]}:{self.ADDRESS[1]} failed: {reason}') from e
+                raise ProxyDeviceError(f'Connection to {self.ADDRESS[0]}:{self.ADDRESS[1]} failed: '
+                                       f'{self.connection_error}') from self._connection_error
             if self.reconnect == 'always':
                 return False
             time.sleep(0.05)
@@ -509,6 +508,17 @@ class ProxyClientBase:
     @property
     def connected(self):
         return self._connected
+
+    @property
+    def connection_error(self):
+        """
+        Reason of the last failed connection attempt, e.g. "Connection refused", "No route to
+        host" or "timed out" (None if the last attempt succeeded).
+        """
+        e = self._connection_error
+        if e is None:
+            return None
+        return getattr(e, 'strerror', None) or str(e) or type(e).__name__
 
     def disconnect(self):
         """
@@ -559,7 +569,9 @@ class ProxyClientBase:
             except (OSError, EOFError) as e:
                 # No server present. Depending on the platform and firewall, the connection is
                 # refused or times out (e.g. on Windows): both must lead to a new attempt.
-                if (self.reconnect != 'always') or ((self.reconnect == 'if_successful') and self.first_connect) or (self.reconnect == 'never'):
+                self._connection_error = e
+                give_up = (self.reconnect == 'never') or (self.reconnect == 'if_successful' and self.first_connect)
+                if give_up:
                     self.logger.error(f"Connection to {self.ADDRESS} failed ({e!r}). Is the server running?")
                     raise
 
@@ -573,12 +585,19 @@ class ProxyClientBase:
 
             # Connected!
             self._connected = True
+            self._connection_error = None
 
             if self.first_connect:
                 self.logger.info(f"Connected to {self.ADDRESS}.")
                 self.first_connect = False
             else:
                 self.logger.info(f"Reconnected.")
+                # The server does not know this client anymore: ask again for admin rights
+                if self._admin:
+                    try:
+                        self.conn.root.ask_admin(admin=True)
+                    except Exception:
+                        self.logger.warning('Could not ask again for admin rights.', exc_info=True)
 
             # Start serving
             self._active = True

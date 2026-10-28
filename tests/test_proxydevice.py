@@ -346,6 +346,44 @@ def test_input_is_asked_to_admin_client(server, client, monkeypatch):
     client.interact()
     assert server.instance.z == 'typed on the client'
 
+def test_client_reconnects_after_server_restart(monkeypatch):
+    # Keep this test last: stopping a server resets 'print' and 'input' in this module
+    monkeypatch.setattr(A.Client, 'RECONNECT_INTERVAL', .2)
+    address = ('127.0.0.1', _free_port())
+
+    def wait_for(condition, timeout=5):
+        t0 = time.time()
+        while not condition() and time.time() - t0 < timeout:
+            time.sleep(.05)
+        return condition()
+
+    def stop(s):
+        s.stop()
+        atexit.unregister(s.stop)
+
+    server = A.Server(address=address)
+    # Default client: admin, reconnect='if_successful'
+    c = A.Client(address=address)
+    try:
+        assert c.ask_admin()
+
+        # The server stops: the client keeps trying to reconnect
+        stop(server)
+        assert wait_for(lambda: not c.connected)
+        time.sleep(1)
+        assert 'refused' in c.connection_error.lower()
+
+        # The server is back: reconnected, and admin again
+        server = A.Server(address=address)
+        assert wait_for(lambda: c.connected)
+        assert c.connection_error is None
+        assert wait_for(lambda: c.ask_admin())
+        c.set_a(2)
+    finally:
+        stop(server)
+        c.disconnect()
+        c.serving_thread.join(5)
+
 
 if __name__ == "__main__":
     """
