@@ -52,6 +52,13 @@ class Chatty(DriverBase):
     A driver that can produce a lot of output.
     """
 
+    def __init__(self):
+        super().__init__()
+        # Metadata, part of the status (see DriverBase.status)
+        self.metacalls.update({'temperature': lambda: 21.5,
+                               'settings': lambda: {'speed': 2, 'mode': 'fast'}})
+        self.initialized = True
+
     @proxycall()
     def chat(self, n):
         """
@@ -61,6 +68,13 @@ class Chatty(DriverBase):
             self.logger.warning(f'chatter {i:08d} ' + 'x' * 100)
             sys.stdout.write(f'stdout chatter {i:08d}\n')
         return n
+
+    @proxycall()
+    def busy(self, t):
+        """
+        A long blocking call (holds the instance lock).
+        """
+        time.sleep(t)
 
     @proxycall()
     def say(self, text):

@@ -45,6 +45,19 @@ In the following we assume that the custom lab package is called `labname`:
   ``FAILED`` (failed to start, or stopped unexpectedly). ``-`` means that the driver was not
   started by the daemon: it may still be running if it was started with ``lstart``.
 
+* Show the status reported by drivers themselves (by default their name, whether they are
+  initialized, and their metadata; drivers can extend the ``status`` method of ``DriverBase``):
+
+  ``python -m lclib labname status [driver] [driver2 ...]``
+
+  ``python -m lclib labname status --all``
+
+  With ``-f`` (follow), the status is refreshed every 2 s until Ctrl-C. A driver that does not
+  answer within 5 s (e.g. busy with a long operation) is shown as busy, with its last status.
+  To follow the status of all the drivers:
+
+  ``python -m lclib labname statusall``
+
 * Show the end of the log of one or several drivers (from any host):
 
   ``python -m lclib labname log [driver] [driver2 ...]``

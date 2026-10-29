@@ -207,6 +207,19 @@ class DriverBase:
         """
         pass
 
+    @proxycall()
+    def status(self):
+        """
+        Return driver status information as a dictionary.
+
+        Base class default: 
+          {'name': self.name, 'initialized': self.initialized} + self.get_meta() 
+        """
+        out = {'name': self.name, 'initialized': self.initialized}
+        if self.initialized:
+            out.update(self.get_meta())
+        return out
+        
     @proxycall(admin=True)
     @property
     def quiet(self):

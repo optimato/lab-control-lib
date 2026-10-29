@@ -16,6 +16,7 @@ import logging
 
 from . import logs, get_config, client_or_None, _driver_classes, ProxyDeviceError
 from .proxydevice import ProxyServerBase
+from .util import Future
 from .camera import CameraBase
 from .logs import logging_muted, log_to_file, log_to_mem, logger as rootlogger
 from . import ui
@@ -411,8 +412,202 @@ def cp():
     app.run(reload=False)
     sys.exit(0)
 
-@cli.command(name='status', help='Show the status of all drivers, according to the daemon of their host.')
-def status_cmd():
+def _status_lines(value, depth=0):
+    """
+    Lines showing a driver status: one 'key: value' line per item of a dictionary (nested
+    dictionaries indented below their key), or the value itself.
+    """
+    indent = '  ' * depth
+    if isinstance(value, bytes):
+        value = value.decode('utf-8', errors='replace')
+    if not isinstance(value, dict):
+        return [f'{indent}{value}']
+
+    width = max((len(str(key)) for key in value), default=0) + 1
+    lines = []
+    for key, item in value.items():
+        if isinstance(item, dict) and item:
+            lines.append(f'{indent}{key}:')
+            lines += _status_lines(item, depth + 1)
+        else:
+            if isinstance(item, bytes):
+                item = item.decode('utf-8', errors='replace')
+            lines.append(f'{indent}{str(key) + ":":<{width}}  {item}')
+    return lines
+
+def _echo_driver_status(name):
+    """
+    Print the status reported by the driver itself (DriverBase.status, which drivers can
+    extend).
+    """
+    with logging_muted():
+        client = _driver_client(name)
+    if client is None:
+        raise click.ClickException(f'Cannot reach driver {name} (is it running?).')
+    try:
+        if not hasattr(client, 'status'):
+            raise click.ClickException(f'Driver {name} does not expose a status method.')
+        status = client.status()
+    except AttributeError:
+        raise click.ClickException(f'Driver {name} runs an older version of lclib: restart it.')
+    except click.ClickException:
+        raise
+    except Exception as e:
+        # Only the first line: the rest is the remote traceback
+        raise click.ClickException(f'Status of driver {name} failed: {str(e).splitlines()[0]}')
+    finally:
+        client.disconnect()
+    click.echo('\n'.join(_status_lines(status)))
+
+# Status of several drivers: time (in seconds) between two refreshes with --follow, and time
+# after which a driver that has not answered is shown as busy
+STATUS_INTERVAL = 2.
+STATUS_TIMEOUT = 5.
+
+def _status_error(error):
+    """
+    Short explanation of an error raised by a status call.
+    """
+    if isinstance(error, AttributeError):
+        return 'runs an older version of lclib: restart it'
+    # Only the first line: the rest is the remote traceback
+    return f'status failed: {str(error).splitlines()[0]}'
+
+def _show_statuses(names, follow):
+    """
+    Show the status reported by each of the drivers and, with follow, refresh it every
+    STATUS_INTERVAL seconds until Ctrl-C. The drivers are asked in parallel, over connections
+    kept open. A driver that does not answer within STATUS_TIMEOUT (e.g. busy with a long
+    operation) is shown as busy, with its last status, and is not asked again before it
+    answers.
+    """
+    clients = {}       # {driver: client}
+    connecting = {}    # {driver: connection attempt in progress}
+    calls = {}         # {driver: status call in progress}
+    last = {}          # {driver: last status received}
+
+    def start(target, *args):
+        # On a daemon thread: a call to a busy driver does not prevent exiting
+        return Future(target, args=args, callback=lambda result, error: None)
+
+    def wait(futures):
+        deadline = time.time() + STATUS_TIMEOUT
+        for future in futures:
+            future.join(max(0., deadline - time.time()))
+
+    def refresh(first):
+        """
+        Returns {driver: (kind, value)}: kind is 'ok' (value: the status), 'busy' (value: the
+        last status, or None), 'error' (value: an explanation) or 'unreachable'.
+        """
+        # Connect to the drivers not connected yet. In parallel, since unreachable hosts take
+        # seconds to time out: wait for the connections only the first time.
+        for name in names:
+            if name not in clients and name not in connecting:
+                connecting[name] = start(_driver_client, name)
+        if first:
+            wait(connecting.values())
+        for name, attempt in [*connecting.items()]:
+            if attempt.done():
+                del connecting[name]
+                if attempt.exception() is None and attempt.result() is not None:
+                    clients[name] = attempt.result()
+
+        # Ask the connected drivers for their status (not again before the last call answered)
+        shown, started = {}, []
+        for name, client in clients.items():
+            if not hasattr(client, 'status'):
+                shown[name] = ('error', 'does not expose a status method')
+            elif name not in calls and client.connected:
+                calls[name] = start(client.status)
+                started.append(calls[name])
+        wait(started)
+
+        for name in names:
+            if name in shown:
+                continue
+            call = calls.get(name)
+            if call is None:
+                shown[name] = ('unreachable', None)
+            elif not call.done():
+                shown[name] = ('busy', last.get(name))
+            else:
+                del calls[name]
+                if call.exception() is None:
+                    last[name] = call.result()
+                    shown[name] = ('ok', last[name])
+                else:
+                    shown[name] = ('error', _status_error(call.exception()))
+        return shown
+
+    def show(shown):
+        for name in names:
+            kind, value = shown[name]
+            if kind == 'unreachable':
+                continue
+            host = _host_name(lab_info['device_addresses'][name][0])
+            if kind == 'busy':
+                click.secho(f'── {name} ({host}) ── busy, last status:', fg='yellow')
+            else:
+                click.secho(f'── {name} ({host}) ──', fg='blue')
+            if kind == 'error':
+                click.secho(f'  {value}', fg='red')
+            elif value is None:
+                click.echo('  (no status yet)')
+            else:
+                click.echo('\n'.join(_status_lines(value, depth=1)))
+            click.echo()
+        unreachable = [name for name in names if shown[name][0] == 'unreachable']
+        if unreachable:
+            click.echo('Not reachable: ' + ', '.join(unreachable))
+
+    # Connection errors are expected (drivers not running)
+    with logging_muted():
+        try:
+            first = True
+            while True:
+                shown = refresh(first)
+                if follow:
+                    click.clear()
+                    click.secho(f'Status at {time.strftime("%H:%M:%S")}, refreshed every {STATUS_INTERVAL:g} s '
+                                f'(Ctrl-C to stop)', bold=True)
+                    click.echo()
+                show(shown)
+                if not follow:
+                    break
+                first = False
+                time.sleep(STATUS_INTERVAL)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            for client in clients.values():
+                client.disconnect()
+
+@cli.command(name='status', help='Show the status of all drivers according to the daemon of their host or, with '
+                                 'driver [names] or --all, the status reported by the drivers themselves.')
+@click.argument('names', nargs=-1)
+@click.option('--all', 'all_drivers', is_flag=True, help='The status reported by all the drivers.')
+@click.option('--follow', '-f', is_flag=True, help=f'Refresh every {STATUS_INTERVAL:g} s, until Ctrl-C.')
+def status_cmd(names, all_drivers, follow):
+    if all_drivers and names:
+        raise click.UsageError('Give driver names, or --all.')
+    if all_drivers:
+        names = tuple(lab_info['device_addresses'])
+    for name in names:
+        if name not in lab_info['device_addresses']:
+            raise click.BadParameter(f'Unknown driver {name}.')
+
+    # The status reported by the drivers
+    if len(names) == 1 and not follow:
+        _echo_driver_status(names[0])
+        return
+    if names:
+        _show_statuses(names, follow)
+        return
+    if follow:
+        raise click.UsageError('-f needs driver names, or --all.')
+
+    # The status according to the daemons
     lab = lab_info['module']
 
     # Status of the drivers managed by each daemon (one call per host)
@@ -601,6 +796,11 @@ def _show_logs(names, nlines, min_level, source, raw, follow, expect_never_start
     finally:
         for client in clients.values():
             client.disconnect()
+
+@cli.command(name='statusall', help=f'Follow the status reported by all the drivers, refreshed every '
+                                    f'{STATUS_INTERVAL:g} s until Ctrl-C (like "status --all -f").')
+def statusall_cmd():
+    _show_statuses(tuple(lab_info['device_addresses']), follow=True)
 
 @cli.command(name='log', help='Show the end of the log of the drivers [names], from the daemons of their '
                               'host. The logs of several drivers are merged by time.')

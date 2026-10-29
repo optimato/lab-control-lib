@@ -14,6 +14,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 import psutil
@@ -593,6 +594,82 @@ def test_cli_status_without_daemon(env):
     assert 'UNKNOWN' in result.stdout
     assert 'Cannot reach the daemon on host control' in result.stdout
     assert 'refused' in result.stdout.lower()
+
+def test_status_lines():
+    from lclib.__main__ import _status_lines
+    assert _status_lines({'name': 'motor', 'position': 1.5, 'limits': {'low': -1, 'high': 1}, 'reply': b'IDLE'}) == [
+        'name:      motor',
+        'position:  1.5',
+        'limits:',
+        '  low:   -1',
+        '  high:  1',
+        'reply:     IDLE']
+    # Not a dictionary: the value itself
+    assert _status_lines(b'IDLE') == ['IDLE']
+    assert _status_lines({}) == []
+
+def test_cli_driver_status(env, daemon):
+    _ensure_running(daemon, 'chatty')
+    result = _lc(env, 'status', 'chatty')
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = [line for line in result.stdout.splitlines()]
+    # Default status: name, initialized, and the metadata
+    assert 'name:         chatty' in lines
+    assert 'initialized:  True' in lines
+    assert 'temperature:  21.5' in lines
+    i = lines.index('settings:')
+    assert lines[i + 1:i + 3] == ['  speed:  2', '  mode:   fast']
+
+    _ensure_stopped(daemon, 'slow')
+    result = _lc(env, 'status', 'slow')
+    assert result.returncode == 1
+    assert 'Cannot reach driver slow' in result.stderr
+
+    result = _lc(env, 'status', 'nosuchdriver')
+    assert result.returncode == 2
+    assert 'Unknown driver nosuchdriver' in result.stderr
+
+def test_cli_status_several_drivers(env, daemon):
+    _ensure_running(daemon, 'chatty')
+    _ensure_stopped(daemon, 'slow')
+
+    result = _lc(env, 'status', 'chatty', 'slow')
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    i = lines.index('── chatty (control) ──')
+    assert '  name:         chatty' in lines[i + 1:]
+    assert 'Not reachable: slow' in lines
+
+    result = _lc(env, 'status', '--all')
+    assert '── chatty (control) ──' in result.stdout
+    assert 'Not reachable: ' in result.stdout
+
+    result = _lc(env, 'status', '-f')
+    assert result.returncode == 2
+    assert '-f needs driver names, or --all' in result.stderr
+
+def test_cli_status_follow_busy_driver(env, daemon, fakelab):
+    _ensure_running(daemon, 'chatty')
+    client = fakelab.Chatty.Client(admin=False)
+    busy = threading.Thread(target=client.busy, args=(10,))
+    try:
+        # Busy from about 4 s after the start: the status calls wait for the driver
+        code, out, err = _run_until_ctrl_c(env, ['status', 'chatty', '-f'], seconds=14, during=busy.start)
+    finally:
+        busy.join()
+        client.disconnect()
+
+    assert code == 0, err
+    # First the status, then "busy" with the last status
+    assert out.index('── chatty (control) ──') < out.index('── chatty (control) ── busy, last status:')
+    assert out.split('busy, last status:')[1].splitlines()[1] == '  name:         chatty'
+
+def test_cli_statusall(env, daemon):
+    _ensure_running(daemon, 'chatty')
+    code, out, err = _run_until_ctrl_c(env, ['statusall'], seconds=6)
+    assert code == 0, err
+    assert '── chatty (control) ──' in out
+    assert 'Not reachable: ' in out
 
 def test_cli_log(env, daemon, fakelab):
     _ensure_running(daemon, 'chatty')
