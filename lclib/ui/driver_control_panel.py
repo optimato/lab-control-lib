@@ -2,13 +2,149 @@
 Driver control panel based on NiceGUI
 """
 
-from .. import get_config, _driver_classes, client_or_None, DAEMON_PORT
+from .. import get_config, _driver_classes, client_or_None, DAEMON_PORT, logs
 from ..daemon import daemon_client, API_VERSION
+import datetime
+import logging
 import time
 
 run = None
 ui = None
 monitor = None
+
+class LogPanel:
+    """
+    Side panel showing the logs of the selected drivers, merged by time and updated live.
+    """
+
+    INTERVAL = 2.         # Time (in seconds) between two reads of the logs
+    FIRST_LINES = 50      # Lines shown first when a driver is selected
+    LINES = 500           # Lines read per driver at the next reads
+    MAX_LINES = 2000      # Lines kept in the panel
+
+    # Line colors for the levels
+    LEVEL_CLASSES = {'WARNING': 'text-orange-600', 'ERROR': 'text-red-600', 'CRITICAL': 'text-red-600'}
+
+    def __init__(self, labname, daemons, driver_names):
+        """
+        labname: the lab package name
+        daemons: the daemon client of each host ({host: client})
+        driver_names: the names of all the drivers (to align the lines)
+        """
+        self.labname = labname
+        self.daemons = daemons
+        self.width = max(len(name) for name in driver_names) if driver_names else 0
+        self.selected = {}          # {driver: host}
+        self.follower = logs.LogFollower()
+        self.reported = {}          # Problems already shown {driver: problem}
+        self.paused = False
+
+        with ui.column().classes('w-full h-full gap-1 p-2'):
+            with ui.row().classes('w-full items-center gap-2'):
+                ui.label('Logs').classes('text-xl font-bold')
+                ui.space()
+                self.level_select = ui.select(['DEBUG', 'INFO', 'WARNING', 'ERROR'], value='DEBUG',
+                                              label='Level').props('dense').classes('w-28')
+                self.pause_button = ui.button('Pause', icon='pause', on_click=self.toggle_pause).props('flat dense')
+                ui.button('Clear', icon='clear_all', on_click=lambda: self.log.clear()).props('flat dense')
+            self.log = ui.log(max_lines=self.MAX_LINES).classes('w-full h-[80vh] text-xs')
+            self.log.push('Check drivers to follow their logs here.', classes='text-gray-500')
+        ui.timer(self.INTERVAL, self.update)
+
+    def select(self, driver, host, selected):
+        """
+        Start or stop following the log of a driver.
+        """
+        if selected:
+            self.selected[driver] = host
+        else:
+            self.selected.pop(driver, None)
+            # If selected again, start again from its last lines
+            self.follower.last.pop(driver, None)
+            self.reported.pop(driver, None)
+
+    def toggle_pause(self):
+        self.paused = not self.paused
+        self.pause_button.set_text('Resume' if self.paused else 'Pause')
+        self.pause_button.props(f'icon={"play_arrow" if self.paused else "pause"}')
+
+    def _read(self, selected):
+        """
+        Read the end of the logs of the selected drivers from their daemons (runs on a thread).
+
+        Returns ({driver: lines}, {driver: problem}).
+        """
+        lines, problems = {}, {}
+        for driver, host in selected.items():
+            daemon = self.daemons.get(host)
+            if daemon is None or not daemon.connected:
+                problems[driver] = f'Daemon on {host} not reachable.'
+                continue
+            n = self.LINES if driver in self.follower.last else self.FIRST_LINES
+            try:
+                lines[driver] = daemon.tail(self.labname, driver, n)['lines']
+            except Exception as e:
+                # Only the first line: the rest is the remote traceback
+                problems[driver] = str(e).splitlines()[0]
+        return lines, problems
+
+    async def update(self):
+        """
+        Show the new entries of the logs of the selected drivers, merged by time.
+        """
+        if self.paused or not self.selected:
+            return
+        lines, problems = await run.io_bound(self._read, dict(self.selected))
+
+        min_level = logs.level_number(self.level_select.value)
+        def shown(entry):
+            if min_level <= logging.DEBUG:
+                return True
+            return entry.level is not None and logs.level_number(entry.level) >= min_level
+
+        new = {}
+        for driver, driver_lines in lines.items():
+            if driver not in self.selected:
+                # Unselected in the meantime
+                continue
+            first = driver not in self.follower.last
+            added, entries, complete = self.follower.new_entries(driver, logs.parse_log_lines(driver_lines))
+            if first:
+                self.log.push(f'--- {driver}: last lines ---', classes='text-gray-500')
+            elif not complete:
+                self.log.push(f'--- {driver}: lines may have been skipped ---', classes='text-orange-600')
+            if added is not None and shown(added[0]):
+                self._push(driver, *added)
+            new[driver] = [entry for entry in entries if shown(entry)]
+        for driver, entry in logs.merge_log_entries(new):
+            self._push(driver, entry)
+
+        # Drivers whose log cannot be read, shown once (and again if the problem changes)
+        for driver, problem in problems.items():
+            if self.reported.get(driver) != problem:
+                self.log.push(f'--- {driver}: {problem} ---', classes='text-orange-600')
+        self.reported = problems
+
+    def _push(self, driver, entry, added_lines=None):
+        """
+        Add an entry to the panel, in the same compact form as `lc log` (or only the lines
+        added to an entry already shown).
+        """
+        classes = self.LEVEL_CLASSES.get(entry.level, '')
+        if added_lines is None:
+            if entry.time is None:
+                time_text = ' ' * 12
+            else:
+                time_text = datetime.datetime.fromtimestamp(entry.time).strftime('%H:%M:%S.%f')[:-3]
+            logger_text = f'[{entry.name}] ' if entry.name not in (None, driver) else ''
+            self.log.push(f'{time_text}  {driver:<{self.width}}  {entry.level or "":<8} {logger_text}{entry.message}',
+                          classes=classes)
+            added_lines = entry.lines[1:]
+
+        # e.g. a traceback
+        indent = ' ' * (12 + 2 + self.width + 2 + 9)
+        for line in added_lines:
+            self.log.push(indent + line, classes=classes)
 
 class GridRow:
     """
@@ -32,7 +168,8 @@ class GridRow:
     # Number of lines shown in the log dialog
     LOG_LINES = 200
 
-    def __init__(self, device_info):
+    def __init__(self, device_info, log_panel):
+        self.log_panel = log_panel
         self.name = device_info['name']
         self.labname = device_info['labname']
         self.daemon = device_info['daemon']
@@ -45,14 +182,16 @@ class GridRow:
         self.client = client_or_None(self.name, keep_trying=True, client_name='driver_control_panel')
         self.client.logger.setLevel(50)
         self.host_label = ui.label(self.hostname).classes('text-lg')
-        self.name_label = ui.label(self.name).classes('text-lg')
+        self.name_label = ui.label(self.name).classes('text-lg cursor-pointer hover:underline').on('click', self.show_log)
+        self.name_label.tooltip('End of its log')
         self.uptime_label = ui.label('Uptime: 0.0 h').classes('text-lg')
         self.status_label = ui.label('UNKNOWN').classes('text-lg')
         with self.status_label:
             # Shows the error of a failed driver
             self.status_tooltip = ui.tooltip('')
         self.status_tooltip.set_visibility(False)
-        self.log_button = ui.button(icon='article', on_click=self.show_log).props('round dense flat').classes('shadow-xs')
+        self.log_checkbox = ui.checkbox(on_change=lambda e: self.log_panel.select(self.name, self.hostname, e.value))
+        self.log_checkbox.tooltip('Follow its log in the side panel')
         self.start_button = ui.button(icon='play_arrow', on_click=self.start).props('round dense color=green-600').classes('shadow-xs')
         self.stop_button = ui.button(icon='stop', on_click=self.shutdown).props('round dense color=red-600').classes('shadow-xs')
 
@@ -317,30 +456,36 @@ class DeviceManagerApp:
         # A spinner to show while updating
         self.spinner = ui.spinner(size='lg').classes('absolute top-4 right-4 z-50 hidden')
 
-        with ui.column().classes('w-full flex flex-col max-w-[800px] gap-2 items-center'):  # Use a vertical layout
-            self.title_label = ui.label(f'Driver control panel').classes('text-3xl font-bold text-center')
-            self.subtitle_label = ui.label(f'{self.labname}').classes('text-xl font-bold text-center')
-            with ui.row().classes('w-full gap-2 justify-center'):
-                self.start_all = ui.button('Start all', on_click=self.start_all_drivers).classes('text-lg font-bold').props('color=green-600 icon=play_arrow')
-                self.stop_all = ui.button('Stop all', on_click=self.stop_all_drivers).classes('text-lg font-bold').props('color=red-600 icon=stop')
-                self.restart_all = ui.button('Restart all', on_click=self.restart_all_drivers).classes('text-lg font-bold').props('color=orange-600 icon=restart_alt')
-            with ui.grid(columns='80px 120px 1fr auto auto auto').classes('w-full gap-2'):
-                ui.label('Host').classes('text-lg font-bold text-left')
-                ui.label('Driver').classes('text-lg font-bold text-left')
-                ui.label('Uptime').classes('text-lg font-bold text-left')
-                ui.label('Status').classes('text-lg font-bold text-left')
-                ui.label('Log').classes('text-lg font-bold text-left')
-                ui.label('Action').classes('text-lg font-bold text-left')
-            sep = ui.separator().classes('w-full h-1 bg-slate-200')  # Add a separator
+        # Drivers on the left, logs of the selected drivers on the right
+        with ui.splitter(value=50).classes('w-full h-[95vh]') as splitter:
+            with splitter.after:
+                self.log_panel = LogPanel(self.labname, self.daemons, list(self.device_info))
 
-            # Sort by host
-            for host_name, address in self.host_list:
-                for driver_name, info in self.device_info.items():
-                    if info['address'] == address:
-                        with ui.grid(columns='80px 120px 1fr auto auto auto').classes('w-full gap-2'):
-                            self.entries.append(GridRow(self.device_info[driver_name]))
-                        sep = ui.separator().classes('w-full h-1 bg-slate-200')  # Add a separator
-        sep.set_visibility(False)
+            with splitter.before:
+                with ui.column().classes('w-full flex flex-col gap-2 items-center pr-4'):  # Use a vertical layout
+                    self.title_label = ui.label(f'Driver control panel').classes('text-3xl font-bold text-center')
+                    self.subtitle_label = ui.label(f'{self.labname}').classes('text-xl font-bold text-center')
+                    with ui.row().classes('w-full gap-2 justify-center'):
+                        self.start_all = ui.button('Start all', on_click=self.start_all_drivers).classes('text-lg font-bold').props('color=green-600 icon=play_arrow')
+                        self.stop_all = ui.button('Stop all', on_click=self.stop_all_drivers).classes('text-lg font-bold').props('color=red-600 icon=stop')
+                        self.restart_all = ui.button('Restart all', on_click=self.restart_all_drivers).classes('text-lg font-bold').props('color=orange-600 icon=restart_alt')
+                    with ui.grid(columns='80px 120px 1fr auto auto auto').classes('w-full gap-2'):
+                        ui.label('Host').classes('text-lg font-bold text-left')
+                        ui.label('Driver').classes('text-lg font-bold text-left')
+                        ui.label('Uptime').classes('text-lg font-bold text-left')
+                        ui.label('Status').classes('text-lg font-bold text-left')
+                        ui.label('Log').classes('text-lg font-bold text-left')
+                        ui.label('Action').classes('text-lg font-bold text-left')
+                    sep = ui.separator().classes('w-full h-1 bg-slate-200')  # Add a separator
+
+                    # Sort by host
+                    for host_name, address in self.host_list:
+                        for driver_name, info in self.device_info.items():
+                            if info['address'] == address:
+                                with ui.grid(columns='80px 120px 1fr auto auto auto').classes('w-full gap-2'):
+                                    self.entries.append(GridRow(self.device_info[driver_name], self.log_panel))
+                                sep = ui.separator().classes('w-full h-1 bg-slate-200')  # Add a separator
+                sep.set_visibility(False)
 
     def start_all_drivers(self, e):
         """Start all drivers."""

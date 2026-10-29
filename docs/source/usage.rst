@@ -103,8 +103,10 @@ In the following we assume that the custom lab package is called `labname`:
   ``python -m lclib labname cp``
 
   This will start the driver control panel on a browser. It shows the state of all drivers,
-  and allows to start and stop them and to read their log (log button). Hovering over a
-  ``FAILED`` state shows the error.
+  and allows to start and stop them. Checking the box of drivers shows their logs in a side
+  panel, merged by time and updated live (with a level filter and a pause button). Clicking
+  on the name of a driver shows the end of its log, or of its process output. Hovering over a
+  state such as ``FAILED`` or ``NO DAEMON`` shows the reason.
 
 Log files
 =========
