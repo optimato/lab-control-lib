@@ -613,3 +613,7 @@ class ProcessPool:
         else:
             tail = '\n'.join(tail_file(record['out_file'], 20))
             logger.warning(f'{msg}. Last output:\n{tail}')
+
+# Clients of the daemon (CLI, control panel) give up after one attempt (3 s) on a host that is
+# off, instead of up to 6
+ProcessPool.Client.CONNECT_ATTEMPTS = 1

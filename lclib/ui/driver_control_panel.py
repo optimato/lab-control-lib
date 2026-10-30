@@ -4,6 +4,7 @@ Driver control panel based on NiceGUI
 
 from .. import get_config, _driver_classes, client_or_None, DAEMON_PORT, logs
 from ..daemon import daemon_client, API_VERSION
+import copy
 import datetime
 import logging
 import time
@@ -169,6 +170,7 @@ class GridRow:
     LOG_LINES = 200
 
     def __init__(self, device_info, log_panel):
+        self.device_info = device_info
         self.log_panel = log_panel
         self.name = device_info['name']
         self.labname = device_info['labname']
@@ -179,8 +181,9 @@ class GridRow:
         self.unreachable_since = None
         # Why the daemon of the host cannot be used: (state, explanation), or None
         self.daemon_problem = None
-        self.client = client_or_None(self.name, keep_trying=True, client_name='driver_control_panel')
-        self.client.logger.setLevel(50)
+        if device_info.get('client') is None:
+            self.client = client_or_None(self.name, keep_trying=True, client_name='driver_control_panel')
+            self.client.logger.setLevel(50)
         self.host_label = ui.label(self.hostname).classes('text-lg')
         self.name_label = ui.label(self.name).classes('text-lg cursor-pointer hover:underline').on('click', self.show_log)
         self.name_label.tooltip('End of its log')
@@ -194,6 +197,17 @@ class GridRow:
         self.log_checkbox.tooltip('Follow its log in the side panel')
         self.start_button = ui.button(icon='play_arrow', on_click=self.start).props('round dense color=green-600').classes('shadow-xs')
         self.stop_button = ui.button(icon='stop', on_click=self.shutdown).props('round dense color=red-600').classes('shadow-xs')
+
+    @property
+    def client(self):
+        """
+        The client to the driver, shared by the pages of all the browsers.
+        """
+        return self.device_info['client']
+
+    @client.setter
+    def client(self, client):
+        self.device_info['client'] = client
 
     def update_state(self, daemon_status=None, daemon_problem=None):
         """
@@ -451,6 +465,7 @@ class DeviceManagerApp:
         """
         Set up the UI components.
         """
+        self.entries = []
         ui.page_title('Driver control panel')
 
         # A spinner to show while updating
@@ -560,8 +575,15 @@ class DeviceManagerApp:
 
     def run(self, *args, **kwargs):
         """Run the NiceGUI app."""
-        self.setup_ui()
-        ui.timer(1.0, self.periodic_update)
+        # The UI is built for each browser, in a page function: since NiceGUI 3, a UI built
+        # outside of one makes NiceGUI run the whole program again at each visit.
+        @ui.page('/')
+        def page():
+            # Its own rows, log panel and updates; the connections are shared
+            panel = copy.copy(self)
+            panel.setup_ui()
+            ui.timer(1.0, panel.periodic_update)
+
         ui.run(*args, **kwargs)
 
 

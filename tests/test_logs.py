@@ -2,6 +2,7 @@
 Tests of the logging setup (lclib/logs.py) and of the logger names used in lclib.
 """
 import datetime
+import logging
 
 import pytest
 
@@ -117,3 +118,13 @@ def test_util_loggers():
     from lclib.util import h5rw, imstream
     assert h5rw.logger.name == 'lclib.h5rw'
     assert imstream.rootlogger is logs.logger
+
+def test_logging_muted_overlapping():
+    # As when used by several threads at once: logging comes back when the last one exits
+    first, second = logs.logging_muted(), logs.logging_muted()
+    first.__enter__()
+    second.__enter__()
+    first.__exit__(None, None, None)
+    assert logs.logger.isEnabledFor(logging.CRITICAL) is False
+    second.__exit__(None, None, None)
+    assert logs.logger.isEnabledFor(logging.CRITICAL) is True

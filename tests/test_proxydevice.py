@@ -318,7 +318,7 @@ def test_connection_error_gives_reason():
 def test_client_retries_after_connection_timeout(server, monkeypatch):
     # Behind a firewall (typically on Windows), connecting to a port without server times out
     # instead of being refused. The client must keep trying.
-    real_connect = rpyc.connect
+    real_connect = rpyc.SocketStream.connect
     attempts = []
 
     def connect_timing_out_once(*args, **kwargs):
@@ -327,7 +327,7 @@ def test_client_retries_after_connection_timeout(server, monkeypatch):
             raise TimeoutError('timed out')
         return real_connect(*args, **kwargs)
 
-    monkeypatch.setattr(rpyc, 'connect', connect_timing_out_once)
+    monkeypatch.setattr(rpyc.SocketStream, 'connect', connect_timing_out_once)
     monkeypatch.setattr(A.Client, 'RECONNECT_INTERVAL', .1)
     c = A.Client(admin=False, address=server.ADDRESS, reconnect='always')
     try:

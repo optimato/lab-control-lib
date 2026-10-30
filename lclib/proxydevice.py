@@ -405,6 +405,8 @@ class ProxyClientBase:
     SERVE_INTERVAL = 0.0
     SLEEP_INTERVAL = 0.1
     RECONNECT_INTERVAL = 3.0
+    # Connection attempts that time out (3 s each) before giving up (rpyc's default)
+    CONNECT_ATTEMPTS = 6
 
     _frozen = False
 
@@ -561,11 +563,9 @@ class ProxyClientBase:
         while not self._terminate:
             try:
                 # rpyc connection
-                self.conn = rpyc.connect(
-                    service=self._create_service(),
-                    host=self.ADDRESS[0],
-                    port=self.ADDRESS[1],
-                )
+                stream = rpyc.SocketStream.connect(self.ADDRESS[0], self.ADDRESS[1],
+                                                   attempts=self.CONNECT_ATTEMPTS)
+                self.conn = rpyc.connect_stream(stream, service=self._create_service())
             except (OSError, EOFError) as e:
                 # No server present. Depending on the platform and firewall, the connection is
                 # refused or times out (e.g. on Windows): both must lead to a new attempt.

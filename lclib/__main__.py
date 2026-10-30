@@ -70,6 +70,7 @@ def _connect_daemon(ip):
         # Daemon older than the version check
         version = 1
     if version < dd.API_VERSION:
+        client.disconnect()
         raise click.UsageError(f'The daemon on host {_host_name(ip)} is too old: update lclib on that host '
                                f'and restart the daemon (python -m lclib -r).')
     return client
@@ -80,6 +81,51 @@ def _host_name(ip):
     """
     names = {host_ip: host for host, host_ip in lab_info['host_ips'].items()}
     return names.get(ip, ip)
+
+class _Daemons:
+    """
+    Connections to the daemons of several hosts, made in parallel (a host that is off takes
+    seconds to time out) and kept open.
+    """
+
+    def __init__(self):
+        self.clients = {}    # {ip: client}
+        self.problems = {}   # {ip: why the last connection attempt failed}
+        self.attempts = {}   # {ip: connection attempt in progress}
+
+    def connect(self, ips, wait=True):
+        """
+        Connect to the daemons of the hosts not connected yet, and wait for the attempts to
+        finish. Without wait, the attempts not finished yet go on in the background, and are
+        checked at the next call.
+        """
+        for ip in ips:
+            if ip not in self.clients and ip not in self.attempts:
+                # On a daemon thread; the callback makes it done also after an error
+                self.attempts[ip] = Future(_connect_daemon, args=(ip,), callback=lambda result, error: None)
+        for ip, attempt in [*self.attempts.items()]:
+            if wait:
+                attempt.join()
+            if not attempt.done():
+                continue
+            del self.attempts[ip]
+            error = attempt.exception()
+            if error is None:
+                self.clients[ip] = attempt.result()
+                self.problems.pop(ip, None)
+            else:
+                self.problems[ip] = error.message if isinstance(error, click.UsageError) else str(error)
+
+    def lost(self, ip):
+        """
+        Forget the client of a host whose connection was lost (e.g. its daemon restarted).
+        """
+        self.clients.pop(ip).disconnect()
+        self.problems[ip] = f'Connection to the daemon on host {_host_name(ip)} lost.'
+
+    def close(self):
+        for client in self.clients.values():
+            client.disconnect()
 
 def _format_duration(seconds):
     """
@@ -611,16 +657,11 @@ def status_cmd(names, all_drivers, follow):
     lab = lab_info['module']
 
     # Status of the drivers managed by each daemon (one call per host)
-    statuses = {}
-    problems = {}
-    for ip in {address[0] for address in lab_info['device_addresses'].values()}:
-        try:
-            client = _connect_daemon(ip)
-        except click.UsageError as e:
-            problems[ip] = e.message
-            continue
-        statuses[ip] = client.status_all()
-        client.disconnect()
+    daemons = _Daemons()
+    daemons.connect(dict.fromkeys(address[0] for address in lab_info['device_addresses'].values()))
+    statuses = {ip: client.status_all() for ip, client in daemons.clients.items()}
+    daemons.close()
+    problems = daemons.problems
 
     click.echo(f'{"Driver":<20}{"Host":<12}{"State":<12}{"Uptime":<14}PID')
     unmanaged = False
@@ -653,36 +694,35 @@ def status_cmd(names, all_drivers, follow):
 DRIVER_COLORS = ['cyan', 'magenta', 'blue', 'green', 'bright_cyan', 'bright_magenta', 'bright_blue', 'bright_green']
 LEVEL_COLORS = {'WARNING': 'yellow', 'ERROR': 'red', 'CRITICAL': 'red'}
 
-def _tail_drivers(names, nlines, source, clients):
+def _tail_drivers(names, nlines, source, daemons, wait=True):
     """
-    Get the end of the logs of the drivers, from the daemons of their hosts. The daemon
-    clients are kept in `clients` ({ip: client}), to be used again.
+    Get the end of the logs of the drivers, from the daemons of their hosts (`daemons`, a
+    _Daemons). Without wait, the hosts whose daemon is still being connected are skipped
+    (see _Daemons.connect).
 
     Returns ({driver: result of the daemon tail call}, {driver: problem}).
     """
     by_host = {}
     for name in names:
         by_host.setdefault(lab_info['device_addresses'][name][0], []).append(name)
+    daemons.connect(by_host, wait)
 
     results, problems = {}, {}
     for ip, host_drivers in by_host.items():
-        if ip not in clients:
-            try:
-                clients[ip] = _connect_daemon(ip)
-            except click.UsageError as e:
-                problems.update({name: e.message for name in host_drivers})
-                continue
+        if ip not in daemons.clients:
+            problems.update({name: daemons.problems[ip] for name in host_drivers})
+            continue
         for name in host_drivers:
             try:
-                results[name] = clients[ip].tail(lab=lab_info['module'], driver=name, n=nlines, source=source)
+                results[name] = daemons.clients[ip].tail(lab=lab_info['module'], driver=name, n=nlines,
+                                                         source=source)
             except (RuntimeError, ValueError) as e:
                 # Only the first line: the rest is the remote traceback
                 problems[name] = str(e).splitlines()[0]
             except (EOFError, OSError):
                 # Connection lost (e.g. the daemon restarted): connect again next time
-                clients.pop(ip).disconnect()
-                problems.update({name: f'Connection to the daemon on host {_host_name(ip)} lost.'
-                                 for name in host_drivers if name not in results})
+                daemons.lost(ip)
+                problems.update({name: daemons.problems[ip] for name in host_drivers if name not in results})
                 break
     return results, problems
 
@@ -736,7 +776,7 @@ def _show_logs(names, nlines, min_level, source, raw, follow, expect_never_start
     single = len(names) == 1
     width = max(len(name) for name in names)
     colors = {name: DRIVER_COLORS[i % len(DRIVER_COLORS)] for i, name in enumerate(names)}
-    clients = {}
+    daemons = _Daemons()
     follower = logs.LogFollower()
     reported = {}
 
@@ -752,7 +792,9 @@ def _show_logs(names, nlines, min_level, source, raw, follow, expect_never_start
             _echo_continuation(added_lines, width, raw)
 
     def read_and_show(n, first):
-        results, problems = _tail_drivers(names, n, source, clients)
+        # Hosts that cannot be reached are tried again in the background, without delaying the
+        # others
+        results, problems = _tail_drivers(names, n, source, daemons, wait=first)
 
         # One driver: its original lines, after a header
         if first and single:
@@ -794,8 +836,7 @@ def _show_logs(names, nlines, min_level, source, raw, follow, expect_never_start
     except KeyboardInterrupt:
         pass
     finally:
-        for client in clients.values():
-            client.disconnect()
+        daemons.close()
 
 @cli.command(name='statusall', help=f'Follow the status reported by all the drivers, refreshed every '
                                     f'{STATUS_INTERVAL:g} s until Ctrl-C (like "status --all -f").')

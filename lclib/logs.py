@@ -343,13 +343,22 @@ def log_other_loggers(package=None, level=logging.INFO):
     if package:
         logging.getLogger(package).setLevel(level)
 
-# Context manager to mute logging
+# Context manager to mute logging. It can be nested and used by several threads at once:
+# logging comes back when the last one exits.
 class logging_muted:
+    _lock = threading.Lock()
+    _count = 0
+
     def __enter__(self):
-        logging.disable(logging.CRITICAL)
+        with logging_muted._lock:
+            logging_muted._count += 1
+            logging.disable(logging.CRITICAL)
 
     def __exit__(self, exit_type, exit_value, exit_traceback):
-        logging.disable(logging.NOTSET)
+        with logging_muted._lock:
+            logging_muted._count -= 1
+            if logging_muted._count == 0:
+                logging.disable(logging.NOTSET)
 
 # Tell matplotlib to shut up even on debug mode
 matplotlib_logger = logging.getLogger('matplotlib')
