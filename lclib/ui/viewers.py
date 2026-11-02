@@ -1,6 +1,9 @@
 """
 Live viewers. Base class + two implementations based on opencv and napari.
 
+napari, Qt and opencv are imported only when a viewer is created, so this module
+imports on hosts without the [ui] extra (driver-only hosts).
+
 This file is part of lab-control-lib
 (c) 2023-2024 Pierre Thibault (pthibault@units.it)
 """
@@ -12,7 +15,6 @@ import time
 
 from ..util import FrameSubscriber
 from ..logs import logger as rootlogger
-from qtpy.QtCore import Signal
 
 class ViewerBase:
 
@@ -133,7 +135,6 @@ class NapariViewer(ViewerBase):
 
     MAX_BUFFER_SIZE = 50
     LIVEVIEW_LABEL = 'Live View'
-    data_arrived = Signal()
 
     def __init__(self, address=None, compress=False, max_fps=25, yield_timeout=2, camera_name=None):
 
