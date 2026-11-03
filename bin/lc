@@ -1,4 +1,0 @@
-#!/usr/bin/env python
-# Run CLI
-from lclib.__main__ import cli
-cli()

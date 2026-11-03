@@ -47,9 +47,8 @@ setup(
              'lclib.util',
              'lclib.util.frameconsumer',
              'lclib.library'],
-    scripts=[
-        'bin/lc'
-        ],
+    # An entry point rather than a script, so pip also generates lc.exe on Windows
+    entry_points={'console_scripts': ['lc = lclib.__main__:cli']},
     install_requires=REQUIRES,
     extras_require=EXTRAS,
     )
