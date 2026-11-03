@@ -149,11 +149,23 @@ STATE_COLORS = {'RUNNING': 'green',
 @click.argument('labname', required=False)
 @click.option('-d', '--daemon', is_flag=True, help='Start daemon.')
 @click.option('-r', '--restart', is_flag=True, help='Kill daemon. Since it is running as a service, it will restart.')
+@click.option('-i', '--install-daemon', is_flag=True, help='Install the daemon as a service for the current user and '
+              'Python interpreter (replacing an existing installation), and start it.')
+@click.option('--remove-daemon', is_flag=True, help='Stop the daemon service and remove it.')
 @click.pass_context
-def cli(ctx, labname, daemon, restart):
+def cli(ctx, labname, daemon, restart, install_daemon, remove_daemon):
     """
     Get lab name, import if needed, and populate lab_info with information needed for other commands.
     """
+    if install_daemon or remove_daemon:
+        from . import service_scripts
+        try:
+            install_path, remove_path = service_scripts.generate_service_scripts()
+        except RuntimeError as e:
+            raise click.UsageError(str(e))
+        code = service_scripts.run_script(install_path if install_daemon else remove_path)
+        sys.exit(code)
+
     if daemon:
         # Start daemon - this will block forever
         dd.setup_daemon_logging()
@@ -179,7 +191,7 @@ def cli(ctx, labname, daemon, restart):
         sys.exit(0)
     
     # labname is not optional but had to be set to required=False to allow for the possibility of
-    # usint the -d (--daemon) option
+    # using the -d (--daemon) option
     if not ctx.invoked_subcommand:
         if not labname:
             raise click.UsageError("Missing required argument 'labname'.")
