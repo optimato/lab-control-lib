@@ -119,6 +119,33 @@ def test_util_loggers():
     assert h5rw.logger.name == 'lclib.h5rw'
     assert imstream.rootlogger is logs.logger
 
+def test_session_log_level(monkeypatch):
+    from lclib.ui import ui
+    config = {}
+    monkeypatch.setattr(ui, 'get_config', lambda: config)
+    level = logs.logger.level
+    try:
+        assert ui.log_level('warning') == 'WARNING'
+        assert logs.logger.level == logging.WARNING
+        assert config['session_log_level'] == 'WARNING'
+
+        # For this session only
+        assert ui.log_level('DEBUG', save=False) == 'DEBUG'
+        assert ui.log_level() == 'DEBUG'
+        assert config['session_log_level'] == 'WARNING'
+
+        with pytest.raises(ValueError):
+            ui.log_level('LOUD')
+
+        # Applied by init() (stopped here at the connection to the monitor)
+        config.update(session_log_level='ERROR', this_host='control')
+        monkeypatch.setattr(ui, 'client_or_None', lambda *args, **kwargs: None)
+        with pytest.raises(RuntimeError, match='monitor'):
+            ui.init()
+        assert ui.log_level() == 'ERROR'
+    finally:
+        logs.logger.setLevel(level)
+
 def test_logging_muted_overlapping():
     # As when used by several threads at once: logging comes back when the last one exits
     first, second = logs.logging_muted(), logs.logging_muted()

@@ -640,36 +640,27 @@ def test_cli_status_several_drivers(env, daemon):
     assert '  name:         chatty' in lines[i + 1:]
     assert 'Not reachable: slow' in lines
 
-    result = _lc(env, 'status', '--all')
-    assert '── chatty (control) ──' in result.stdout
-    assert 'Not reachable: ' in result.stdout
+    for command in [('status', '--all'), ('statusall',)]:
+        result = _lc(env, *command)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert '── chatty (control) ──' in result.stdout
+        assert 'Not reachable: ' in result.stdout
 
-    result = _lc(env, 'status', '-f')
-    assert result.returncode == 2
-    assert '-f needs driver names, or --all' in result.stderr
-
-def test_cli_status_follow_busy_driver(env, daemon, fakelab):
+def test_cli_status_busy_driver(env, daemon, fakelab):
     _ensure_running(daemon, 'chatty')
     client = fakelab.Chatty.Client(admin=False)
     busy = threading.Thread(target=client.busy, args=(10,))
+    busy.start()
     try:
-        # Busy from about 4 s after the start: the status calls wait for the driver
-        code, out, err = _run_until_ctrl_c(env, ['status', 'chatty', '-f'], seconds=14, during=busy.start)
+        # The status call waits for the end of the busy call
+        time.sleep(.5)
+        result = _lc(env, 'status', 'chatty', 'slow')
     finally:
         busy.join()
         client.disconnect()
 
-    assert code == 0, err
-    # First the status, then "busy" with the last status
-    assert out.index('── chatty (control) ──') < out.index('── chatty (control) ── busy, last status:')
-    assert out.split('busy, last status:')[1].splitlines()[1] == '  name:         chatty'
-
-def test_cli_statusall(env, daemon):
-    _ensure_running(daemon, 'chatty')
-    code, out, err = _run_until_ctrl_c(env, ['statusall'], seconds=6)
-    assert code == 0, err
-    assert '── chatty (control) ──' in out
-    assert 'Not reachable: ' in out
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '── chatty (control) ── busy: no answer within 5 s' in result.stdout
 
 def test_cli_log(env, daemon, fakelab):
     _ensure_running(daemon, 'chatty')

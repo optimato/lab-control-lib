@@ -8,13 +8,14 @@ This file is part of lab-control-lib
 """
 
 import inspect
+import logging
 import os
 
 from .. import _driver_classes, get_config, drivers, motors, client_or_None, local_hostname
 from . import uitools
 from ..util import FileDict
 from . import ask, ask_yes_no, user_prompt
-from ..logs import logger as rootlogger
+from ..logs import logger as rootlogger, level_number
 from .. import manager
 
 # Set up logger
@@ -25,7 +26,28 @@ _runtime = {'manager': None}
 
 INVESTIGATIONS = None
 
-__all__ = ['init', 'Scan', 'choose_experiment', 'choose_investigation', 'build_motors']
+__all__ = ['init', 'Scan', 'choose_experiment', 'choose_investigation', 'build_motors', 'log_level']
+
+
+def log_level(level=None, save=True):
+    """
+    Show or change the log level of this interactive session (the messages of the clients,
+    motors, scans, ...). The new level is remembered for the next sessions on this host
+    ('session_log_level' in config.json, applied by init()), unless save is False. The
+    drivers keep their own levels (see "lc <lab> loglevel").
+    Syntax:
+        log_level()                      -> the current level, e.g. 'INFO'
+        log_level('WARNING')             -> only warnings and errors from now on
+        log_level('DEBUG', save=False)   -> for this session only
+
+    What the drivers print (with print()) is shown on the console of their admin client,
+    whatever the level.
+    """
+    if level is not None:
+        rootlogger.setLevel(level_number(level))
+        if save:
+            get_config()['session_log_level'] = logging.getLevelName(rootlogger.level)
+    return logging.getLevelName(rootlogger.getEffectiveLevel())
 
 
 def build_motors():
@@ -53,6 +75,11 @@ def init(yes=None, manager_name='manager',force_admin=False):
     if yes:
         # Fake non-interactive to answer all questions automatically
         uitools.user_interactive = False
+
+    # The log level chosen for the interactive sessions on this host (see log_level)
+    level = get_config().get('session_log_level')
+    if level is not None:
+        log_level(level, save=False)
 
     client_name = f'main-client-{get_config()["this_host"]}'
 

@@ -50,13 +50,10 @@ In the following we assume that the custom lab package is called `labname`:
 
   ``python -m lclib labname status [driver] [driver2 ...]``
 
-  ``python -m lclib labname status --all``
+  ``python -m lclib labname status --all``  (or ``statusall``)
 
-  With ``-f`` (follow), the status is refreshed every 2 s until Ctrl-C. A driver that does not
-  answer within 5 s (e.g. busy with a long operation) is shown as busy, with its last status.
-  To follow the status of all the drivers:
-
-  ``python -m lclib labname statusall``
+  The drivers are asked in parallel. A driver that does not answer within 5 s (e.g. busy with
+  a long operation) is shown as busy.
 
 * Show the end of the log of one or several drivers (from any host):
 
@@ -85,6 +82,11 @@ In the following we assume that the custom lab package is called `labname`:
   With ``--save``, the driver keeps this level for its next starts. The proxy server of the
   driver has its own level, which normally stays at ``INFO``; for debugging the proxy itself,
   use ``[driver].proxy`` as the name.
+
+  The log level of an interactive session (the messages of the clients, motors, scans, ...)
+  is set separately, in the session: ``labname.ui.log_level('WARNING')``. It is remembered
+  for the next sessions on the same host (applied by ``ui.init()``); add ``save=False`` to
+  change it for the current session only. ``labname.ui.log_level()`` shows the current level.
 
 * Show all currently running proxy drivers (started by the daemon or not):
 
