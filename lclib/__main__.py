@@ -63,7 +63,7 @@ def _connect_daemon(ip):
             client = dd.ProcessPool.Client(address=(ip, dd.DAEMON_PORT))
     except ProxyDeviceError as e:
         # The message gives the reason (refused, timed out, no route to host, ...)
-        raise click.UsageError(f'Cannot reach the daemon on host {_host_name(ip)}. {e}')
+        raise click.ClickException(f'Cannot reach the daemon on host {_host_name(ip)}. {e}')
     try:
         version = client.api_version()
     except AttributeError:
@@ -71,8 +71,8 @@ def _connect_daemon(ip):
         version = 1
     if version < dd.API_VERSION:
         client.disconnect()
-        raise click.UsageError(f'The daemon on host {_host_name(ip)} is too old: update lclib on that host '
-                               f'and restart the daemon (python -m lclib -r).')
+        raise click.ClickException(f'The daemon on host {_host_name(ip)} is too old: update lclib on that host '
+                                   f'and restart the daemon (python -m lclib -r).')
     return client
 
 def _host_name(ip):
@@ -114,7 +114,7 @@ class _Daemons:
                 self.clients[ip] = attempt.result()
                 self.problems.pop(ip, None)
             else:
-                self.problems[ip] = error.message if isinstance(error, click.UsageError) else str(error)
+                self.problems[ip] = error.message if isinstance(error, click.ClickException) else str(error)
 
     def lost(self, ip):
         """
@@ -162,7 +162,7 @@ def cli(ctx, labname, daemon, restart, install_daemon, remove_daemon):
         try:
             install_path, remove_path = service_scripts.generate_service_scripts()
         except RuntimeError as e:
-            raise click.UsageError(str(e))
+            raise click.ClickException(str(e))
         code = service_scripts.run_script(install_path if install_daemon else remove_path)
         sys.exit(code)
 
@@ -170,7 +170,8 @@ def cli(ctx, labname, daemon, restart, install_daemon, remove_daemon):
         # Start daemon - this will block forever
         dd.setup_daemon_logging()
         s = dd.daemon_server()
-        click.echo(f'Starting daemon on {s.ADDRESS[0]}:{s.ADDRESS[1]}')
+        # Like the proxy servers, the daemon accepts connections on all the network interfaces
+        click.echo(f'Starting daemon on port {s.ADDRESS[1]} (all network interfaces)')
         s.wait()
         sys.exit(0)
 
@@ -184,7 +185,7 @@ def cli(ctx, labname, daemon, restart, install_daemon, remove_daemon):
                 break
             time.sleep(.05)
         if not c.connected:
-            raise click.UsageError('Local daemon is not running')
+            raise click.ClickException('Local daemon is not running')
         # Kill the daemon
         c.kill_server()
         click.echo('Local daemon has been killed. It will restart automatically.')
@@ -240,13 +241,22 @@ def cli(ctx, labname, daemon, restart, install_daemon, remove_daemon):
     # List Camera devices
     lab_info['cameras'] = {name: cls for name, cls in _driver_classes.items() if issubclass(cls, CameraBase)}
 
-@cli.command(help='List all drivers that can be spawned')
-def list():
-    click.echo('Available drivers:\n\n * ' + '\n * '.join([name + '(local)' if name in lab_info['available'] else name for name, cls in _driver_classes.items()]))
+def _echo_drivers():
+    click.echo('Available drivers:\n\n * ' + '\n * '.join([name + ' (local)' if name in lab_info['available'] else name for name in _driver_classes]))
 
-@cli.command(help='List proxy drivers that can be started on the current host')
-def llist():
+def _echo_local_drivers():
+    if not lab_info['available']:
+        click.echo(f'No driver can be started on this host ({lab_info["this_host"]}).')
+        return
     click.echo('Available drivers on this host:\n\n * ' + '\n * '.join(lab_info['available']))
+
+@cli.command(name='list', help='List all drivers that can be spawned')
+def list_cmd():
+    _echo_drivers()
+
+@cli.command(name='llist', help='List proxy drivers that can be started on the current host')
+def llist_cmd():
+    _echo_local_drivers()
 
 @cli.command(help='List running proxy drivers')
 def running():
@@ -268,9 +278,9 @@ def running():
 @click.option('--timeout', '-t', default=60., show_default=True, help='Time (in seconds) to wait for the driver to be ready.')
 def start(name, loglevel, loglevel_global, timeout):
 
-    # Without driver name: list available drivers on current host
+    # Without driver name: list the drivers (the daemons can start any of them)
     if not name:
-        list()
+        _echo_drivers()
         return
 
     if len(name) > 1:
@@ -278,6 +288,8 @@ def start(name, loglevel, loglevel_global, timeout):
 
     # Find the host where the driver can be launched
     name = name[0]
+    if name not in lab_info['device_addresses']:
+        raise click.BadParameter(f'Unknown driver {name}.')
     host = lab_info['device_addresses'][name]
 
     daemon_client = _connect_daemon(host[0])
@@ -330,7 +342,7 @@ def lstart(name, loglevel, loglevel_global, ready_file, console_level):
 
     # Without driver name: list available drivers on current host
     if not name:
-        llist()
+        _echo_local_drivers()
         return
 
     if len(name) > 1:

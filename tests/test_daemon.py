@@ -828,6 +828,17 @@ def test_saved_level_used_at_next_start(env, daemon):
     finally:
         _lc(env, 'loglevel', 'chatty', 'INFO', '--save')
 
+def test_kill_server_without_admin(daemon, fakelab):
+    # The control panel stops drivers with a client that is not admin
+    _ensure_running(daemon, 'chatty')
+    client = fakelab.Chatty.Client(admin=False)
+    try:
+        assert client.ask_admin() is False
+        client.kill_server()
+    finally:
+        client.disconnect()
+    assert _wait_exited(daemon, 'chatty')['state'] == 'exited'
+
 def test_lstart_already_running(env, daemon):
     _ensure_running(daemon, 'chatty')
     result = _lc(env, 'lstart', 'chatty')
@@ -836,9 +847,21 @@ def test_lstart_already_running(env, daemon):
 
 def test_cli_without_daemon(env):
     result = _lc(dict(env, LCLIB_DAEMON_PORT=str(_free_port())), 'start', 'chatty')
-    assert result.returncode == 2
+    assert result.returncode == 1
     assert 'Cannot reach the daemon on host control' in result.stderr
     assert 'refused' in result.stderr.lower()
+    # Not a usage error
+    assert 'Usage:' not in result.stderr
+
+def test_cli_list_drivers(env):
+    for command in ['list', 'start', 'llist', 'lstart']:
+        result = _lc(env, command)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert ' * chatty' in result.stdout
+
+    result = _lc(env, 'start', 'nosuchdriver')
+    assert result.returncode == 2
+    assert 'Unknown driver nosuchdriver' in result.stderr
 
 def test_missing_dependency_reported(env):
     result = _lc(dict(env, FAKELAB_MISSING_DEP='1'), 'list')

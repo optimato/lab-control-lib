@@ -16,22 +16,30 @@ then::
     $ cd lab-control-lib
     $ pip install .
 
-After the first installation, it is necessary to install the daemon service. installation
-scripts will have been generated automatically in the ``scripts`` directory. On linux::
+After the first installation, install the daemon as a service, from the Python environment it
+should use (e.g. the conda environment of the lab)::
 
-    $ cd scripts
-    $ sudo ./linux_install_daemon.sh
+    $ lc --install-daemon
 
-On Windows, you can use the PowerShell script ``windows_install_daemon.ps1``. These
-scripts should be run with administrator privileges. The scripts will install the daemon service
-(a scheduled task under Windows) and start it. The service will be started automatically on 
-system startup. There are also scripts to uninstall the service if needed. When updating the
-library, it is not necessary to reinstall the service, but only to restart it. This can be 
-done with the following command::
+This writes the installation scripts for the current user and Python interpreter in
+``~/.lclib/scripts``, runs the one of this platform, and starts the daemon: a systemd service on
+Linux (the script uses ``sudo``), a scheduled task on Windows. The service starts automatically
+at system startup. ``lc --remove-daemon`` removes it.
 
-    $ python -m lclib -r
+When updating the library, the service does not need to be installed again, only restarted::
 
-Under Windows, if the daemon was installed with an earlier version of the script, Windows stops it
-after 3 days (and when the computer runs on battery power). Running ``windows_install_daemon.ps1``
-again replaces the scheduled task with one that runs indefinitely. The installation scripts are
-generated on installation, and can also be regenerated with ``python service_scripts.py``.
+    $ lc -r
+
+Under Windows, if the daemon was installed with an earlier version of the scripts, Windows stops it
+after 3 days (and when the computer runs on battery power). Running ``lc --install-daemon`` again
+replaces the scheduled task with one that runs indefinitely.
+
+Network access
+==============
+
+The daemon and the drivers accept connections from any computer that can reach them, without
+authentication: anyone on the network can start, stop and control the drivers. (The daemon only
+reads the log and output files of the drivers, given by driver name, never other files.) Keep
+the lab computers on a private network, or behind a firewall that lets only the lab computers
+reach the daemon port (9998 by default, set by the environment variable ``LCLIB_DAEMON_PORT``)
+and the ports of the drivers.

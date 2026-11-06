@@ -86,6 +86,23 @@ def test_daemon_problem(row):
     cp.ui.notify.assert_called_with(problem[1])
     row.daemon.start.assert_not_called()
 
+def test_row_never_admin(ui, monkeypatch):
+    # The panel must not take the admin rights of the user's session, also when it stops a driver
+    calls = []
+
+    def client_or_none(*args, **kwargs):
+        calls.append(kwargs)
+        return mock.MagicMock(connected=True)
+    monkeypatch.setattr(cp, 'client_or_None', client_or_none)
+    row = cp.GridRow({'name': 'motor', 'labname': 'lab', 'daemon': mock.MagicMock(), 'hostname': 'h'},
+                     mock.MagicMock())
+    client = row.client
+    row._do_shutdown()
+
+    client.kill_server.assert_called_once()
+    client.ask_admin.assert_not_called()
+    assert [kwargs['admin'] for kwargs in calls] == [False, False]
+
 def test_row_log_checkbox_and_name(row):
     # The checkbox selects the driver in the log panel
     on_change = cp.ui.checkbox.call_args.kwargs['on_change']

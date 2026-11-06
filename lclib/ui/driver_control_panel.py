@@ -11,7 +11,6 @@ import time
 
 run = None
 ui = None
-monitor = None
 
 class LogPanel:
     """
@@ -182,7 +181,8 @@ class GridRow:
         # Why the daemon of the host cannot be used: (state, explanation), or None
         self.daemon_problem = None
         if device_info.get('client') is None:
-            self.client = client_or_None(self.name, keep_trying=True, client_name='driver_control_panel')
+            # Never admin: the panel must not take the admin rights of the user's session
+            self.client = client_or_None(self.name, admin=False, keep_trying=True, client_name='driver_control_panel')
             self.client.logger.setLevel(50)
         self.host_label = ui.label(self.hostname).classes('text-lg')
         self.name_label = ui.label(self.name).classes('text-lg cursor-pointer hover:underline').on('click', self.show_log)
@@ -384,11 +384,10 @@ class GridRow:
         """
         try:
             if self.client.connected:
-                # Ask the driver to shut down
-                self.client.ask_admin(True, True)
+                # Ask the driver to shut down (no admin rights needed)
                 self.client.kill_server()
                 # Create a new client ready for the next start
-                self.client = client_or_None(self.name, keep_trying=True, client_name='driver_control_panel')
+                self.client = client_or_None(self.name, admin=False, keep_trying=True, client_name='driver_control_panel')
                 self.client.logger.setLevel(50)
             elif (self.state in ('STARTING', 'NOT RESPONDING') and self.daemon is not None
                   and self.daemon.connected and self.daemon_problem is None):
@@ -418,14 +417,6 @@ class DeviceManagerApp:
         host_ips = config['host_ips'].copy()
         control_ip = host_ips.pop('control')
         self.host_list = [('control', control_ip)] + list(host_ips.items())
-
-        # Connect to monitor
-        global monitor
-        monitor = client_or_None('monitor', keep_trying=True)
-        time.sleep(.5)
-        if not monitor.connected:
-            #raise RuntimeError("Could not connect to monitor.")
-            print('[WARNING] Could not connect to monitor.')
 
         # Connect to host daemons
         self.daemons = {}
